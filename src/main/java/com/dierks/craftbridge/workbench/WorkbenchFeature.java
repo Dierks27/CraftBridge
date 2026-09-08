@@ -23,7 +23,6 @@ import java.util.Map;
 /** Feature 2: the Linked Workbench (a crafting table that pulls from nearby chests). */
 public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
 
-    public static final NamespacedKey RECIPE_KEY = new NamespacedKey("craftbridge", "linked_workbench");
 
     private final CraftBridgePlugin plugin;
     private final WorkbenchStore store;
@@ -33,14 +32,15 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     private final SessionManager sessions;
     private WorkbenchListener listener;
     private PhantomManager phantoms;
-    private boolean recipeRegistered;
+    private final java.util.Set<BlockKind> recipesRegistered = java.util.EnumSet.noneOf(BlockKind.class);
 
     public WorkbenchFeature(CraftBridgePlugin plugin) {
         this.plugin = plugin;
         this.store = new WorkbenchStore(plugin);
-        this.items = new WorkbenchItems(plugin.config().workbenchHeadTexture());
+        this.items = new WorkbenchItems(plugin);
         this.displays = new DisplayManager(plugin, store, items);
         this.scanner = new StorageScanner(plugin);
+        this.scanner.terminals(() -> store.locationsOf(BlockKind.COMBO_CHEST));
         this.sessions = new SessionManager(plugin);
     }
 
@@ -55,7 +55,9 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         int[] swept = displays.sweep();
         plugin.getLogger().info("Linked Workbench: " + store.all().size() + " placed; startup sweep removed "
                 + swept[0] + " orphaned display(s), respawned " + swept[1] + ".");
-        registerRecipe();
+        for (BlockKind kind : BlockKind.values()) {
+            registerRecipe(kind);
+        }
         phantoms = PhantomManager.create(plugin, this);
         sessions.setPhantoms(phantoms);
         if (phantoms != null) {
@@ -76,10 +78,10 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         if (listener != null) {
             HandlerList.unregisterAll(listener);
         }
-        if (recipeRegistered) {
-            Bukkit.removeRecipe(RECIPE_KEY);
-            recipeRegistered = false;
+        for (BlockKind kind : recipesRegistered) {
+            Bukkit.removeRecipe(kind.recipeKey());
         }
+        recipesRegistered.clear();
     }
 
     public WorkbenchStore store() {
@@ -107,16 +109,14 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         return phantoms;
     }
 
-    /** Hand out place-items: {@code kind} is "workbench" (more kinds arrive with the Combo Chest). */
-    public boolean give(CommandSender sender, Player target, String kind, int amount) {
-        ItemStack item;
-        switch (kind.toLowerCase(Locale.ROOT)) {
-            case "workbench", "linkedworkbench", "linked_workbench", "table" -> item = items.placeItem(amount);
-            default -> {
-                sender.sendMessage(Text.msg("<red>Unknown item '" + kind + "'. Try: workbench"));
-                return false;
-            }
+    /** Hand out place-items: {@code kindName} is "workbench" or "combochest". */
+    public boolean give(CommandSender sender, Player target, String kindName, int amount) {
+        BlockKind kind = BlockKind.byId(kindName);
+        if (kind == null) {
+            sender.sendMessage(Text.msg("<red>Unknown item '" + kindName + "'. Try: workbench, combochest"));
+            return false;
         }
+        ItemStack item = items.placeItem(kind, amount);
         for (ItemStack left : target.getInventory().addItem(item).values()) {
             target.getWorld().dropItemNaturally(target.getLocation(), left);
         }
@@ -124,11 +124,11 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         return true;
     }
 
-    /** Turn {@code block} into a Linked Workbench facing {@code player}. */
-    public void place(Block block, Player player) {
-        block.setType(Material.CRAFTING_TABLE);
+    /** Turn {@code block} into a {@code kind} block facing {@code player}. */
+    public void place(Block block, Player player, BlockKind kind) {
+        block.setType(kind.block());
         float yaw = snapYaw(player.getLocation().getYaw() + 180f);
-        WorkbenchRecord record = new WorkbenchRecord(block.getWorld().getName(), block.getX(), block.getY(), block.getZ(),
+        WorkbenchRecord record = new WorkbenchRecord(kind, block.getWorld().getName(), block.getX(), block.getY(), block.getZ(),
                 null, player.getUniqueId(), yaw);
         record = displays.spawn(record);
         store.put(record);
@@ -142,7 +142,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         }
         displays.remove(record.display());
         if (dropItem) {
-            block.getWorld().dropItemNaturally(block.getLocation().add(0.5, 0.5, 0.5), items.placeItem(1));
+            block.getWorld().dropItemNaturally(block.getLocation().add(0.5, 0.5, 0.5), items.placeItem(record.kind(), 1));
         }
     }
 
@@ -153,16 +153,16 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         return snapped < 0 ? snapped + 360f : snapped;
     }
 
-    private void registerRecipe() {
-        Bukkit.removeRecipe(RECIPE_KEY);
-        recipeRegistered = false;
-        if (!plugin.config().workbenchRecipeEnabled()) {
+    private void registerRecipe(BlockKind kind) {
+        Bukkit.removeRecipe(kind.recipeKey());
+        recipesRegistered.remove(kind);
+        if (!plugin.config().recipeEnabled(kind)) {
             return;
         }
-        List<String> shape = plugin.config().workbenchRecipeShape();
-        Map<Character, Material> ingredients = plugin.config().workbenchRecipeIngredients();
+        List<String> shape = plugin.config().recipeShape(kind);
+        Map<Character, Material> ingredients = plugin.config().recipeIngredients(kind);
         try {
-            ShapedRecipe recipe = new ShapedRecipe(RECIPE_KEY, items.placeItem(1));
+            ShapedRecipe recipe = new ShapedRecipe(kind.recipeKey(), items.placeItem(kind, 1));
             recipe.shape(shape.toArray(new String[0]));
             for (Map.Entry<Character, Material> e : ingredients.entrySet()) {
                 if (shape.stream().anyMatch(row -> row.indexOf(e.getKey()) >= 0)) {
@@ -170,19 +170,20 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
                 }
             }
             if (Bukkit.addRecipe(recipe)) {
-                recipeRegistered = true;
+                recipesRegistered.add(kind);
             } else {
-                plugin.getLogger().warning("Linked Workbench recipe was rejected by the server.");
+                plugin.getLogger().warning(kind.displayName() + " recipe was rejected by the server.");
             }
         } catch (RuntimeException ex) {
-            plugin.getLogger().warning("Linked Workbench recipe in config.yml is invalid: " + ex.getMessage());
+            plugin.getLogger().warning(kind.displayName() + " recipe in config.yml is invalid: " + ex.getMessage());
         }
     }
 
-    // ---- /craftbridge workbench ... -------------------------------------------------
+    // ---- /craftbridge workbench|combochest ... ---------------------------------------
 
-    public void command(CommandSender sender, String[] args) {
+    public void command(CommandSender sender, String[] args, BlockKind kind) {
         String sub = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "";
+        String root = "/craftbridge " + (kind == BlockKind.COMBO_CHEST ? "combochest" : "workbench");
         switch (sub) {
             case "give" -> {
                 Player target = args.length > 2 ? Bukkit.getPlayer(args[2]) : (sender instanceof Player p ? p : null);
@@ -198,42 +199,43 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
                         // keep 1
                     }
                 }
-                give(sender, target, "workbench", amount);
+                give(sender, target, kind.id(), amount);
             }
             case "list" -> {
-                sender.sendMessage(Text.msg("<gray>" + store.all().size() + " Linked Workbench(es):"));
+                sender.sendMessage(Text.msg("<gray>" + store.all().size() + " placed block(s):"));
                 for (WorkbenchRecord r : store.all()) {
                     boolean displayOk = r.display() != null && Bukkit.getEntity(r.display()) instanceof ItemDisplay;
-                    sender.sendMessage(Text.msg("<white>" + r.world() + " " + r.x() + "," + r.y() + "," + r.z()
+                    sender.sendMessage(Text.msg("<white>" + r.kind().displayName() + " <gray>" + r.world() + " " + r.x() + "," + r.y() + "," + r.z()
                             + " <dark_gray>yaw " + (int) r.yaw() + " <gray>display " + (displayOk ? "<green>ok" : "<red>missing/unloaded")));
                 }
             }
             case "refresh" -> sender.sendMessage(Text.msg("<green>Respawned " + displays.refreshAll() + " display(s)."));
-            case "display" -> tune(sender, args);
+            case "display" -> tune(sender, args, kind, root);
             default -> {
-                sender.sendMessage(Text.msg("<gray>/craftbridge workbench give [player] [amount]"));
-                sender.sendMessage(Text.msg("<gray>/craftbridge workbench list | refresh"));
-                sender.sendMessage(Text.msg("<gray>/craftbridge workbench display <scale|x|y|z|yaw|transform> <value>"));
+                sender.sendMessage(Text.msg("<gray>" + root + " give [player] [amount]"));
+                sender.sendMessage(Text.msg("<gray>" + root + " list | refresh"));
+                sender.sendMessage(Text.msg("<gray>" + root + " display <scale|x|y|z|yaw|transform> <value>"));
             }
         }
     }
 
-    /** Live-tune the display look: writes config.yml and respawns every loaded display. */
-    private void tune(CommandSender sender, String[] args) {
+    /** Live-tune the display look of one kind: writes config.yml and respawns every loaded display. */
+    private void tune(CommandSender sender, String[] args, BlockKind kind, String root) {
         if (args.length < 4) {
-            sender.sendMessage(Text.msg("<gray>Current: " + plugin.config().workbenchDisplay()));
-            sender.sendMessage(Text.msg("<gray>/craftbridge workbench display <scale|x|y|z|yaw|transform> <value>"));
+            sender.sendMessage(Text.msg("<gray>Current: " + plugin.config().displayFor(kind)));
+            sender.sendMessage(Text.msg("<gray>" + root + " display <scale|x|y|z|yaw|transform> <value>"));
             return;
         }
         String what = args[2].toLowerCase(Locale.ROOT);
         String value = args[3];
+        String base = kind.configSection() + ".display.";
         String path = switch (what) {
-            case "scale" -> "linked-workbench.display.scale";
-            case "x" -> "linked-workbench.display.offset-x";
-            case "y" -> "linked-workbench.display.offset-y";
-            case "z" -> "linked-workbench.display.offset-z";
-            case "yaw" -> "linked-workbench.display.yaw-offset";
-            case "transform" -> "linked-workbench.display.transform";
+            case "scale" -> base + "scale";
+            case "x" -> base + "offset-x";
+            case "y" -> base + "offset-y";
+            case "z" -> base + "offset-z";
+            case "yaw" -> base + "yaw-offset";
+            case "transform" -> base + "transform";
             default -> null;
         };
         if (path == null) {
@@ -258,8 +260,8 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         }
         plugin.saveConfig();
         int n = displays.refreshAll();
-        sender.sendMessage(Text.msg("<green>Set " + what + " = " + value + " and respawned " + n + " display(s). Now: "
-                + plugin.config().workbenchDisplay()));
+        sender.sendMessage(Text.msg("<green>Set " + kind.displayName() + " " + what + " = " + value + " and respawned " + n
+                + " display(s). Now: " + plugin.config().displayFor(kind)));
     }
 
     public static String describeItem(ItemStack stack) {

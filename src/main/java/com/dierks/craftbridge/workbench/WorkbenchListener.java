@@ -56,7 +56,8 @@ public final class WorkbenchListener implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
-        if (!WorkbenchItems.isPlaceItem(event.getItemInHand())) {
+        BlockKind kind = WorkbenchItems.kindOf(event.getItemInHand());
+        if (kind == null) {
             return;
         }
         event.setCancelled(true);
@@ -69,12 +70,12 @@ public final class WorkbenchListener implements Listener {
             }
             if (player.getGameMode() != GameMode.CREATIVE) {
                 ItemStack inHand = player.getInventory().getItem(hand);
-                if (!WorkbenchItems.isPlaceItem(inHand)) {
+                if (WorkbenchItems.kindOf(inHand) != kind) {
                     return; // item changed hands between the event and now
                 }
                 inHand.setAmount(inHand.getAmount() - 1);
             }
-            feature.place(block, player);
+            feature.place(block, player, kind);
             block.getWorld().playSound(block.getLocation().add(0.5, 0.5, 0.5), Sound.BLOCK_WOOD_PLACE, 1f, 1f);
         });
     }
@@ -152,11 +153,11 @@ public final class WorkbenchListener implements Listener {
             return;
         }
         Block block = event.getClickedBlock();
-        if (block == null || block.getType() != Material.CRAFTING_TABLE) {
+        if (block == null || (block.getType() != Material.CRAFTING_TABLE && block.getType() != Material.BARREL)) {
             return;
         }
         WorkbenchRecord record = feature.store().at(block);
-        if (record == null) {
+        if (record == null || record.kind().block() != block.getType()) {
             return;
         }
         if (event.useInteractedBlock() == Event.Result.DENY) {
@@ -164,6 +165,11 @@ public final class WorkbenchListener implements Listener {
         }
         event.setUseInteractedBlock(Event.Result.DENY);
         event.setUseItemInHand(Event.Result.DENY);
+        if (record.kind() == BlockKind.COMBO_CHEST) {
+            // The barrel under a Combo Chest is a terminal, never storage: our GUI replaces the vanilla one.
+            new ComboChestMenu(plugin, feature, event.getPlayer(), record).open(event.getPlayer());
+            return;
+        }
         // Placing a linked table is the opt-in: every right-click (sneaking or not) opens the
         // linked crafting menu with nearby storage shown as phantom inventory slots.
         feature.sessions().open(event.getPlayer(), record);

@@ -9,6 +9,7 @@ server and modded-client conveniences:
 | 4 | **Admin-defined custom recipes**, fully GUI-driven (`/recipe`) — fills the peaceful-mode gap | PR 2 |
 | 2 | **Linked Workbench** — a crafting table that pulls from nearby chests | PR 3 |
 | 1 | **JEI `[+]` recipe transfer** for Fabric/JEI clients on a plugin server | PR 4 |
+| 2b | **Combo Chest** — one block that browses, pulls from and deposits into every chest in range | PR 9 |
 
 Every feature has its own master switch under `features:` in `config.yml`, so any one
 of them can be shipped or turned off independently. `/craftbridge reload` re-reads the
@@ -46,8 +47,8 @@ generate `plugins/CraftBridge/config.yml`).
 | Command | Permission | Default |
 |---------|-----------|---------|
 | `/craftbridge reload` / `/craftbridge version` (alias `/cb`) | `craftbridge.admin` | op |
-| `/craftbridge give <player> workbench [amount]` | `craftbridge.admin` | op |
-| `/craftbridge workbench list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
+| `/craftbridge give <player> workbench|combochest [amount]` | `craftbridge.admin` | op |
+| `/craftbridge workbench|combochest list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
 | `/sort settings` — pick your trigger and toggles | `craftbridge.sort` | everyone |
 | `/sort debug` — print the raw click your client sends when clicking outside a GUI | `craftbridge.sort` | everyone |
@@ -268,8 +269,8 @@ A crafting table that can pull ingredients from the chests around it.
 Towny/WorldGuard checks and the vanilla crafting menu (which JEI knows how to fill) all
 keep working. It is placed from a special item — a player head wearing the configured
 texture, named *Linked Workbench*, PDC-tagged `craftbridge:linked_workbench` — and
-tracked in `plugins/CraftBridge/linked-workbenches.yml` (world + xyz + display UUID +
-owner + yaw). Breaking it drops the head item back; burning or exploding it does too;
+tracked in `plugins/CraftBridge/linked-workbenches.yml` (`type` + world + xyz + display UUID +
+owner + yaw; the same file holds Combo Chests). Breaking it drops the head item back; burning or exploding it does too;
 pistons cannot move it. Craftable (`craftbridge:linked_workbench`, shape and
 ingredients in `linked-workbench.recipe`; default: crafting table in the middle, 4
 chests in the corners, 3 copper ingots, 1 ender pearl at the bottom).
@@ -347,6 +348,52 @@ future 26.x build disables just this feature with one WARN.
 
 **Getting the block:** craft it, or `/craftbridge give <player> workbench [amount]`.
 
+## Feature 2b — Combo Chest
+
+A storage terminal: one block that shows everything in every chest around it, hands it
+out, and takes deposits — no activation, no modes, and no sneak-clicking.
+
+**The block.** Physically a `BARREL` (so Towny/WorldGuard/vanilla break-and-drop rules
+apply unchanged) placed from a PDC-tagged item (`craftbridge:combo_chest`) and tracked
+in the same `linked-workbenches.yml` as the workbench, with `type: combo_chest`. An
+`ItemDisplay` sits on the barrel: a custom head when `combo-chest.head-texture` is set,
+otherwise the `display-item` (default a plain `CHEST`, scaled 1.16 so the 14/16-block
+chest model just covers the barrel). Tune it live with
+`/craftbridge combochest display <scale|x|y|z|yaw|transform> <value>`. Breaking it drops
+the Combo Chest item back; burning/exploding do too; pistons cannot move it; the sweep
+that fixes stray workbench displays covers Combo Chests as well. Craftable
+(`craftbridge:combo_chest`; default shape `HEH / CBC / HRH`: barrel in the middle, 4
+chests in the corners, 2 copper ingots, an ender pearl on top and a comparator below;
+`combo-chest.recipe` in `config.yml`).
+
+**Right-click** opens the terminal GUI instead of the barrel. The barrel underneath is
+*never* storage: it is skipped by the terminal itself, by other Combo Chests, by the
+Linked Workbench and by the phantom-slot snapshot, so nothing ever ends up "inside" it.
+
+* **Range and permissions.** Every chest, trapped chest, double chest (once), barrel and
+  shulker box within `combo-chest.radius` (8) blocks that the player may open — vanilla
+  lock, Towny plot permission, then a synthetic `PlayerInteractEvent` any protection
+  plugin can cancel. Hoppers and furnaces are never touched.
+* **Browse.** Contents are aggregated by item type (same type + same components), sorted
+  count-descending, 45 per page with Previous/Next arrows in the bottom row. Each entry
+  shows the total available across all containers. Quick filters — *All / Blocks / Tools
+  & armor / Food / Misc*, derived from the sorter's category rules — sit in the bottom row.
+* **Pull.** Click an entry = one stack into your inventory; shift-click = as many as fit.
+  Items come out of the nearest containers first. "No room in your inventory" if full.
+* **Deposit.** Three ways, all handled by the shared GUI base: click anywhere in the
+  terminal with an item on the cursor, shift-click an item in your own inventory, or drag
+  it over the terminal. The stack goes to a container that already holds that type
+  (topping up partial stacks), else to the nearest one with a free slot. If nothing has
+  room the item stays with you and you get "No room in nearby storage". Locked or
+  no-permission containers are never written to because they never make it into the scan.
+* **Live.** Every click (pull, deposit, page, filter) re-scans, so hoppers and other
+  players' changes show on the next click. The info icon in the middle of the bottom row
+  shows the container count, item-type count and page.
+
+**Getting the block:** craft it, or `/craftbridge give <player> combochest [amount]`.
+Both blocks share the code in `workbench.*`: `BlockKind` picks the physical block,
+tag, recipe key, config section and display defaults per kind.
+
 ## Configuration
 
 See the comments in `src/main/resources/config.yml`. Everything reloads with
@@ -358,6 +405,9 @@ See the comments in `src/main/resources/config.yml`. Everything reloads with
   `CraftBridgePlugin.Feature` and is only constructed when its switch is on.
 * `gui.Menu` / `gui.MenuListener` is the shared click-driven chest GUI base (with
   optional editable slots for menus that take real items).
+  Menus can also opt into deposits (`acceptsDeposits()` / `deposit(...)`): cursor clicks,
+  shift-clicks from the player inventory and drags over the menu are cancelled and
+  routed through `deposit`, which returns whatever did not fit.
 * `integration.ContainerAccess` is the one place that answers "may this player use this
   container?": vanilla lock → Towny (reflection, optional) → a synthetic
   `PlayerInteractEvent` any protection plugin can cancel.
