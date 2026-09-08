@@ -4,6 +4,7 @@ import com.dierks.craftbridge.command.CraftBridgeCommand;
 import com.dierks.craftbridge.config.CraftBridgeConfig;
 import com.dierks.craftbridge.gui.MenuListener;
 import com.dierks.craftbridge.integration.ContainerAccess;
+import com.dierks.craftbridge.jei.JeiTransferFeature;
 import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.sort.SortFeature;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
@@ -58,6 +59,9 @@ public final class CraftBridgePlugin extends JavaPlugin {
         }
         if (config.linkedWorkbenchEnabled()) {
             features.add(new WorkbenchFeature(this));
+        }
+        if (config.jeiTransferEnabled()) {
+            features.add(new JeiTransferFeature(this));
         }
         for (Feature feature : features) {
             try {

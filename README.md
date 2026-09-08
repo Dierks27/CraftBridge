@@ -8,7 +8,7 @@ server and modded-client conveniences:
 | 3 | **Chest sorting** with a per-player trigger (`/sort`, `/sort settings`) | PR 1 |
 | 4 | **Admin-defined custom recipes**, fully GUI-driven (`/recipe`) — fills the peaceful-mode gap | PR 2 |
 | 2 | **Linked Workbench** — a crafting table that pulls from nearby chests | PR 3 |
-| 1 | **JEI `[+]` recipe transfer** for Fabric/JEI clients on a plugin server | planned |
+| 1 | **JEI `[+]` recipe transfer** for Fabric/JEI clients on a plugin server | PR 4 |
 
 Every feature has its own master switch under `features:` in `config.yml`, so any one
 of them can be shipped or turned off independently. `/craftbridge reload` re-reads the
@@ -153,6 +153,70 @@ recipes will not show in JEI until CraftBridge's own recipe sync lands in a late
 JEIServerProxy does not listen for recipe changes; it unlocks the recipe book on join
 and answers a legacy `jei:network` handshake, neither of which carries recipe data.
 Until the sync PR, the console prints a reminder after each change.
+
+## Feature 1 — JEI `[+]` recipe transfer
+
+JEI only enables its `[+]` (move items) button when it believes JEI is running on the
+server, and then sends a custom payload that a server-side JEI would normally handle.
+CraftBridge is that server side. Everything below was read from JEI's source, branch
+`26.2` / tag `v26.2.0` (`Common/src/main/java/mezz/jei/common/network/…`,
+`Fabric/src/main/java/mezz/jei/fabric/network/…`).
+
+**How the client decides JEI is on the server.** Fabric `ConnectionToServer.isJeiOnServer()`
+is `ClientPlayNetworking.canSend(PacketDeletePlayerItem.TYPE)`, i.e. "did the server
+announce `jei:delete_player_item` in its `minecraft:register` list". Paper announces every
+channel a plugin registered as *incoming*, so registering that channel is the whole
+handshake — there is no version exchange. Each packet is sent only if its own channel was
+announced too (`sendPacketToServer` checks `canSend(packet.type())`).
+
+**Channels.** One payload id per packet type (no shared channel, no packet-id prefix):
+
+| Channel | Direction | Handled |
+|---------|-----------|---------|
+| `jei:recipe_transfer_with_result` | client → server | yes (current) |
+| `jei:recipe_transfer_counted_with_result` | client → server | yes (current, per-op counts) |
+| `jei:recipe_transfer` / `jei:recipe_transfer_counted` | client → server | yes (legacy, no reply) |
+| `jei:recipe_transfer_result` | server → client | reply: `VarInt transferId, bool success` |
+| `jei:delete_player_item` | client → server | registered only as the presence marker; payload ignored |
+| `jei:give_item_stack`, `jei:set_hotbar_item_stack`, `jei:request_cheat_permission`, `jei:cheat_permission` | cheat mode | **not registered** — JEI never sends what the server didn't announce, so cheat mode stays inert |
+
+**Packet layout** (all four transfer channels; `counted` adds the per-op count,
+`with_result` appends the id):
+
+```
+VarInt opCount, then per op: VarInt inventorySlotId, VarInt craftingSlotId [, VarInt count]
+VarInt n, n × VarInt craftingSlotId        the recipe's target grid slots
+VarInt n, n × VarInt inventorySlotId       slots the server may draw from
+bool maxTransfer                           shift-click [+] = fill as many sets as possible
+bool requireCompleteSets
+[VarInt transferId]
+```
+
+Slot ids are vanilla container-menu indexes = Bukkit `InventoryView` raw slots: crafting
+table 0 result / 1-9 grid / 10-45 inventory; player 2x2 grid 0 result / 1-4 grid /
+9-44 inventory. **No ItemStacks are on the wire** — the server reads them from the
+slots — so decoding needs no NMS codec (the handoff's `RegistryFriendlyByteBuf` plan was
+unnecessary for 26.2; `paperweight-userdev` is only pulled in later for recipe sync).
+
+**Server logic.** `jei.TransferEngine` is a line-by-line port of
+`BasicRecipeTransferHandlerServer.setItemsWithResult`: validate slots, resolve each op
+against the source slot, take one set (or, on shift-click, as many sets as fit — with
+`requireCompleteSets` rolling back a partial set), clear the grid, place the sets
+(respecting per-slot stack limits), stow cleared items and remainders back into the
+inventory, overflow to the player / floor. It is Bukkit-free and covered by unit tests;
+the feature wraps it over `player.getOpenInventory()` (must be `WORKBENCH` or
+`CRAFTING`, anything else is rejected with a `false` result), writes changed slots back
+through the view, calls `updateInventory()`, and replies. Spam-clicking cannot dupe: each
+packet is applied synchronously on the main thread against the live slots.
+
+**Logging.** Decode failures go to DEBUG with the byte count (set `debug: true` to see
+them). The first packet on each channel is logged once at INFO. The packets carry no
+protocol version, so there is nothing to compare — the console line at enable states the
+JEI version this was built against (`JEI 26.2.0`).
+
+**Missing items** stay client-side: JEI only sends a transfer when every ingredient is
+visible in the player's inventory (or grid); otherwise it shows its red highlight and
+never contacts the server.
 
 ## Feature 2 — Linked Workbench
 
