@@ -8,6 +8,7 @@ import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
 /**
@@ -38,6 +39,22 @@ public final class MenuListener implements Listener {
         boolean top = event.getClickedInventory() == event.getView().getTopInventory();
         boolean bulkMove = event.getAction() == InventoryAction.COLLECT_TO_CURSOR
                 || event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY;
+        if (menu.handleDepositsAccepted() && event.getWhoClicked() instanceof Player depositor) {
+            ItemStack cursor = event.getCursor();
+            if (top && cursor != null && !cursor.isEmpty()) {
+                // Clicking anywhere in the menu with an item in hand = deposit it.
+                event.setCancelled(true);
+                event.getView().setCursor(menu.handleDeposit(depositor, cursor.clone()));
+                return;
+            }
+            ItemStack current = event.getCurrentItem();
+            if (!top && event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY && current != null && !current.isEmpty()) {
+                // Shift-click from the player's inventory = deposit that stack.
+                event.setCancelled(true);
+                event.setCurrentItem(menu.handleDeposit(depositor, current.clone()));
+                return;
+            }
+        }
         if (top) {
             if (menu.isEditable(event.getRawSlot())) {
                 if (bulkMove) {
@@ -66,6 +83,22 @@ public final class MenuListener implements Listener {
             return;
         }
         int topSize = event.getView().getTopInventory().getSize();
+        if (menu.handleDepositsAccepted() && event.getWhoClicked() instanceof Player depositor) {
+            for (int raw : event.getRawSlots()) {
+                if (raw < topSize) {
+                    // Dragging over the menu = deposit the whole cursor stack (next tick, after the
+                    // cancelled drag has restored it).
+                    event.setCancelled(true);
+                    ItemStack dragged = event.getOldCursor().clone();
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        if (depositor.isOnline() && depositor.getOpenInventory().getTopInventory().getHolder(false) == menu) {
+                            depositor.setItemOnCursor(menu.handleDeposit(depositor, dragged));
+                        }
+                    });
+                    return;
+                }
+            }
+        }
         for (int raw : event.getRawSlots()) {
             if (raw < topSize && !menu.isEditable(raw)) {
                 event.setCancelled(true);

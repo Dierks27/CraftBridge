@@ -41,6 +41,20 @@ public final class WorkbenchStore {
         return records.containsKey(WorkbenchRecord.keyOf(block));
     }
 
+    /** Block locations of every placed block of {@code kind} (used to keep terminals out of storage scans). */
+    public java.util.Set<org.bukkit.Location> locationsOf(BlockKind kind) {
+        java.util.Set<org.bukkit.Location> out = new java.util.HashSet<>();
+        for (WorkbenchRecord r : records.values()) {
+            if (r.kind() == kind) {
+                org.bukkit.Location loc = r.location();
+                if (loc != null) {
+                    out.add(loc);
+                }
+            }
+        }
+        return out;
+    }
+
     public void put(WorkbenchRecord record) {
         records.put(record.key(), record);
         save();
@@ -62,7 +76,12 @@ public final class WorkbenchStore {
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         for (Map<?, ?> m : yaml.getMapList("workbenches")) {
             try {
-                WorkbenchRecord r = new WorkbenchRecord(
+                BlockKind kind = BlockKind.byId(m.get("type") == null ? "workbench" : m.get("type").toString());
+                if (kind == null) {
+                    plugin.getLogger().warning("linked-workbenches.yml: unknown type '" + m.get("type") + "', skipping " + m);
+                    continue;
+                }
+                WorkbenchRecord r = new WorkbenchRecord(kind,
                         String.valueOf(m.get("world")),
                         ((Number) m.get("x")).intValue(),
                         ((Number) m.get("y")).intValue(),
@@ -82,6 +101,7 @@ public final class WorkbenchStore {
         List<Map<String, Object>> list = new ArrayList<>();
         for (WorkbenchRecord r : records.values()) {
             Map<String, Object> m = new LinkedHashMap<>();
+            m.put("type", r.kind().id());
             m.put("world", r.world());
             m.put("x", r.x());
             m.put("y", r.y());

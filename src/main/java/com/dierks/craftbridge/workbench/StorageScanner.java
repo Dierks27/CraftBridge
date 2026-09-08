@@ -35,9 +35,15 @@ public final class StorageScanner {
     }
 
     private final CraftBridgePlugin plugin;
+    private java.util.function.Supplier<Set<Location>> terminals = Set::of;
 
     public StorageScanner(CraftBridgePlugin plugin) {
         this.plugin = plugin;
+    }
+
+    /** Container blocks that are terminals (Combo Chest barrels) and therefore never storage, for any scan. */
+    public void terminals(java.util.function.Supplier<Set<Location>> terminals) {
+        this.terminals = terminals;
     }
 
     public static boolean isStorageBlock(Material type) {
@@ -50,9 +56,10 @@ public final class StorageScanner {
         return scan(player, center, radius, Set.of());
     }
 
-    /** As {@link #scan(Player, Location, int)} but skipping the given container blocks (e.g. a terminal's own barrel). */
+    /** As {@link #scan(Player, Location, int)} but also skipping the given container blocks. */
     public List<Source> scan(Player player, Location center, int radius, Set<Location> exclude) {
         World world = center.getWorld();
+        Set<Location> terminalBlocks = terminals.get();
         List<Source> sources = new ArrayList<>();
         Set<Location> seenInventories = new HashSet<>();
         boolean protection = plugin.config().workbenchRespectProtection();
@@ -73,7 +80,7 @@ public final class StorageScanner {
         }
         candidates.sort((a, b) -> Double.compare(a.getLocation().distanceSquared(center), b.getLocation().distanceSquared(center)));
         for (Block block : candidates) {
-            if (exclude.contains(block.getLocation())) {
+            if (exclude.contains(block.getLocation()) || terminalBlocks.contains(block.getLocation())) {
                 continue;
             }
             if (!(block.getState(false) instanceof Container container)) {

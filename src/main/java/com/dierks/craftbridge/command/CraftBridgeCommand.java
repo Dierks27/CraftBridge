@@ -2,6 +2,7 @@ package com.dierks.craftbridge.command;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
 import com.dierks.craftbridge.util.Text;
+import com.dierks.craftbridge.workbench.BlockKind;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -24,8 +25,8 @@ public final class CraftBridgeCommand implements TabExecutor {
         if (args.length == 0) {
             sender.sendMessage(Text.msg("<gray>/craftbridge reload <dark_gray>- reload config and features"));
             sender.sendMessage(Text.msg("<gray>/craftbridge version <dark_gray>- show version"));
-            sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench [amount] <dark_gray>- hand out CraftBridge blocks"));
-            sender.sendMessage(Text.msg("<gray>/craftbridge workbench <dark_gray>- Linked Workbench tools (give, list, refresh, display)"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest [amount] <dark_gray>- hand out CraftBridge blocks"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
             return true;
         }
         switch (args[0].toLowerCase(java.util.Locale.ROOT)) {
@@ -37,7 +38,7 @@ public final class CraftBridgeCommand implements TabExecutor {
                     + " <dark_gray>| <gray>" + plugin.enabledFeatureNames()));
             case "give" -> {
                 if (args.length < 3) {
-                    sender.sendMessage(Text.msg("<red>Usage: /craftbridge give <player> <workbench> [amount]"));
+                    sender.sendMessage(Text.msg("<red>Usage: /craftbridge give <player> <workbench|combochest> [amount]"));
                     return true;
                 }
                 Player target = plugin.getServer().getPlayer(args[1]);
@@ -60,12 +61,13 @@ public final class CraftBridgeCommand implements TabExecutor {
                     workbench.give(sender, target, args[2], amount);
                 }
             }
-            case "workbench", "wb" -> {
+            case "workbench", "wb", "combochest", "combo", "cc" -> {
                 WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
                 if (workbench == null) {
                     sender.sendMessage(Text.msg("<red>The Linked Workbench feature is disabled in config.yml."));
                 } else {
-                    workbench.command(sender, args);
+                    BlockKind kind = args[0].toLowerCase(java.util.Locale.ROOT).startsWith("c") ? BlockKind.COMBO_CHEST : BlockKind.WORKBENCH;
+                    workbench.command(sender, args, kind);
                 }
             }
             default -> sender.sendMessage(Text.msg("<red>Unknown subcommand."));
@@ -76,18 +78,19 @@ public final class CraftBridgeCommand implements TabExecutor {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("reload", "version", "give", "workbench");
+            return List.of("reload", "version", "give", "workbench", "combochest");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             return null; // player names
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("give")) {
-            return List.of("workbench");
+            return List.of("workbench", "combochest");
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("workbench")) {
+        boolean blockCmd = args[0].equalsIgnoreCase("workbench") || args[0].equalsIgnoreCase("combochest");
+        if (args.length == 2 && blockCmd) {
             return List.of("give", "list", "refresh", "display");
         }
-        if (args.length == 3 && args[0].equalsIgnoreCase("workbench") && args[1].equalsIgnoreCase("display")) {
+        if (args.length == 3 && blockCmd && args[1].equalsIgnoreCase("display")) {
             return List.of("scale", "x", "y", "z", "yaw", "transform");
         }
         return List.of();

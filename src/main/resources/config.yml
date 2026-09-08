@@ -105,6 +105,36 @@ linked-workbench:
       E: ENDER_PEARL
 
 # -----------------------------------------------------------------------------
+# Combo Chest — a storage terminal for everything within range (pull and deposit).
+# Physically a barrel (never used as storage itself); the display dresses it up.
+# -----------------------------------------------------------------------------
+combo-chest:
+  radius: 8
+  # Base64 "textures" value for a custom head look. Empty = show the display-item instead.
+  head-texture: ""
+  # Item the display shows (and the place-item is) while head-texture is empty.
+  display-item: CHEST
+  # The chest item model is 14/16 of a block, so 1.16 covers the barrel underneath.
+  # Tune live with /craftbridge combochest display <scale|x|y|z|yaw|transform> <value>.
+  display:
+    transform: NONE
+    scale: 1.16
+    offset-x: 0.5
+    offset-y: 0.5
+    offset-z: 0.5
+    yaw-offset: 0
+  # H = chest, E = ender pearl, C = copper ingot, B = barrel, R = comparator.
+  recipe:
+    enabled: true
+    shape: ['HEH', 'CBC', 'HRH']
+    ingredients:
+      H: CHEST
+      E: ENDER_PEARL
+      C: COPPER_INGOT
+      B: BARREL
+      R: COMPARATOR
+
+# -----------------------------------------------------------------------------
 # JEI (Feature 1 lives under features.jei-transfer; this is the recipe sync)
 # -----------------------------------------------------------------------------
 jei:

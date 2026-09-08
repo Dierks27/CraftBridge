@@ -145,32 +145,46 @@ public final class CraftBridgeConfig {
     }
 
     public int workbenchRadius() {
-        return Math.max(1, Math.min(32, raw.getInt("linked-workbench.radius", 8)));
+        return radius(com.dierks.craftbridge.workbench.BlockKind.WORKBENCH);
+    }
+
+    public int radius(com.dierks.craftbridge.workbench.BlockKind kind) {
+        return Math.max(1, Math.min(32, raw.getInt(kind.configSection() + ".radius", 8)));
+    }
+
+    public String headTexture(com.dierks.craftbridge.workbench.BlockKind kind) {
+        return raw.getString(kind.configSection() + ".head-texture", "");
+    }
+
+    /** Item shown by the display (and used as the place-item) when a kind has no head texture. */
+    public Material displayMaterial(com.dierks.craftbridge.workbench.BlockKind kind) {
+        String name = raw.getString(kind.configSection() + ".display-item",
+                kind == com.dierks.craftbridge.workbench.BlockKind.COMBO_CHEST ? "CHEST" : "PLAYER_HEAD");
+        Material m = Material.matchMaterial(name == null ? "" : name);
+        return m != null && m.isItem() ? m : Material.CHEST;
+    }
+
+    public WorkbenchDisplay displayFor(com.dierks.craftbridge.workbench.BlockKind kind) {
+        String base = kind.configSection() + ".display.";
+        boolean combo = kind == com.dierks.craftbridge.workbench.BlockKind.COMBO_CHEST;
+        ItemDisplay.ItemDisplayTransform transform;
+        String t = raw.getString(base + "transform", "NONE");
+        try {
+            transform = ItemDisplay.ItemDisplayTransform.valueOf(t.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            plugin.getLogger().warning(base + "transform '" + t + "' is not valid; using NONE.");
+            transform = ItemDisplay.ItemDisplayTransform.NONE;
+        }
+        return new WorkbenchDisplay(transform,
+                (float) raw.getDouble(base + "scale", combo ? 1.16 : 2.02),
+                raw.getDouble(base + "offset-x", 0.5),
+                raw.getDouble(base + "offset-y", combo ? 0.5 : 1.005),
+                raw.getDouble(base + "offset-z", 0.5),
+                (float) raw.getDouble(base + "yaw-offset", 0));
     }
 
     public boolean workbenchRespectProtection() {
         return raw.getBoolean("linked-workbench.respect-protection", true);
-    }
-
-    public String workbenchHeadTexture() {
-        return raw.getString("linked-workbench.head-texture", "");
-    }
-
-    public WorkbenchDisplay workbenchDisplay() {
-        ItemDisplay.ItemDisplayTransform transform;
-        String t = raw.getString("linked-workbench.display.transform", "NONE");
-        try {
-            transform = ItemDisplay.ItemDisplayTransform.valueOf(t.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ex) {
-            plugin.getLogger().warning("linked-workbench.display.transform '" + t + "' is not valid; using NONE.");
-            transform = ItemDisplay.ItemDisplayTransform.NONE;
-        }
-        return new WorkbenchDisplay(transform,
-                (float) raw.getDouble("linked-workbench.display.scale", 2.02),
-                raw.getDouble("linked-workbench.display.offset-x", 0.5),
-                raw.getDouble("linked-workbench.display.offset-y", 1.005),
-                raw.getDouble("linked-workbench.display.offset-z", 0.5),
-                (float) raw.getDouble("linked-workbench.display.yaw-offset", 0));
     }
 
     /** Show nearby storage in the player's empty inventory slots (packet-only) while a linked table is open. */
@@ -183,30 +197,43 @@ public final class CraftBridgeConfig {
         return Math.max(0, Math.min(9, raw.getInt("linked-workbench.phantom-reserve-empty-slots", 2)));
     }
 
-    public boolean workbenchRecipeEnabled() {
-        return raw.getBoolean("linked-workbench.recipe.enabled", true);
+    public WorkbenchDisplay workbenchDisplay() {
+        return displayFor(com.dierks.craftbridge.workbench.BlockKind.WORKBENCH);
     }
 
-    public List<String> workbenchRecipeShape() {
-        List<String> shape = raw.getStringList("linked-workbench.recipe.shape");
-        return shape.isEmpty() ? List.of("HCH", "CTC", "HEH") : shape;
+    public boolean recipeEnabled(com.dierks.craftbridge.workbench.BlockKind kind) {
+        return raw.getBoolean(kind.configSection() + ".recipe.enabled", true);
     }
 
-    public Map<Character, Material> workbenchRecipeIngredients() {
+    public List<String> recipeShape(com.dierks.craftbridge.workbench.BlockKind kind) {
+        List<String> shape = raw.getStringList(kind.configSection() + ".recipe.shape");
+        if (!shape.isEmpty()) {
+            return shape;
+        }
+        return kind == com.dierks.craftbridge.workbench.BlockKind.COMBO_CHEST
+                ? List.of("HEH", "CBC", "HRH") : List.of("HCH", "CTC", "HEH");
+    }
+
+    public Map<Character, Material> recipeIngredients(com.dierks.craftbridge.workbench.BlockKind kind) {
         Map<Character, Material> out = new LinkedHashMap<>();
-        ConfigurationSection section = raw.getConfigurationSection("linked-workbench.recipe.ingredients");
+        ConfigurationSection section = raw.getConfigurationSection(kind.configSection() + ".recipe.ingredients");
         if (section == null) {
             out.put('H', Material.CHEST);
             out.put('C', Material.COPPER_INGOT);
-            out.put('T', Material.CRAFTING_TABLE);
             out.put('E', Material.ENDER_PEARL);
+            if (kind == com.dierks.craftbridge.workbench.BlockKind.COMBO_CHEST) {
+                out.put('B', Material.BARREL);
+                out.put('R', Material.COMPARATOR);
+            } else {
+                out.put('T', Material.CRAFTING_TABLE);
+            }
             return out;
         }
         for (String key : section.getKeys(false)) {
             String name = section.getString(key, "");
             Material material = Material.matchMaterial(name);
             if (key.length() != 1 || material == null) {
-                plugin.getLogger().warning("linked-workbench.recipe.ingredients." + key + " = '" + name + "' is not valid; ignored.");
+                plugin.getLogger().warning(kind.configSection() + ".recipe.ingredients." + key + " = '" + name + "' is not valid; ignored.");
                 continue;
             }
             out.put(key.charAt(0), material);

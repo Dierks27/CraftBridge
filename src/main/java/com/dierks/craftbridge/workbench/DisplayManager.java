@@ -6,7 +6,6 @@ import com.dierks.craftbridge.util.Keys;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -53,11 +52,11 @@ public final class DisplayManager {
             return record;
         }
         remove(record.display());
-        CraftBridgeConfig.WorkbenchDisplay cfg = plugin.config().workbenchDisplay();
+        CraftBridgeConfig.WorkbenchDisplay cfg = plugin.config().displayFor(record.kind());
         Location at = new Location(world, record.x() + cfg.offsetX(), record.y() + cfg.offsetY(), record.z() + cfg.offsetZ(),
                 record.yaw() + cfg.yawOffset(), 0f);
         ItemDisplay display = world.spawn(at, ItemDisplay.class, d -> {
-            d.setItemStack(items.texturedHead());
+            d.setItemStack(items.displayItem(record.kind()));
             d.setItemDisplayTransform(cfg.transform());
             d.setTransformation(new Transformation(new Vector3f(0f, 0f, 0f), new AxisAngle4f(),
                     new Vector3f(cfg.scale(), cfg.scale(), cfg.scale()), new AxisAngle4f()));
@@ -141,7 +140,7 @@ public final class DisplayManager {
             return true;
         }
         Block block = record.block();
-        if (block == null || block.getType() != Material.CRAFTING_TABLE) {
+        if (block == null || block.getType() != record.kind().block()) {
             return true;
         }
         // A second display for the same table (e.g. after a crash mid-write) is an orphan too.
@@ -157,8 +156,9 @@ public final class DisplayManager {
         if (block == null) {
             return false;
         }
-        if (block.getType() != Material.CRAFTING_TABLE) {
-            plugin.getLogger().info("Linked Workbench at " + record.key() + " is no longer a crafting table; forgetting it.");
+        if (block.getType() != record.kind().block()) {
+            plugin.getLogger().info(record.kind().displayName() + " at " + record.key() + " is no longer a "
+                    + record.kind().block() + "; forgetting it.");
             remove(record.display());
             store.remove(record.key());
             return false;

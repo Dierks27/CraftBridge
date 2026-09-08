@@ -7,8 +7,8 @@ import org.bukkit.block.Block;
 
 import java.util.UUID;
 
-/** One placed Linked Workbench: where the real crafting table is and which display shows the head. */
-public record WorkbenchRecord(String world, int x, int y, int z, UUID display, UUID owner, float yaw) {
+/** One placed CraftBridge block (Linked Workbench or Combo Chest): where the real block is and which display dresses it. */
+public record WorkbenchRecord(BlockKind kind, String world, int x, int y, int z, UUID display, UUID owner, float yaw) {
 
     public static String keyOf(Block block) {
         return keyOf(block.getWorld().getName(), block.getX(), block.getY(), block.getZ());
@@ -43,6 +43,6 @@ public record WorkbenchRecord(String world, int x, int y, int z, UUID display, U
     }
 
     public WorkbenchRecord withDisplay(UUID newDisplay) {
-        return new WorkbenchRecord(world, x, y, z, newDisplay, owner, yaw);
+        return new WorkbenchRecord(kind, world, x, y, z, newDisplay, owner, yaw);
     }
 }

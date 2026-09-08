@@ -92,6 +92,27 @@ public abstract class Menu implements InventoryHolder {
         player.openInventory(inventory);
     }
 
+    /** Menus that route items the player drops into them somewhere (the Combo Chest). */
+    protected boolean acceptsDeposits() {
+        return false;
+    }
+
+    /**
+     * Take {@code stack} from the player. Return what could not be taken (null or empty when
+     * everything was accepted). Implementations refresh themselves.
+     */
+    protected ItemStack deposit(Player player, ItemStack stack) {
+        return stack;
+    }
+
+    boolean handleDepositsAccepted() {
+        return acceptsDeposits();
+    }
+
+    ItemStack handleDeposit(Player player, ItemStack stack) {
+        return deposit(player, stack);
+    }
+
     /** Called after any click in an editable slot has been applied (next tick). */
     protected void onEditableSlotChanged(Player player, int rawSlot) {
     }
