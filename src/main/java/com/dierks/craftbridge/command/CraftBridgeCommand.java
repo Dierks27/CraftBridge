@@ -3,6 +3,7 @@ package com.dierks.craftbridge.command;
 import com.dierks.craftbridge.CraftBridgePlugin;
 import com.dierks.craftbridge.util.Text;
 import com.dierks.craftbridge.workbench.BlockKind;
+import com.dierks.craftbridge.workbench.PhantomManager;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -20,16 +21,33 @@ public final class CraftBridgeCommand implements TabExecutor {
         this.plugin = plugin;
     }
 
+    private static final String ADMIN = "craftbridge.admin";
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
+            if (!sender.hasPermission(ADMIN)) {
+                sender.sendMessage(Text.msg("<gray>/craftbridge page next|prev <dark_gray>- turn the storage page at a Linked Workbench"));
+                return true;
+            }
+            sender.sendMessage(Text.msg("<gray>/craftbridge page next|prev <dark_gray>- turn the storage page at a Linked Workbench"));
             sender.sendMessage(Text.msg("<gray>/craftbridge reload <dark_gray>- reload config and features"));
             sender.sendMessage(Text.msg("<gray>/craftbridge version <dark_gray>- show version"));
             sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest [amount] <dark_gray>- hand out CraftBridge blocks"));
             sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
             return true;
         }
-        switch (args[0].toLowerCase(java.util.Locale.ROOT)) {
+        String sub = args[0].toLowerCase(java.util.Locale.ROOT);
+        // Paging is the player's own view of their own inventory, so it needs no permission.
+        if (sub.equals("page")) {
+            page(sender, args);
+            return true;
+        }
+        if (!sender.hasPermission(ADMIN)) {
+            sender.sendMessage(Text.msg("<red>You do not have permission to do that."));
+            return true;
+        }
+        switch (sub) {
             case "reload" -> {
                 plugin.reloadEverything();
                 sender.sendMessage(Text.msg("<green>Reloaded. <gray>Enabled: " + plugin.enabledFeatureNames()));
@@ -75,10 +93,46 @@ public final class CraftBridgeCommand implements TabExecutor {
         return true;
     }
 
+    /** {@code /craftbridge page next|prev|<n>}: the fallback for the phantom page buttons. */
+    private void page(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Text.msg("<red>Only a player at a Linked Workbench can turn the page."));
+            return;
+        }
+        WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
+        PhantomManager phantoms = workbench == null ? null : workbench.phantoms();
+        if (phantoms == null || !phantoms.has(player)) {
+            sender.sendMessage(Text.msg("<red>Open a Linked Workbench first."));
+            return;
+        }
+        int delta = 1;
+        if (args.length > 1) {
+            String what = args[1].toLowerCase(java.util.Locale.ROOT);
+            if (what.startsWith("p") || what.startsWith("b")) {
+                delta = -1;
+            } else if (!what.startsWith("n")) {
+                try {
+                    delta = Integer.parseInt(what);
+                } catch (NumberFormatException ex) {
+                    sender.sendMessage(Text.msg("<red>Usage: /craftbridge page next|prev"));
+                    return;
+                }
+            }
+        }
+        if (!phantoms.turnPage(player, delta)) {
+            sender.sendMessage(Text.msg("<gray>Everything in range fits on one page."));
+        }
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("reload", "version", "give", "workbench", "combochest");
+            return sender.hasPermission(ADMIN)
+                    ? List.of("page", "reload", "version", "give", "workbench", "combochest")
+                    : List.of("page");
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("page")) {
+            return List.of("next", "prev");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             return null; // player names

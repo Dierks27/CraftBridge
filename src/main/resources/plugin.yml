@@ -31,7 +31,9 @@ commands:
       /craftbridge version  - show the running version and enabled features
       /craftbridge give <player> workbench|combochest [amount]  - hand out a block
       /craftbridge workbench|combochest give|list|refresh|display  - block tools
-    permission: craftbridge.admin
+      /craftbridge page next|prev  - turn the nearby-storage page at a Linked Workbench
+    # No command-level permission: /craftbridge page is for everyone, every other
+    # subcommand checks craftbridge.admin itself.
     aliases: [cb]
   recipe:
     description: Manage admin-defined crafting recipes (GUI).
