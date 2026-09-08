@@ -1,0 +1,51 @@
+name: CraftBridge
+version: '${version}'
+main: com.dierks.craftbridge.CraftBridgePlugin
+description: Chest sorting, admin-defined recipes, the Linked Workbench and JEI recipe transfer for Paper 26.2.
+authors: [Dierks27]
+website: https://github.com/Dierks27/CraftBridge
+
+# Paper 26.2 target. '1.21' is the compatibility token the live 26.2 server accepts
+# (same as HomeCraftMgmt). If the server logs it as legacy, bump to the token it names.
+api-version: '1.21'
+
+# JEIServerProxy snapshots the recipe list when IT enables; loading before it means
+# CraftBridge's custom recipes are already registered by then.
+loadbefore:
+  - JEIServerProxy
+
+# Every integration is optional: protection checks degrade to "allow" when absent.
+softdepend:
+  - Towny
+  - WorldGuard
+  - WorldEdit
+  - LuckPerms
+  - Vault
+  - ProtocolLib
+
+commands:
+  craftbridge:
+    description: CraftBridge admin commands.
+    usage: |-
+      /craftbridge reload   - reload config.yml and all feature data
+      /craftbridge version  - show the running version and enabled features
+    permission: craftbridge.admin
+    aliases: [cb]
+  sort:
+    description: Sort the container you have open, or change your sorting trigger.
+    usage: |-
+      /sort            - sort the open container
+      /sort settings   - choose your trigger and toggles
+      /sort debug      - toggle raw click logging (helps verify what your client sends)
+    permission: craftbridge.sort
+
+permissions:
+  craftbridge.admin:
+    description: Reload and administer CraftBridge.
+    default: op
+  craftbridge.sort:
+    description: Sort containers and change your own sorting settings.
+    default: true
+  craftbridge.sort.others:
+    description: Reserved for a future "sort any container I look at" admin tool. Not used yet.
+    default: op
