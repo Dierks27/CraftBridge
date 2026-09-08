@@ -5,8 +5,8 @@ server and modded-client conveniences:
 
 | # | Feature | Status |
 |---|---------|--------|
-| 3 | **Chest sorting** with a per-player trigger (`/sort`, `/sort settings`) | this PR |
-| 4 | **Admin-defined custom recipes**, fully GUI-driven (`/recipe`) — fills the peaceful-mode gap | next |
+| 3 | **Chest sorting** with a per-player trigger (`/sort`, `/sort settings`) | PR 1 |
+| 4 | **Admin-defined custom recipes**, fully GUI-driven (`/recipe`) — fills the peaceful-mode gap | PR 2 |
 | 2 | **Linked Workbench** — a crafting table that pulls from nearby chests | planned |
 | 1 | **JEI `[+]` recipe transfer** for Fabric/JEI clients on a plugin server | planned |
 
@@ -45,6 +45,7 @@ generate `plugins/CraftBridge/config.yml`).
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
 | `/sort settings` — pick your trigger and toggles | `craftbridge.sort` | everyone |
 | `/sort debug` — print the raw click your client sends when clicking outside a GUI | `craftbridge.sort` | everyone |
+| `/recipe` (alias `/recipes`) — the recipe menu; hidden console fallbacks: `/recipe list`, `/recipe reload`, `/recipe remove <id>`, `/recipe import starter` | `craftbridge.recipes.admin` | op |
 
 `craftbridge.sort.others` is reserved for a future "sort any container I'm looking at"
 admin tool and does nothing yet.
@@ -92,6 +93,66 @@ Towny plot / WorldGuard region is checked first (`sorting.respect-protection`).
 * Bedrock players (Geyser) have no "outside the GUI" area; `SNEAK_PUNCH_BLOCK` or `/sort`
   are the reliable choices there.
 
+## Feature 4 — admin-defined custom recipes
+
+The server runs on peaceful, so mob-only drops are unobtainable. `/recipe` lets an admin
+add shaped/shapeless crafting recipes entirely in-game, no datapacks, no ids typed.
+
+**Main menu:** New Recipe · Browse Recipes · Import Starter Pack · Reload.
+
+**New recipe:** a 54-slot editor with a real 3x3 grid and a result slot. Put real items
+in (they come back on Save, Cancel or close). Under each filled grid slot is a match
+toggle: *any item of this material* (default) or *this exact item* (name, enchantments,
+components). Buttons: Shaped/Shapeless, Save, Cancel. The id is generated from the
+result (`ender_pearl`, then `ender_pearl_2`…). Save validates that the result and grid
+are non-empty, then asks the server whether that layout already crafts something
+(`Bukkit.getCraftingRecipe`); if it does, a warning line appears and a second Save
+click adds the recipe anyway (the older recipe may still win at the table).
+
+**Browse:** paginated list of result items with the shape (`A G A` rows) and legend in
+the lore. Left-click edits in place (the grid is seeded with display copies that are
+discarded afterwards, so editing never duplicates items), right-click enables/disables
+without deleting, shift-right-click deletes after an in-GUI confirm.
+
+**Storage:** `plugins/CraftBridge/recipes.yml`, one entry per recipe, registered on
+enable as real server recipes under `craftbridge:<id>`. GUI-written results and exact
+ingredients store the full item as base64 (Paper's version-upgradeable
+`serializeAsBytes`) plus a readable `material` mirror; hand-written entries need only
+`material` (+ `amount`), and may use `{tag: 'minecraft:wool'}` for any item in a tag:
+
+```yaml
+recipes:
+  ender_pearl:
+    type: shaped            # or shapeless
+    enabled: true
+    result: {material: ENDER_PEARL, amount: 2}
+    shape: ['AGA', 'GDG', 'AGA']
+    ingredients:
+      A: {material: AMETHYST_SHARD}
+      G: {material: GLOWSTONE_DUST}
+      D: {material: DIAMOND}
+  string:
+    type: shapeless
+    result: {material: STRING, amount: 4}
+    ingredients: [{tag: 'minecraft:wool'}, {tag: 'minecraft:wool'}, {material: BAMBOO}, {material: BAMBOO}]
+```
+
+**Starter pack:** `recipes-peaceful-starter.yml` ships in the jar (and is copied to the
+plugin folder for tuning). *Import Starter Pack* adds every id that does not exist yet —
+string, gunpowder, bone, rotten flesh, spider eye, slime ball, ender pearl, blaze rod,
+ghast tear, phantom membrane, shulker shell, wither skeleton skull, nether star, totem of
+undying, trident. They are "not free" rather than balanced; tune them in Browse or the
+file.
+
+**Clients:** every add/remove/toggle/reload calls `Bukkit.updateRecipes()` and unlocks
+the recipes in online players' recipe books (and on join). Vanilla clients are current
+immediately. JEI clients: JEI 26.2 on a non-Fabric server only knows the recipes
+bundled with the *client* (it falls back to the vanilla recipe JSONs) — so custom
+recipes will not show in JEI until CraftBridge's own recipe sync lands in a later PR.
+JEIServerProxy does not listen for recipe changes; it unlocks the recipe book on join
+and answers a legacy `jei:network` handshake, neither of which carries recipe data.
+Until the sync PR, the console prints a reminder after each change.
+
 ## Configuration
 
 See the comments in `src/main/resources/config.yml`. Everything reloads with
@@ -106,5 +167,7 @@ See the comments in `src/main/resources/config.yml`. Everything reloads with
 * `integration.ContainerAccess` is the one place that answers "may this player use this
   container?": vanilla lock → Towny (reflection, optional) → a synthetic
   `PlayerInteractEvent` any protection plugin can cancel.
-* Pure logic (`sort.SortAlgorithm`, `sort.SortCategoryRules`) has no Bukkit dependency and
-  is covered by JUnit tests; `./gradlew test` runs them.
+* Pure logic (`sort.SortAlgorithm`, `sort.SortCategoryRules`, `recipes.RecipeShape`) has
+  no Bukkit dependency and is covered by JUnit tests; `./gradlew test` runs them.
+* `recipes.RecipeRegistry#onChange` is the hook a recipe-sync feature uses to learn that
+  the registered set changed.

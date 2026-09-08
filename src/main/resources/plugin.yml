@@ -31,6 +31,11 @@ commands:
       /craftbridge version  - show the running version and enabled features
     permission: craftbridge.admin
     aliases: [cb]
+  recipe:
+    description: Manage admin-defined crafting recipes (GUI).
+    usage: /<command>
+    permission: craftbridge.recipes.admin
+    aliases: [recipes]
   sort:
     description: Sort the container you have open, or change your sorting trigger.
     usage: |-
@@ -42,6 +47,9 @@ commands:
 permissions:
   craftbridge.admin:
     description: Reload and administer CraftBridge.
+    default: op
+  craftbridge.recipes.admin:
+    description: Create, edit and delete custom recipes with /recipe.
     default: op
   craftbridge.sort:
     description: Sort containers and change your own sorting settings.

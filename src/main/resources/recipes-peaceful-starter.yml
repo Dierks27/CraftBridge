@@ -1,0 +1,129 @@
+# CraftBridge starter pack: crafting recipes for items that only mobs drop, so a
+# peaceful-mode server can still reach them. Deliberately "not free" — tune the numbers
+# here (then /recipe reload), or in-game via /recipe > Browse. Import with
+# /recipe > Import starter pack (or /recipe import starter); only ids that don't exist
+# yet are added, so re-importing never overwrites your edits.
+#
+# Ingredient forms: {material: NAME}, {tag: 'minecraft:wool'} (any item in the tag),
+# {item: <base64>, exact: true} (exact item, written by the GUI).
+recipes:
+  string:
+    type: shapeless
+    result: {material: STRING, amount: 4}
+    ingredients:
+      - {tag: 'minecraft:wool'}
+      - {tag: 'minecraft:wool'}
+      - {material: BAMBOO}
+      - {material: BAMBOO}
+  gunpowder:
+    type: shapeless
+    result: {material: GUNPOWDER, amount: 2}
+    ingredients:
+      - {material: CHARCOAL}
+      - {material: BONE_MEAL}
+      - {material: SAND}
+      - {material: REDSTONE}
+  bone:
+    type: shapeless
+    result: {material: BONE, amount: 1}
+    ingredients:
+      - {material: BONE_MEAL}
+      - {material: BONE_MEAL}
+      - {material: BONE_MEAL}
+      - {material: CALCITE}
+  rotten_flesh:
+    type: shapeless
+    result: {material: ROTTEN_FLESH, amount: 2}
+    ingredients:
+      - {material: BEEF}
+      - {material: BROWN_MUSHROOM}
+      - {material: BONE_MEAL}
+  spider_eye:
+    type: shapeless
+    result: {material: SPIDER_EYE, amount: 1}
+    ingredients:
+      - {material: POISONOUS_POTATO}
+      - {material: BEETROOT}
+      - {material: RED_DYE}
+  slime_ball:
+    type: shapeless
+    result: {material: SLIME_BALL, amount: 2}
+    ingredients:
+      - {material: KELP}
+      - {material: KELP}
+      - {material: SUGAR}
+      - {material: LIME_DYE}
+  ender_pearl:
+    type: shaped
+    result: {material: ENDER_PEARL, amount: 2}
+    shape: ['AGA', 'GDG', 'AGA']
+    ingredients:
+      A: {material: AMETHYST_SHARD}
+      G: {material: GLOWSTONE_DUST}
+      D: {material: DIAMOND}
+  blaze_rod:
+    type: shaped
+    result: {material: BLAZE_ROD, amount: 1}
+    shape: [' G ', 'GMG', ' S ']
+    ingredients:
+      G: {material: GLOWSTONE_DUST}
+      M: {material: MAGMA_BLOCK}
+      S: {material: STICK}
+  ghast_tear:
+    type: shapeless
+    result: {material: GHAST_TEAR, amount: 1}
+    ingredients:
+      - {material: QUARTZ}
+      - {material: QUARTZ}
+      - {material: QUARTZ}
+      - {material: QUARTZ}
+      - {material: SOUL_SAND}
+      - {material: BLUE_ICE}
+  phantom_membrane:
+    type: shapeless
+    result: {material: PHANTOM_MEMBRANE, amount: 1}
+    ingredients:
+      - {material: LEATHER}
+      - {material: FEATHER}
+      - {material: FEATHER}
+      - {material: GRAY_DYE}
+      - {material: SOUL_SAND}
+  shulker_shell:
+    type: shaped
+    result: {material: SHULKER_SHELL, amount: 1}
+    shape: ['PPP', 'PAP', 'PPP']
+    ingredients:
+      P: {material: PURPUR_BLOCK}
+      A: {material: AMETHYST_SHARD}
+  wither_skeleton_skull:
+    type: shaped
+    result: {material: WITHER_SKELETON_SKULL, amount: 1}
+    shape: ['BSB', 'SOS', 'BSB']
+    ingredients:
+      B: {material: BONE_BLOCK}
+      S: {material: SOUL_SOIL}
+      O: {material: OBSIDIAN}
+  nether_star:
+    type: shaped
+    result: {material: NETHER_STAR, amount: 1}
+    shape: ['GWG', 'WDW', 'GWG']
+    ingredients:
+      G: {material: GOLD_BLOCK}
+      W: {material: WITHER_SKELETON_SKULL}
+      D: {material: DIAMOND_BLOCK}
+  totem_of_undying:
+    type: shaped
+    result: {material: TOTEM_OF_UNDYING, amount: 1}
+    shape: ['GEG', 'EAE', 'GEG']
+    ingredients:
+      G: {material: GOLD_INGOT}
+      E: {material: EMERALD}
+      A: {material: GOLDEN_APPLE}
+  trident:
+    type: shaped
+    result: {material: TRIDENT, amount: 1}
+    shape: ['DND', ' S ', ' S ']
+    ingredients:
+      D: {material: DIAMOND}
+      N: {material: NAUTILUS_SHELL}
+      S: {material: STICK}
