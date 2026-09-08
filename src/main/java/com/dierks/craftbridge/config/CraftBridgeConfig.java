@@ -173,6 +173,16 @@ public final class CraftBridgeConfig {
                 (float) raw.getDouble("linked-workbench.display.yaw-offset", 0));
     }
 
+    /** Show nearby storage in the player's empty inventory slots (packet-only) while a linked table is open. */
+    public boolean workbenchPhantomSlots() {
+        return raw.getBoolean("linked-workbench.phantom-slots", true);
+    }
+
+    /** Empty slots left free of phantoms so JEI can still shuffle items out of the grid. */
+    public int workbenchPhantomReserve() {
+        return Math.max(0, Math.min(9, raw.getInt("linked-workbench.phantom-reserve-empty-slots", 2)));
+    }
+
     public boolean workbenchRecipeEnabled() {
         return raw.getBoolean("linked-workbench.recipe.enabled", true);
     }

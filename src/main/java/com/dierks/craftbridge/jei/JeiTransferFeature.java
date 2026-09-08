@@ -124,22 +124,54 @@ public final class JeiTransferFeature implements CraftBridgePlugin.Feature, Plug
                     + ", not a crafting table or the player grid.");
             return false;
         }
-        Map<Integer, TransferEngine.Stack<ItemStack>> before = new HashMap<>();
+        Map<Integer, TransferEngine.Stack<ItemStack>> real = new HashMap<>();
         for (int raw : layout.allSlots()) {
             ItemStack stack = view.getItem(raw);
             if (!Items.isEmpty(stack)) {
                 ItemStack key = stack.clone();
                 key.setAmount(1);
-                before.put(raw, new TransferEngine.Stack<>(key, stack.getAmount()));
+                real.put(raw, new TransferEngine.Stack<>(key, stack.getAmount()));
             }
         }
+        // Virtual (phantom) slots: items the client was shown in empty inventory slots.
+        Map<Integer, TransferEngine.Stack<ItemStack>> virtual = new HashMap<>();
+        for (TransferListener listener : listeners) {
+            listener.virtualSlots(player, view, layout).forEach((raw, stack) -> {
+                if (!real.containsKey(raw) && layout.inventorySlots().contains(raw) && stack != null && stack.count() > 0) {
+                    virtual.put(raw, stack);
+                }
+            });
+        }
+        Map<Integer, TransferEngine.Stack<ItemStack>> before = new HashMap<>(real);
+        before.putAll(virtual);
         TransferEngine.Result<ItemStack> result = engine.apply(before, packet, layout.gridSlots(), layout.inventorySlots());
         if (!result.success()) {
             plugin.debug("JEI transfer from " + player.getName() + " failed: " + result.failure());
         } else {
+            Map<ItemStack, Integer> deficits = new HashMap<>();
+            if (!virtual.isEmpty()) {
+                for (TransferListener listener : listeners) {
+                    listener.settleVirtual(player, view, layout, virtual, result.slots())
+                            .forEach((key, n) -> deficits.merge(key, n, Integer::sum));
+                }
+            }
             for (int raw : layout.allSlots()) {
+                if (virtual.containsKey(raw)) {
+                    continue; // stays empty for real; the listener moved the actual items
+                }
                 TransferEngine.Stack<ItemStack> wanted = result.slots().get(raw);
-                TransferEngine.Stack<ItemStack> had = before.get(raw);
+                if (wanted != null && layout.isGridSlot(raw) && !deficits.isEmpty()) {
+                    // Storage came up short: trim what the engine thought it had placed.
+                    for (Map.Entry<ItemStack, Integer> d : deficits.entrySet()) {
+                        if (d.getValue() > 0 && d.getKey().isSimilar(wanted.key())) {
+                            int trim = Math.min(d.getValue(), wanted.count());
+                            wanted = wanted.count() - trim <= 0 ? null : wanted.withCount(wanted.count() - trim);
+                            d.setValue(d.getValue() - trim);
+                            break;
+                        }
+                    }
+                }
+                TransferEngine.Stack<ItemStack> had = real.get(raw);
                 if (sameStack(wanted, had)) {
                     continue;
                 }

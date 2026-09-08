@@ -29,6 +29,7 @@ commands:
     usage: |-
       /craftbridge reload   - reload config.yml and all feature data
       /craftbridge version  - show the running version and enabled features
+      /craftbridge give <player> workbench [amount]  - hand out a Linked Workbench
       /craftbridge workbench give|list|refresh|display  - Linked Workbench tools
     permission: craftbridge.admin
     aliases: [cb]

@@ -21,8 +21,12 @@ import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.inventory.ClickType;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.world.EntitiesLoadEvent;
@@ -160,12 +164,63 @@ public final class WorkbenchListener implements Listener {
         }
         event.setUseInteractedBlock(Event.Result.DENY);
         event.setUseItemInHand(Event.Result.DENY);
-        Player player = event.getPlayer();
-        if (player.isSneaking()) {
-            new StorageMenu(plugin, feature.scanner(), player, record).open(player);
-        } else {
-            feature.sessions().open(player, record);
+        // Placing a linked table is the opt-in: every right-click (sneaking or not) opens the
+        // linked crafting menu with nearby storage shown as phantom inventory slots.
+        feature.sessions().open(event.getPlayer(), record);
+    }
+
+    // ---- phantom slots -------------------------------------------------------------
+
+    /**
+     * Clicks in the linked view: a click that involves a phantom slot (the hovered slot, the
+     * hotbar slot of a number-key swap) is cancelled and turned into "pull one real stack
+     * from storage into that slot"; every other click just triggers a rebuild next tick
+     * so the phantoms follow what is now empty.
+     */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onClick(InventoryClickEvent event) {
+        PhantomManager phantoms = feature.phantoms();
+        if (phantoms == null || !(event.getWhoClicked() instanceof Player player)
+                || !feature.sessions().isLinkedView(player, event.getView())) {
+            return;
         }
+        int target = -1;
+        if (phantoms.isPhantom(player, event.getRawSlot())) {
+            target = event.getRawSlot();
+        } else if (event.getClick() == ClickType.NUMBER_KEY && event.getHotbarButton() >= 0) {
+            int hotbarRaw = 37 + event.getHotbarButton(); // crafting table view: hotbar is raw 37-45
+            if (phantoms.isPhantom(player, hotbarRaw)) {
+                target = hotbarRaw;
+            }
+        }
+        if (target >= 0) {
+            event.setCancelled(true);
+            final int slot = target;
+            Bukkit.getScheduler().runTask(plugin, () -> phantoms.pullIntoSlot(player, slot));
+            return;
+        }
+        phantoms.rebuildLater(player);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onDrag(InventoryDragEvent event) {
+        PhantomManager phantoms = feature.phantoms();
+        if (phantoms == null || !(event.getWhoClicked() instanceof Player player)
+                || !feature.sessions().isLinkedView(player, event.getView())) {
+            return;
+        }
+        for (int raw : event.getRawSlots()) {
+            if (phantoms.isPhantom(player, raw)) {
+                event.setCancelled(true);
+                break;
+            }
+        }
+        phantoms.rebuildLater(player);
+    }
+
+    @EventHandler
+    public void onKick(PlayerKickEvent event) {
+        feature.sessions().end(event.getPlayer(), true);
     }
 
     @EventHandler(priority = EventPriority.NORMAL)

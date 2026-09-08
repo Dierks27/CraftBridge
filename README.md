@@ -46,7 +46,8 @@ generate `plugins/CraftBridge/config.yml`).
 | Command | Permission | Default |
 |---------|-----------|---------|
 | `/craftbridge reload` / `/craftbridge version` (alias `/cb`) | `craftbridge.admin` | op |
-| `/craftbridge workbench give [player] [amount]` / `list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
+| `/craftbridge give <player> workbench [amount]` | `craftbridge.admin` | op |
+| `/craftbridge workbench list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
 | `/sort settings` — pick your trigger and toggles | `craftbridge.sort` | everyone |
 | `/sort debug` — print the raw click your client sends when clicking outside a GUI | `craftbridge.sort` | everyone |
@@ -301,26 +302,50 @@ vanilla lock, Towny plot permission (reflection), then a synthetic `PlayerIntera
 any protection plugin can cancel (`respect-protection`). Hoppers and furnaces are never
 read.
 
-**Using it.**
-* **Right-click** → opens a real vanilla crafting menu attached to the table
-  (`MenuType.CRAFTING`, `checkReachable`), tracked as a *linked session* for the player.
-  Vanilla's reach check closes it when the player is more than 8 blocks away or the table
-  is gone; death, teleport, quit and Escape end it too.
-* **Sneak + right-click** → the storage GUI: everything in nearby storage aggregated by
-  item with counts, 45 per page, ordered like the sorter. Click takes one stack into your
-  inventory, shift-click takes as many as fit. This is the manual / Bedrock path.
-* **JEI `[+]`** inside a linked session sources from the player's inventory first (that
-  is JEI's own server logic, PR 4) and then, on **shift-`[+]`**, tops the grid up with
-  more sets from nearby storage — items are taken out of the containers at transfer
-  time, the same number per slot when the recipe wants complete sets, limited by the
-  scarcest ingredient and the stack limit. The session records, per grid slot, which
-  container fed it and how many; on close those items go back to that container if it
-  has room, and anything else left in the grid is returned by vanilla to the player (or
-  dropped at the player if full). Ingredients the player does not carry at all cannot
-  be sourced this way — JEI greys the button out client-side before the server hears
-  anything — so fetch those with the storage GUI first. Container items that a later
-  `[+]` moves out of the grid land in the player's inventory (JEI's stow), not back in
-  the chest.
+**Using it.** Right-click → a real vanilla crafting menu attached to the table
+(`MenuType.CRAFTING`, `checkReachable`), tracked as a *linked session*. Placing a linked
+table is the whole opt-in: no mode, no sneak-click, no activation step. Vanilla's reach
+check closes it when the player is more than 8 blocks away or the table is gone; death,
+teleport, quit, kick and Escape end it too.
+
+**Phantom inventory slots (`linked-workbench.phantom-slots`).** JEI decides on the
+*client* whether a transfer is possible: its handler scans the inventory slots of the open
+menu for the recipe's ingredients and, if any are missing, shows the red highlight and
+never sends `jei:recipe_transfer` — so server-side sourcing alone can never fill a grid
+from chests. (Confirmable on the live server: with `debug: true`, click `[+]` with an
+empty inventory and no "First JEI packet on …" line ever appears.) CraftBridge therefore
+makes the client *see* nearby storage as inventory:
+
+* On open, nearby storage (chests, barrels, shulkers, double chests within the radius,
+  permission-checked; hoppers/furnaces excluded) is aggregated by item type. Each of the
+  player's **empty** inventory slots (main + hotbar; armour and offhand excluded, and
+  `phantom-reserve-empty-slots` left free so JEI can still shuffle leftovers) is shown —
+  packet-only, via `ClientboundContainerSetSlotPacket` on the open crafting menu — holding
+  one type, count-descending, capped at the stack size, with the lore line
+  *"From nearby storage (N available)"*. The real inventory is never touched.
+* `[+]` / shift-`[+]`: when JEI's transfer draws from a phantom slot, the server pulls the
+  real items out of the recorded containers (nearest first) straight into the grid and
+  records the origin per grid slot. Items the engine "stows" into a phantom slot go back
+  into storage. If a chest emptied between snapshot and click, the grid is trimmed by the
+  shortfall. Real slots behave exactly as before; the shift-`[+]` top-up still runs after.
+* Any click, drag, number-key swap or drop on a phantom slot is cancelled and becomes
+  "pull one real stack of that type into this slot" — the items really move from the
+  container into the inventory, and the phantom shifts to another empty slot.
+* After every click, craft and transfer the snapshot is rebuilt and re-sent so counts stay
+  honest; slots that stopped being empty get their real content re-sent.
+* On session end (close, death, teleport, out of range, quit, kick) `updateInventory()`
+  re-syncs the real inventory; sessions are in-memory only.
+* JEI's `delete_player_item` and cheat-mode packets are never acted on (the latter are not
+  even registered), so nothing can be "deleted" out of a phantom slot.
+
+Limitation: only as many item types as there are empty inventory slots can be shown at
+once (the biggest stacks win). The Combo Chest is the way to see everything.
+Implementation: `workbench.PhantomManager`; the one NMS call lives in
+`workbench.nms.PaperSlotPackets` (the same packet CraftBukkit's own
+`CraftInventoryPlayer#setItem` sends) and is loaded reflectively, so a rename on a
+future 26.x build disables just this feature with one WARN.
+
+**Getting the block:** craft it, or `/craftbridge give <player> workbench [amount]`.
 
 ## Configuration
 

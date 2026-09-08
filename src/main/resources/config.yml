@@ -67,6 +67,13 @@ linked-workbench:
   # Skip containers the player may not use (vanilla lock is always honoured; this adds
   # Towny/WorldGuard-style checks via a synthetic interact event).
   respect-protection: true
+  # While a linked table is open, the player's EMPTY inventory slots are shown (packets
+  # only, the real inventory is untouched) holding one nearby-storage item type each, so
+  # JEI's [+] believes the ingredients are in the inventory and sends the transfer; the
+  # real items are then pulled out of the chests. Turn off if it misbehaves.
+  phantom-slots: true
+  # Empty slots kept free of phantoms so JEI can still move leftovers out of the grid.
+  phantom-reserve-empty-slots: 2
   # Base64 "textures" value of the head the block should look like.
   head-texture: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDkzZDExMmRjZTc0NGNjOWY3OTc5OTZmMTJjZTNhMmQ4MjJkY2E5ZDA5YzllOWVkZTZjNmIxMzIwODA5OWMxIn19fQ=="
   # The ItemDisplay that draws the head at full block size over the real crafting
