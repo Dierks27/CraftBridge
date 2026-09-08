@@ -152,8 +152,17 @@ public final class CraftBridgeConfig {
         return Math.max(1, Math.min(32, raw.getInt(kind.configSection() + ".radius", 8)));
     }
 
+    /**
+     * Base64 {@code textures} value for a kind's head, or "" for none. An unset or blank
+     * value means "the built-in look for this block"; {@code none} turns the head off and
+     * shows {@code display-item} instead.
+     */
     public String headTexture(com.dierks.craftbridge.workbench.BlockKind kind) {
-        return raw.getString(kind.configSection() + ".head-texture", "");
+        String configured = raw.getString(kind.configSection() + ".head-texture", "");
+        if (configured == null || configured.isBlank()) {
+            return kind.defaultHeadTexture();
+        }
+        return configured.trim().equalsIgnoreCase("none") ? "" : configured.trim();
     }
 
     /** Item shown by the display (and used as the place-item) when a kind has no head texture. */
@@ -166,7 +175,8 @@ public final class CraftBridgeConfig {
 
     public WorkbenchDisplay displayFor(com.dierks.craftbridge.workbench.BlockKind kind) {
         String base = kind.configSection() + ".display.";
-        boolean combo = kind == com.dierks.craftbridge.workbench.BlockKind.COMBO_CHEST;
+        // Both kinds default to a head model now, so both use the head geometry; a kind
+        // switched to display-item ("head-texture: none") wants scale ~1.16 at y 0.5.
         ItemDisplay.ItemDisplayTransform transform;
         String t = raw.getString(base + "transform", "NONE");
         try {
@@ -176,9 +186,9 @@ public final class CraftBridgeConfig {
             transform = ItemDisplay.ItemDisplayTransform.NONE;
         }
         return new WorkbenchDisplay(transform,
-                (float) raw.getDouble(base + "scale", combo ? 1.16 : 2.02),
+                (float) raw.getDouble(base + "scale", 2.02),
                 raw.getDouble(base + "offset-x", 0.5),
-                raw.getDouble(base + "offset-y", combo ? 0.5 : 1.005),
+                raw.getDouble(base + "offset-y", 1.005),
                 raw.getDouble(base + "offset-z", 0.5),
                 (float) raw.getDouble(base + "yaw-offset", 0));
     }

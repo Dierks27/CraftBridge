@@ -51,6 +51,19 @@ public enum BlockKind {
         return configSection;
     }
 
+    /**
+     * The head texture used when {@code head-texture} is blank. Empty for kinds that have
+     * no default look of their own, which then fall back to {@code display-item}.
+     */
+    public String defaultHeadTexture() {
+        return this == COMBO_CHEST ? DEFAULT_COMBO_CHEST_TEXTURE : "";
+    }
+
+    /** Base64 "textures" value for the Combo Chest's head (chosen for the live server). */
+    private static final String DEFAULT_COMBO_CHEST_TEXTURE =
+            "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1"
+            + "cmUvNmJiMGUzYzE4YzczZTNhMmNhYmNjZjQ0ZWY1M2Q2MTdjYTA5NWUwZjIzNDdlZmE5M2Y2N2JkNDgwOGU3MGE3In19fQ==";
+
     public NamespacedKey recipeKey() {
         return new NamespacedKey("craftbridge", id);
     }
