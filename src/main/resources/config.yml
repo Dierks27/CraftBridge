@@ -1,0 +1,55 @@
+# CraftBridge configuration. Reload with /craftbridge reload.
+
+# Master switches. Each feature is independent; turn one off and its listeners,
+# commands and stores are simply never registered.
+features:
+  sorting: true
+  recipes: true
+  linked-workbench: true
+  jei-transfer: true
+
+# Promote CraftBridge's DEBUG logging (packet decode failures, trigger detection) to
+# INFO so it shows in the console without touching log4j config.
+debug: false
+
+# -----------------------------------------------------------------------------
+# Feature 3 — chest sorting
+# -----------------------------------------------------------------------------
+sorting:
+  # Default trigger for players who have not picked one in /sort settings.
+  # SHIFT_CLICK_OUTSIDE   shift + click the empty area outside the GUI (see README:
+  #                       the 26.2 client may not send the shift state for outside
+  #                       clicks; CraftBridge also accepts a plain outside click while
+  #                       sneaking; use /sort debug to see what your client sends)
+  # DOUBLE_CLICK_OUTSIDE  two clicks outside the GUI within double-click-ms (safest)
+  # SNEAK_PUNCH_BLOCK     sneak + left-click the container block
+  # COMMAND_ONLY          only /sort
+  default-trigger: DOUBLE_CLICK_OUTSIDE
+  double-click-ms: 400
+  # Allow players to enable "also sort my inventory" at all, and its default.
+  player-inventory:
+    allowed: true
+    default: false
+  # Default for the sound/particle feedback toggle.
+  feedback-default: true
+  # Skip containers whose Towny plot / WorldGuard region the player cannot use.
+  respect-protection: true
+  # Categories are applied in this order. Each entry lists regular expressions that
+  # are matched against the Material name (e.g. DIAMOND_PICKAXE). Special tokens:
+  #   @edible  - anything the player can eat
+  #   @block   - anything placeable as a block
+  #   @default - everything else (put it last)
+  # Within a category items are ordered by material name, then display name.
+  categories:
+    - name: tools
+      match: ['.*_PICKAXE', '.*_AXE', '.*_SHOVEL', '.*_HOE', 'SHEARS', 'FLINT_AND_STEEL', 'FISHING_ROD', 'BRUSH', 'SPYGLASS', 'COMPASS', 'CLOCK', 'LEAD', 'NAME_TAG', 'BUCKET', '.*_BUCKET']
+    - name: weapons
+      match: ['.*_SWORD', 'BOW', 'CROSSBOW', 'TRIDENT', 'MACE', 'ARROW', '.*_ARROW', 'SHIELD']
+    - name: armor
+      match: ['.*_HELMET', '.*_CHESTPLATE', '.*_LEGGINGS', '.*_BOOTS', 'ELYTRA', 'TURTLE_HELMET', '.*_HORSE_ARMOR', 'WOLF_ARMOR']
+    - name: food
+      match: ['@edible']
+    - name: blocks
+      match: ['@block']
+    - name: items
+      match: ['@default']
