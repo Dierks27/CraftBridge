@@ -75,17 +75,30 @@ public final class SessionManager {
         }
         ItemStack[] matrix = crafting.getMatrix();
         boolean changed = false;
-        for (Map.Entry<Integer, Location> e : session.origins().entrySet()) {
+        for (Map.Entry<Integer, LinkedSession.Origin> e : session.origins().entrySet()) {
             int index = e.getKey();
             if (index < 0 || index >= matrix.length || Items.isEmpty(matrix[index])) {
                 continue;
             }
-            Block block = e.getValue().getBlock();
+            Block block = e.getValue().block().getBlock();
             if (!(block.getState(false) instanceof Container container)) {
                 continue;
             }
-            Map<Integer, ItemStack> left = container.getInventory().addItem(matrix[index]);
-            matrix[index] = left.isEmpty() ? null : left.values().iterator().next();
+            ItemStack present = matrix[index];
+            int owed = Math.min(e.getValue().count(), present.getAmount());
+            if (owed <= 0) {
+                continue;
+            }
+            ItemStack giveBack = present.clone();
+            giveBack.setAmount(owed);
+            Map<Integer, ItemStack> left = container.getInventory().addItem(giveBack);
+            int notTaken = left.values().stream().mapToInt(ItemStack::getAmount).sum();
+            int returned = owed - notTaken;
+            if (returned <= 0) {
+                continue;
+            }
+            int remaining = present.getAmount() - returned;
+            matrix[index] = remaining <= 0 ? null : present.clone().asQuantity(remaining);
             changed = true;
         }
         if (changed) {

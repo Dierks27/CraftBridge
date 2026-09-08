@@ -1,6 +1,7 @@
 package com.dierks.craftbridge.workbench;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
+import com.dierks.craftbridge.jei.JeiTransferFeature;
 import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
 import org.bukkit.Bukkit;
@@ -56,6 +57,11 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         registerRecipe();
         listener = new WorkbenchListener(plugin, this);
         plugin.getServer().getPluginManager().registerEvents(listener, plugin);
+        JeiTransferFeature jei = plugin.feature(JeiTransferFeature.class);
+        if (jei != null) {
+            jei.addListener(new LinkedTransferBridge(plugin, this));
+            plugin.getLogger().info("Linked Workbench: JEI shift-[+] will top up sets from nearby storage.");
+        }
     }
 
     @Override

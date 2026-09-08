@@ -20,7 +20,18 @@ public final class LinkedSession {
     private final UUID player;
     private final WorkbenchRecord record;
     private final InventoryView view;
-    private final Map<Integer, Location> origins = new HashMap<>();
+    private final Map<Integer, Origin> origins = new HashMap<>();
+
+    /** Where {@code count} items in a grid slot came from (best effort: the first container that fed the slot). */
+    public record Origin(Location block, int count) {
+        public Origin plus(int more) {
+            return new Origin(block, count + more);
+        }
+
+        public Origin capped(int max) {
+            return count <= max ? this : new Origin(block, max);
+        }
+    }
 
     public LinkedSession(UUID player, WorkbenchRecord record, InventoryView view) {
         this.player = player;
@@ -46,15 +57,21 @@ public final class LinkedSession {
         return loc == null ? null : loc.add(0.5, 0.5, 0.5);
     }
 
-    public Map<Integer, Location> origins() {
+    public Map<Integer, Origin> origins() {
         return origins;
     }
 
-    public void setOrigin(int gridIndex, Location containerBlock) {
-        if (containerBlock == null) {
-            origins.remove(gridIndex);
+    /** Record that {@code count} more items in grid slot {@code gridIndex} were pulled from {@code containerBlock}. */
+    public void addOrigin(int gridIndex, Location containerBlock, int count) {
+        Origin existing = origins.get(gridIndex);
+        if (existing == null) {
+            origins.put(gridIndex, new Origin(containerBlock.clone(), count));
         } else {
-            origins.put(gridIndex, containerBlock.clone());
+            origins.put(gridIndex, existing.plus(count));
         }
+    }
+
+    public void clearOrigin(int gridIndex) {
+        origins.remove(gridIndex);
     }
 }
