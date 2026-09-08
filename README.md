@@ -268,10 +268,18 @@ read.
 * **Sneak + right-click** → the storage GUI: everything in nearby storage aggregated by
   item with counts, 45 per page, ordered like the sorter. Click takes one stack into your
   inventory, shift-click takes as many as fit. This is the manual / Bedrock path.
-* **JEI `[+]`** inside a linked session — sourcing from containers arrives with the JEI
-  PRs. The session already records, per grid slot, which container an item came from, and
-  on close those items go back to their container if it has room; anything left in the
-  grid is returned by vanilla to the player (or dropped at the player if full).
+* **JEI `[+]`** inside a linked session sources from the player's inventory first (that
+  is JEI's own server logic, PR 4) and then, on **shift-`[+]`**, tops the grid up with
+  more sets from nearby storage — items are taken out of the containers at transfer
+  time, the same number per slot when the recipe wants complete sets, limited by the
+  scarcest ingredient and the stack limit. The session records, per grid slot, which
+  container fed it and how many; on close those items go back to that container if it
+  has room, and anything else left in the grid is returned by vanilla to the player (or
+  dropped at the player if full). Ingredients the player does not carry at all cannot
+  be sourced this way — JEI greys the button out client-side before the server hears
+  anything — so fetch those with the storage GUI first. Container items that a later
+  `[+]` moves out of the grid land in the player's inventory (JEI's stow), not back in
+  the chest.
 
 ## Configuration
 
