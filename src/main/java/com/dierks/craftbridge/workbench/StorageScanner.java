@@ -47,6 +47,11 @@ public final class StorageScanner {
 
     /** Scan the cube of {@code radius} around the table, nearest containers first. */
     public List<Source> scan(Player player, Location center, int radius) {
+        return scan(player, center, radius, Set.of());
+    }
+
+    /** As {@link #scan(Player, Location, int)} but skipping the given container blocks (e.g. a terminal's own barrel). */
+    public List<Source> scan(Player player, Location center, int radius, Set<Location> exclude) {
         World world = center.getWorld();
         List<Source> sources = new ArrayList<>();
         Set<Location> seenInventories = new HashSet<>();
@@ -68,6 +73,9 @@ public final class StorageScanner {
         }
         candidates.sort((a, b) -> Double.compare(a.getLocation().distanceSquared(center), b.getLocation().distanceSquared(center)));
         for (Block block : candidates) {
+            if (exclude.contains(block.getLocation())) {
+                continue;
+            }
             if (!(block.getState(false) instanceof Container container)) {
                 continue;
             }
@@ -185,6 +193,54 @@ public final class StorageScanner {
 
     /** Items taken from one source. */
     public record Pulled(ItemStack stack, Source source) {
+    }
+
+    /**
+     * Put {@code stack} into nearby storage: first into a container that already holds
+     * that item type, else the nearest container with a free slot. Returns what did not
+     * fit (empty when everything was stored). Sources are already permission-filtered.
+     */
+    public ItemStack deposit(List<Source> sources, ItemStack stack) {
+        if (Items.isEmpty(stack)) {
+            return null;
+        }
+        ItemStack remaining = stack.clone();
+        for (Source source : sources) {
+            if (!holds(source.inventory(), remaining)) {
+                continue;
+            }
+            remaining = addAll(source.inventory(), remaining);
+            if (Items.isEmpty(remaining)) {
+                return null;
+            }
+        }
+        for (Source source : sources) {
+            if (source.inventory().firstEmpty() < 0) {
+                continue;
+            }
+            remaining = addAll(source.inventory(), remaining);
+            if (Items.isEmpty(remaining)) {
+                return null;
+            }
+        }
+        return remaining;
+    }
+
+    private static boolean holds(Inventory inventory, ItemStack key) {
+        for (ItemStack s : inventory.getStorageContents()) {
+            if (!Items.isEmpty(s) && s.isSimilar(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ItemStack addAll(Inventory inventory, ItemStack stack) {
+        Map<Integer, ItemStack> left = inventory.addItem(stack);
+        if (left.isEmpty()) {
+            return null;
+        }
+        return left.values().iterator().next();
     }
 
     /** How many items matching {@code key} the sources hold in total. */

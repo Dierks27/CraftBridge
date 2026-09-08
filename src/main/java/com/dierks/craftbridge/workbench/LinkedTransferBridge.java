@@ -2,6 +2,7 @@ package com.dierks.craftbridge.workbench;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
 import com.dierks.craftbridge.jei.GridLayout;
+import com.dierks.craftbridge.jei.TransferEngine;
 import com.dierks.craftbridge.jei.TransferListener;
 import com.dierks.craftbridge.jei.TransferPacket;
 import com.dierks.craftbridge.util.Items;
@@ -40,9 +41,29 @@ public final class LinkedTransferBridge implements TransferListener {
     }
 
     @Override
+    public Map<Integer, TransferEngine.Stack<ItemStack>> virtualSlots(Player player, InventoryView view, GridLayout layout) {
+        PhantomManager phantoms = feature.phantoms();
+        return phantoms == null ? Map.of() : phantoms.virtualSlots(player, view);
+    }
+
+    @Override
+    public Map<ItemStack, Integer> settleVirtual(Player player, InventoryView view, GridLayout layout,
+                                                 Map<Integer, TransferEngine.Stack<ItemStack>> virtualBefore,
+                                                 Map<Integer, TransferEngine.Stack<ItemStack>> resultSlots) {
+        PhantomManager phantoms = feature.phantoms();
+        return phantoms == null ? Map.of() : phantoms.settle(player, view, layout, virtualBefore, resultSlots);
+    }
+
+    @Override
     public void afterTransfer(Player player, InventoryView view, GridLayout layout, TransferPacket packet, boolean success) {
         LinkedSession session = feature.sessions().of(player);
-        if (session == null || session.view() != view || !success) {
+        if (session == null || session.view() != view) {
+            return;
+        }
+        if (feature.phantoms() != null) {
+            feature.phantoms().rebuildLater(player);
+        }
+        if (!success) {
             return;
         }
         if (!(view.getTopInventory() instanceof CraftingInventory crafting)) {

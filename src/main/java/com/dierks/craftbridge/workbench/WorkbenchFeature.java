@@ -32,6 +32,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     private final StorageScanner scanner;
     private final SessionManager sessions;
     private WorkbenchListener listener;
+    private PhantomManager phantoms;
     private boolean recipeRegistered;
 
     public WorkbenchFeature(CraftBridgePlugin plugin) {
@@ -55,6 +56,11 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         plugin.getLogger().info("Linked Workbench: " + store.all().size() + " placed; startup sweep removed "
                 + swept[0] + " orphaned display(s), respawned " + swept[1] + ".");
         registerRecipe();
+        phantoms = PhantomManager.create(plugin, this);
+        sessions.setPhantoms(phantoms);
+        if (phantoms != null) {
+            plugin.getLogger().info("Linked Workbench: phantom inventory slots enabled (JEI sees nearby storage).");
+        }
         listener = new WorkbenchListener(plugin, this);
         plugin.getServer().getPluginManager().registerEvents(listener, plugin);
         JeiTransferFeature jei = plugin.feature(JeiTransferFeature.class);
@@ -94,6 +100,28 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
 
     public SessionManager sessions() {
         return sessions;
+    }
+
+    /** Null when phantom slots are disabled in config or the packet bridge failed to load. */
+    public PhantomManager phantoms() {
+        return phantoms;
+    }
+
+    /** Hand out place-items: {@code kind} is "workbench" (more kinds arrive with the Combo Chest). */
+    public boolean give(CommandSender sender, Player target, String kind, int amount) {
+        ItemStack item;
+        switch (kind.toLowerCase(Locale.ROOT)) {
+            case "workbench", "linkedworkbench", "linked_workbench", "table" -> item = items.placeItem(amount);
+            default -> {
+                sender.sendMessage(Text.msg("<red>Unknown item '" + kind + "'. Try: workbench"));
+                return false;
+            }
+        }
+        for (ItemStack left : target.getInventory().addItem(item).values()) {
+            target.getWorld().dropItemNaturally(target.getLocation(), left);
+        }
+        sender.sendMessage(Text.msg("<green>Gave " + amount + "x " + Items.describe(item) + " to " + target.getName() + "."));
+        return true;
     }
 
     /** Turn {@code block} into a Linked Workbench facing {@code player}. */
@@ -170,10 +198,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
                         // keep 1
                     }
                 }
-                for (ItemStack left : target.getInventory().addItem(items.placeItem(amount)).values()) {
-                    target.getWorld().dropItemNaturally(target.getLocation(), left);
-                }
-                sender.sendMessage(Text.msg("<green>Gave " + amount + " Linked Workbench to " + target.getName() + "."));
+                give(sender, target, "workbench", amount);
             }
             case "list" -> {
                 sender.sendMessage(Text.msg("<gray>" + store.all().size() + " Linked Workbench(es):"));

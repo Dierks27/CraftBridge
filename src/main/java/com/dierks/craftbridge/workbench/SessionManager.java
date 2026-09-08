@@ -22,9 +22,14 @@ public final class SessionManager {
 
     private final CraftBridgePlugin plugin;
     private final Map<UUID, LinkedSession> sessions = new HashMap<>();
+    private PhantomManager phantoms;
 
     public SessionManager(CraftBridgePlugin plugin) {
         this.plugin = plugin;
+    }
+
+    void setPhantoms(PhantomManager phantoms) {
+        this.phantoms = phantoms;
     }
 
     public LinkedSession of(Player player) {
@@ -47,6 +52,9 @@ public final class SessionManager {
         player.openInventory(view);
         LinkedSession session = new LinkedSession(player.getUniqueId(), record, view);
         sessions.put(player.getUniqueId(), session);
+        if (phantoms != null) {
+            phantoms.start(player);
+        }
         return session;
     }
 
@@ -65,6 +73,15 @@ public final class SessionManager {
         LinkedSession session = sessions.remove(player.getUniqueId());
         if (session == null) {
             return;
+        }
+        if (phantoms != null) {
+            // The menu is closing: re-sync next tick so the inventory screen shows real contents only.
+            phantoms.end(player, false);
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (player.isOnline()) {
+                    player.updateInventory();
+                }
+            });
         }
         if (!returnToOrigins || session.origins().isEmpty()) {
             return;
