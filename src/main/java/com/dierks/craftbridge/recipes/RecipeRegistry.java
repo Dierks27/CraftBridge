@@ -183,7 +183,7 @@ public final class RecipeRegistry {
         }
         if (changeListeners.isEmpty()) {
             plugin.getLogger().info("Recipes changed. Vanilla clients are up to date; JEI clients need to rejoin "
-                    + "(or an admin runs /jeiproxy handshake <player>) until CraftBridge's JEI recipe sync is enabled.");
+                    + "(or an admin runs /jeiproxy handshake <player>) because features.jei-recipe-sync is off.");
         }
     }
 
