@@ -50,6 +50,7 @@ generate `plugins/CraftBridge/config.yml`).
 | `/craftbridge page next\|prev` — turn the nearby-storage page at a Linked Workbench | none | everyone |
 | `/craftbridge give <player> workbench|combochest [amount]` | `craftbridge.admin` | op |
 | `/craftbridge workbench|combochest list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
+| `/craftbridge jei` / `/craftbridge jei resync` — recipe-sync state, or re-encode and re-send it now | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
 | `/sort settings` — pick your trigger and toggles | `craftbridge.sort` | everyone |
 | `/sort debug` — print the raw click your client sends when clicking outside a GUI | `craftbridge.sort` | everyone |
@@ -237,11 +238,15 @@ synchronisation (`fabric-recipe-api-v1`), so CraftBridge speaks that protocol:
 * Channel `fabric:recipe_sync` (server → client), payload:
   `VarInt entryCount, then per entry: Identifier serializerId, VarInt n, n × (ResourceKey recipeId, recipe via serializerId's stream codec)`.
   JEI syncs every `minecraft:` serializer; every Bukkit-registered recipe uses one of
-  those, so the whole server set is encodable. Exact-item ingredients are sent as their
-  item types (that is how Paper encodes them for any client).
+  those, so the whole server set is encodable — including every recipe a plugin added with
+  `Bukkit.addRecipe`, because Paper's `RecipeMap#addRecipe` puts those in the same map the
+  encoder walks (`byKey`, which `values()` returns, *and* `byType`, which CraftBukkit's own
+  `RecipeIterator` walks — iterating either sees plugin recipes, so switching iterators
+  changes nothing).
 * Sent on join once the client has announced the channel (Fabric clients with the recipe
   API always do; vanilla/Bedrock clients never do, so nothing is sent to them), and
-  re-sent to everyone whenever CraftBridge's custom recipes change.
+  re-sent to everyone whenever the server's recipe set changes — see *Keeping the snapshot
+  fresh* below.
 * After the payload the server re-sends vanilla's `ClientboundUpdateRecipesPacket` (and
   the recipe book) to that player: JEI (re)starts on that packet, and by the time a Paper
   plugin can act the join-time one has already gone out. Expect JEI to start twice on
@@ -252,6 +257,43 @@ synchronisation (`fabric-recipe-api-v1`), so CraftBridge speaks that protocol:
 * The payload must fit vanilla's 1 MiB custom-payload limit — Fabric's packet splitter
   only exists on Fabric servers. `jei.recipe-sync.types` is the priority list; types are
   dropped from the end until it fits (a full vanilla set is roughly 100–300 KB).
+
+**Keeping the snapshot fresh.** The encoded payload is a snapshot, and the reason a
+plugin's recipes can be missing from JEI is almost always that the snapshot predates them:
+plugins register recipes in their own `onEnable`, and CraftBridge enables before anything
+later in the alphabet. So the snapshot is rebuilt:
+
+* when the server finishes loading (`ServerLoadEvent` — every plugin has enabled by then,
+  and this also covers `/reload`), and pushed to everyone;
+* whenever CraftBridge's own recipes change (add, edit, enable/disable, delete,
+  `/recipe reload`), debounced to at most one re-encode and push per second so a burst of
+  edits does not re-encode the whole set repeatedly. `Bukkit.updateRecipes()` still runs
+  immediately for the vanilla recipe book; the JEI payload follows;
+* on join and on the channel announcement, if the live recipe count no longer matches the
+  snapshot's — so a joining player never gets a stale blob;
+* every 30 seconds while anyone is online, by the same cheap count check, which catches
+  recipes another plugin added or removed at any time without telling us.
+
+**Checking it worked.** The boot line now breaks the payload down by namespace, e.g.
+`JEI recipe sync: 1616 recipe(s), 212 KiB [minecraft=1599, craftbridge=4, homecraftmgmt=13]`
+— if a plugin's namespace is missing or short, its recipes are not in the payload, and
+CraftBridge cross-checks against `Bukkit.recipeIterator()` and logs a WARN naming the
+namespace. `/craftbridge jei` prints the same line plus how many clients have it, and
+`/craftbridge jei resync` re-encodes and re-sends to everyone on demand. On the client
+side, JEI itself says which set it is using: if it fell back to the client's own recipe
+JSONs it prints a recipe-sync warning in chat and in `latest.log`
+(`jei.message.server.recipe.sync.*`); no warning means it accepted the payload.
+
+**What does not survive the wire.** The result item keeps everything — custom name, lore,
+PDC, components — because a shaped/shapeless recipe's result is a full `ItemStack`.
+*Ingredients* do not: Paper stores an `ExactChoice`'s stacks in a CraftBukkit-only field
+next to the vanilla `HolderSet<Item>`, and only the `HolderSet` is in the vanilla
+serializer's stream codec, so an exact-match ingredient arrives at JEI as its plain item
+type (a renamed barrel shows as a barrel *in the ingredient slot*; the recipe and its
+result are correct). There is no way around it on this channel: JEI only accepts
+`minecraft:` serializers here (`RecipeSyncImpl.isSynced`), and a payload naming any other
+serializer — including JEI's own `jei:jei_shaped`, which *could* carry full stacks — is
+rejected wholesale by the client decoder.
 
 This is the only feature that touches server internals (`jei.nms.PaperRecipeSyncEncoder`,
 compiled with paperweight-userdev against the pinned dev bundle). It is loaded
