@@ -4,6 +4,7 @@ import com.dierks.craftbridge.command.CraftBridgeCommand;
 import com.dierks.craftbridge.config.CraftBridgeConfig;
 import com.dierks.craftbridge.gui.MenuListener;
 import com.dierks.craftbridge.integration.ContainerAccess;
+import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.sort.SortFeature;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.event.HandlerList;
@@ -29,7 +30,7 @@ public final class CraftBridgePlugin extends JavaPlugin {
         this.config = new CraftBridgeConfig(this);
         this.containerAccess = new ContainerAccess(this);
 
-        getServer().getPluginManager().registerEvents(new MenuListener(), this);
+        getServer().getPluginManager().registerEvents(new MenuListener(this), this);
 
         PluginCommand root = getCommand("craftbridge");
         if (root != null) {
@@ -51,6 +52,9 @@ public final class CraftBridgePlugin extends JavaPlugin {
         if (config.sortingEnabled()) {
             features.add(new SortFeature(this));
         }
+        if (config.recipesEnabled()) {
+            features.add(new RecipeFeature(this));
+        }
         for (Feature feature : features) {
             try {
                 feature.enable();
@@ -71,7 +75,7 @@ public final class CraftBridgePlugin extends JavaPlugin {
         }
         features.clear();
         HandlerList.unregisterAll(this);
-        getServer().getPluginManager().registerEvents(new MenuListener(), this);
+        getServer().getPluginManager().registerEvents(new MenuListener(this), this);
     }
 
     /** {@code /craftbridge reload}: re-read config.yml and rebuild every feature. */

@@ -71,6 +71,10 @@ public abstract class Menu implements InventoryHolder {
         return editableSlots.contains(rawSlot);
     }
 
+    public boolean hasEditableSlots() {
+        return !editableSlots.isEmpty();
+    }
+
     /** Rebuild the menu in place (contents update live for anyone viewing it). */
     protected void refresh() {
         handlers.clear();
