@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -35,8 +36,11 @@ import java.util.UUID;
  *       re-send vanilla's {@code ClientboundUpdateRecipesPacket} to that player, because
  *       JEI (re)starts on that packet and by the time a Paper plugin can act the original
  *       one has already gone out;</li>
- *   <li>repeat for everyone whenever CraftBridge's custom recipes change, so JEI updates
- *       live — no rejoin, no {@code /jeiproxy handshake}.</li>
+ *   <li>repeat for everyone whenever the server's recipe set changes, so JEI updates live —
+ *       no rejoin, no {@code /jeiproxy handshake}. "Changes" is not only CraftBridge's own
+ *       recipes: other plugins register theirs in their own {@code onEnable}, which can be
+ *       after ours, so the snapshot is also rebuilt when the server finishes loading, and
+ *       whenever the live recipe count stops matching the snapshot's.</li>
  * </ol>
  * The payload must fit vanilla's 1 MiB custom-payload limit (Fabric's packet splitter is
  * Fabric-only); recipe types are dropped from the end of {@code jei.recipe-sync.types}
@@ -48,12 +52,20 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
     /** Vanilla ClientboundCustomPayloadPacket.MAX_PAYLOAD_SIZE (and Bukkit's Messenger limit). */
     private static final int MAX_PAYLOAD = 1048576;
 
+    /** At most one re-encode + push per second, however many recipes change at once. */
+    private static final long RESYNC_DEBOUNCE_TICKS = 20L;
+    /** How often to notice that some other plugin changed the recipe set behind our back. */
+    private static final long POLL_TICKS = 600L;
+
     private final CraftBridgePlugin plugin;
     private RecipeSyncEncoder encoder;
     private byte[] cachedPayload;
     private int cachedCount;
+    private Map<String, Integer> cachedNamespaces = Map.of();
+    private int snapshotRecipeCount = -1;
     private final Set<UUID> synced = new HashSet<>();
     private boolean resyncScheduled;
+    private int pollTask = -1;
 
     public RecipeSyncFeature(CraftBridgePlugin plugin) {
         this.plugin = plugin;
@@ -82,8 +94,11 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
         if (recipes != null) {
             recipes.registry().onChange(this::scheduleResyncAll);
         }
-        plugin.getLogger().info("JEI recipe sync: " + cachedCount + " recipe(s) encoded (" + cachedPayload.length
-                + " bytes) on " + CHANNEL + "; JEI clients get server recipes live.");
+        plugin.getLogger().info("JEI recipe sync: " + describe() + " on " + CHANNEL
+                + "; JEI clients get server recipes live.");
+        warnAboutMissingPluginRecipes();
+        pollTask = Bukkit.getScheduler().runTaskTimer(plugin, this::pollForChanges, POLL_TICKS, POLL_TICKS)
+                .getTaskId();
         for (Player player : Bukkit.getOnlinePlayers()) {
             syncIfListening(player);
         }
@@ -91,6 +106,10 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
 
     @Override
     public void disable() {
+        if (pollTask != -1) {
+            Bukkit.getScheduler().cancelTask(pollTask);
+            pollTask = -1;
+        }
         HandlerList.unregisterAll(this);
         plugin.getServer().getMessenger().unregisterOutgoingPluginChannel(plugin, CHANNEL);
         synced.clear();
@@ -104,13 +123,34 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         // The client's minecraft:register usually arrives before the join event, but give
-        // it a tick; PlayerRegisterChannelEvent covers the late case.
-        Bukkit.getScheduler().runTask(plugin, () -> syncIfListening(event.getPlayer()));
+        // it a tick; PlayerRegisterChannelEvent covers the late case. Always send the
+        // current recipe set, never whatever was encoded when the plugin started.
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            refreshIfStale();
+            syncIfListening(event.getPlayer());
+        });
+    }
+
+    /**
+     * Every plugin has enabled by the time this fires, so any recipe another plugin
+     * registered in its own {@code onEnable} is in the set now (this is also what a
+     * {@code /reload} fires).
+     */
+    @EventHandler
+    public void onServerLoad(org.bukkit.event.server.ServerLoadEvent event) {
+        if (!isActive()) {
+            return;
+        }
+        refreshIfStale();
+        plugin.getLogger().info("JEI recipe sync: server finished loading, snapshot is " + describe() + ".");
+        warnAboutMissingPluginRecipes();
+        pushToEveryone();
     }
 
     @EventHandler
     public void onRegisterChannel(PlayerRegisterChannelEvent event) {
         if (CHANNEL.equals(event.getChannel())) {
+            refreshIfStale();
             syncIfListening(event.getPlayer());
         }
     }
@@ -120,29 +160,157 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
         synced.remove(event.getPlayer().getUniqueId());
     }
 
-    /** Re-encode and re-send to everyone (debounced to one tick). */
+    /** Re-encode and re-send to everyone, at most once a second however many edits land. */
     public void scheduleResyncAll() {
         if (!isActive() || resyncScheduled) {
             return;
         }
         resyncScheduled = true;
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
             resyncScheduled = false;
-            try {
-                encodeNow();
-            } catch (RuntimeException ex) {
-                plugin.getLogger().warning("JEI recipe sync: re-encoding failed (" + ex + "); clients keep the previous set.");
+            if (!encode("recipes changed")) {
                 return;
             }
-            synced.clear();
-            int n = 0;
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                if (syncIfListening(player)) {
-                    n++;
+            int n = pushToEveryone();
+            plugin.getLogger().info("JEI recipe sync: recipes changed, re-sent " + describe()
+                    + " to " + n + " JEI client(s).");
+        }, RESYNC_DEBOUNCE_TICKS);
+    }
+
+    /** Force a resend to everyone with the snapshot as it stands. Returns how many got it. */
+    public int pushToEveryone() {
+        synced.clear();
+        int n = 0;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (syncIfListening(player)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** {@code /craftbridge jei resync}: rebuild the snapshot from scratch and push it. */
+    public int resyncNow() {
+        if (!isActive()) {
+            return 0;
+        }
+        encode("manual resync");
+        return pushToEveryone();
+    }
+
+    /**
+     * Re-encode when the server's recipe set no longer matches the snapshot — the cheap way
+     * to notice that another plugin (or a datapack reload) added or removed recipes.
+     */
+    private boolean refreshIfStale() {
+        if (encoder == null) {
+            return false;
+        }
+        int live;
+        try {
+            live = encoder.liveRecipeCount();
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+        if (cachedPayload != null && live == snapshotRecipeCount) {
+            return false;
+        }
+        return encode("recipe set changed (" + snapshotRecipeCount + " -> " + live + " on the server)");
+    }
+
+    private void pollForChanges() {
+        if (!isActive() || Bukkit.getOnlinePlayers().isEmpty()) {
+            return;
+        }
+        if (refreshIfStale()) {
+            int n = pushToEveryone();
+            plugin.getLogger().info("JEI recipe sync: recipe set changed elsewhere, re-sent "
+                    + describe() + " to " + n + " JEI client(s).");
+        }
+    }
+
+    /** Re-encode, keeping the previous payload if encoding fails. */
+    private boolean encode(String why) {
+        try {
+            encodeNow();
+            plugin.debug("JEI recipe sync: re-encoded (" + why + "): " + describe());
+            return true;
+        } catch (RuntimeException | LinkageError ex) {
+            plugin.getLogger().warning("JEI recipe sync: re-encoding failed (" + ex
+                    + "); clients keep the previous set.");
+            return false;
+        }
+    }
+
+    /** One line for the log and for {@code /craftbridge jei}. */
+    public String describe() {
+        if (cachedPayload == null) {
+            return "no snapshot";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(cachedCount).append(" recipe(s), ").append(cachedPayload.length / 1024).append(" KiB");
+        if (!cachedNamespaces.isEmpty()) {
+            sb.append(" [");
+            boolean first = true;
+            for (Map.Entry<String, Integer> e : cachedNamespaces.entrySet()) {
+                if (!first) {
+                    sb.append(", ");
+                }
+                sb.append(e.getKey()).append('=').append(e.getValue());
+                first = false;
+            }
+            sb.append(']');
+        }
+        return sb.toString();
+    }
+
+    public int syncedPlayerCount() {
+        return synced.size();
+    }
+
+    /**
+     * Cross-check the payload against what the Bukkit API says the server has: every
+     * crafting recipe a plugin registered should be in there. If one is not, say so loudly
+     * with the namespace, because that is exactly the "my recipe never shows in JEI" bug.
+     */
+    private void warnAboutMissingPluginRecipes() {
+        if (!isActive()) {
+            return;
+        }
+        Map<String, Integer> live = new java.util.LinkedHashMap<>();
+        try {
+            java.util.Iterator<org.bukkit.inventory.Recipe> it = Bukkit.recipeIterator();
+            while (it.hasNext()) {
+                org.bukkit.inventory.Recipe recipe;
+                try {
+                    recipe = it.next();
+                } catch (RuntimeException ex) {
+                    continue;
+                }
+                if (!(recipe instanceof org.bukkit.inventory.ShapedRecipe)
+                        && !(recipe instanceof org.bukkit.inventory.ShapelessRecipe)) {
+                    continue; // only the crafting types the payload carries
+                }
+                if (recipe instanceof org.bukkit.Keyed keyed
+                        && !"minecraft".equals(keyed.getKey().getNamespace())) {
+                    live.merge(keyed.getKey().getNamespace(), 1, Integer::sum);
                 }
             }
-            plugin.getLogger().info("JEI recipe sync: recipes changed, re-sent " + cachedCount + " recipe(s) to " + n + " JEI client(s).");
-        });
+        } catch (RuntimeException | LinkageError ex) {
+            return;
+        }
+        for (Map.Entry<String, Integer> e : live.entrySet()) {
+            int encoded = cachedNamespaces.getOrDefault(e.getKey(), 0);
+            if (encoded < e.getValue()) {
+                plugin.getLogger().warning("JEI recipe sync: " + e.getKey() + " has " + e.getValue()
+                        + " crafting recipe(s) on the server but only " + encoded
+                        + " made it into the payload; those will not show in JEI."
+                        + " Check jei.recipe-sync.types covers their recipe type.");
+            }
+        }
+        if (!live.isEmpty()) {
+            plugin.debug("JEI recipe sync: plugin crafting recipes on the server: " + live);
+        }
     }
 
     private boolean syncIfListening(Player player) {
@@ -170,6 +338,12 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
             if (encoded.bytes().length <= MAX_PAYLOAD) {
                 cachedPayload = encoded.bytes();
                 cachedCount = encoded.recipeCount();
+                cachedNamespaces = encoded.byNamespace() == null ? Map.of() : encoded.byNamespace();
+                try {
+                    snapshotRecipeCount = encoder.liveRecipeCount();
+                } catch (RuntimeException | LinkageError ex) {
+                    snapshotRecipeCount = -1;
+                }
                 return;
             }
             if (types.isEmpty()) {

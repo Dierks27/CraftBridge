@@ -32,6 +32,7 @@ commands:
       /craftbridge give <player> workbench|combochest [amount]  - hand out a block
       /craftbridge workbench|combochest give|list|refresh|display  - block tools
       /craftbridge page next|prev  - turn the nearby-storage page at a Linked Workbench
+      /craftbridge jei [resync]  - JEI recipe sync state, or re-encode and re-send it
     # No command-level permission: /craftbridge page is for everyone, every other
     # subcommand checks craftbridge.admin itself.
     aliases: [cb]

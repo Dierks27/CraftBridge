@@ -22,6 +22,19 @@ public interface RecipeSyncEncoder {
     /** Re-send the vanilla recipe data to one player so JEI restarts with the synced recipes. */
     void resendRecipes(Player player);
 
-    record Encoded(byte[] bytes, int recipeCount) {
+    /**
+     * How many recipes the server currently has, of every type. Cheap: used to notice that
+     * some other plugin registered or removed a recipe and the snapshot is stale.
+     */
+    int liveRecipeCount();
+
+    /**
+     * @param bytes       the payload
+     * @param recipeCount how many recipes it holds
+     * @param byNamespace how many of them came from each namespace ({@code minecraft},
+     *                    {@code craftbridge}, other plugins) — the quick check that
+     *                    plugin-registered recipes really are in the payload
+     */
+    record Encoded(byte[] bytes, int recipeCount, java.util.Map<String, Integer> byNamespace) {
     }
 }

@@ -49,6 +49,7 @@ public final class PaperRecipeSyncEncoder implements RecipeSyncEncoder {
         RecipeManager recipeManager = server.getRecipeManager();
 
         Map<RecipeSerializer<?>, List<RecipeHolder<?>>> bySerializer = new LinkedHashMap<>();
+        Map<String, Integer> byNamespace = new LinkedHashMap<>();
         for (RecipeHolder<?> holder : recipeManager.recipes.values()) {
             Recipe<?> recipe = holder.value();
             if (recipeTypeIds != null) {
@@ -62,6 +63,7 @@ public final class PaperRecipeSyncEncoder implements RecipeSyncEncoder {
                 continue; // unregistered serializer: the client could never decode it
             }
             bySerializer.computeIfAbsent(serializer, k -> new ArrayList<>()).add(holder);
+            byNamespace.merge(holder.id().identifier().getNamespace(), 1, Integer::sum);
         }
 
         ByteBuf raw = Unpooled.buffer();
@@ -84,10 +86,15 @@ public final class PaperRecipeSyncEncoder implements RecipeSyncEncoder {
             }
             byte[] out = new byte[raw.readableBytes()];
             raw.readBytes(out);
-            return new Encoded(out, count);
+            return new Encoded(out, count, byNamespace);
         } finally {
             raw.release();
         }
+    }
+
+    @Override
+    public int liveRecipeCount() {
+        return MinecraftServer.getServer().getRecipeManager().recipes.values().size();
     }
 
     @Override

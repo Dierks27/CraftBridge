@@ -35,6 +35,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             sender.sendMessage(Text.msg("<gray>/craftbridge version <dark_gray>- show version"));
             sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest [amount] <dark_gray>- hand out CraftBridge blocks"));
             sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge jei [resync] <dark_gray>- JEI recipe sync state, or re-send it now"));
             return true;
         }
         String sub = args[0].toLowerCase(java.util.Locale.ROOT);
@@ -77,6 +78,22 @@ public final class CraftBridgeCommand implements TabExecutor {
                     sender.sendMessage(Text.msg("<red>The Linked Workbench feature is disabled in config.yml."));
                 } else {
                     workbench.give(sender, target, args[2], amount);
+                }
+            }
+            case "jei" -> {
+                com.dierks.craftbridge.jei.RecipeSyncFeature sync =
+                        plugin.feature(com.dierks.craftbridge.jei.RecipeSyncFeature.class);
+                if (sync == null) {
+                    sender.sendMessage(Text.msg("<red>features.jei-recipe-sync is off in config.yml."));
+                } else if (args.length > 1 && args[1].equalsIgnoreCase("resync")) {
+                    int n = sync.resyncNow();
+                    sender.sendMessage(Text.msg("<green>Re-encoded and sent to " + n + " JEI client(s): <gray>" + sync.describe()));
+                } else {
+                    sender.sendMessage(Text.msg(sync.isActive()
+                            ? "<gray>Recipe sync: <white>" + sync.describe() + " <gray>| sent to <white>"
+                              + sync.syncedPlayerCount() + "<gray> listening client(s)"
+                            : "<red>Recipe sync is not active (the server-internals encoder did not load)."));
+                    sender.sendMessage(Text.msg("<dark_gray>/craftbridge jei resync <dark_gray>re-encodes and re-sends to everyone"));
                 }
             }
             case "workbench", "wb", "combochest", "combo", "cc" -> {
@@ -128,11 +145,14 @@ public final class CraftBridgeCommand implements TabExecutor {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             return sender.hasPermission(ADMIN)
-                    ? List.of("page", "reload", "version", "give", "workbench", "combochest")
+                    ? List.of("page", "reload", "version", "give", "workbench", "combochest", "jei")
                     : List.of("page");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("page")) {
             return List.of("next", "prev");
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("jei")) {
+            return List.of("status", "resync");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             return null; // player names
