@@ -18,7 +18,9 @@ import org.bukkit.plugin.Plugin;
  *   <li>Clicks on menu buttons are cancelled and routed to the menu's slot handler.</li>
  *   <li>Clicks in slots the menu marked editable keep vanilla behaviour (pick up / put
  *       down / hotbar swap), minus shift-moves and double-click collects that would spray
- *       items across button slots.</li>
+ *       items across button slots. Clicking an <em>empty</em> editable slot with an empty
+ *       cursor does nothing in vanilla, so it is handed to the menu instead — that is how
+ *       the recipe editor opens its item picker.</li>
  *   <li>Clicks in the player's own inventory are only allowed when the menu has editable
  *       slots (so items can be picked up for it), again minus shift-move / collect.</li>
  * </ul>
@@ -57,6 +59,16 @@ public final class MenuListener implements Listener {
         }
         if (top) {
             if (menu.isEditable(event.getRawSlot())) {
+                ItemStack cursor = event.getCursor();
+                ItemStack inSlot = event.getCurrentItem();
+                boolean emptyHanded = (cursor == null || cursor.isEmpty()) && (inSlot == null || inSlot.isEmpty());
+                if (emptyHanded && menu.hasHandler(event.getRawSlot())) {
+                    // Empty hand on an empty input slot: vanilla would do nothing, so the menu
+                    // gets it instead (the recipe editor opens its item picker there).
+                    event.setCancelled(true);
+                    menu.handleClick(event);
+                    return;
+                }
                 if (bulkMove) {
                     event.setCancelled(true);
                     return;

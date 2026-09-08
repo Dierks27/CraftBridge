@@ -52,9 +52,19 @@ public abstract class Menu implements InventoryHolder {
         }
     }
 
+    /**
+     * Fill the leftover background. Editable slots are never filled: a decorative item in a
+     * slot the player is meant to fill is a real item they can pick up, which is both
+     * confusing and an infinite item source.
+     */
+    /** Register a click handler without touching what is in the slot. */
+    protected void handler(int slot, Consumer<InventoryClickEvent> onClick) {
+        handlers.put(slot, onClick);
+    }
+
     protected void fill(ItemStack filler) {
         for (int i = 0; i < inventory.getSize(); i++) {
-            if (inventory.getItem(i) == null) {
+            if (inventory.getItem(i) == null && !editableSlots.contains(i)) {
                 inventory.setItem(i, filler);
             }
         }
@@ -69,6 +79,11 @@ public abstract class Menu implements InventoryHolder {
 
     public boolean isEditable(int rawSlot) {
         return editableSlots.contains(rawSlot);
+    }
+
+    /** True when this slot has a click handler (a button, or an empty editable slot's picker). */
+    boolean hasHandler(int rawSlot) {
+        return handlers.containsKey(rawSlot);
     }
 
     public boolean hasEditableSlots() {

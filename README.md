@@ -109,14 +109,41 @@ add shaped/shapeless crafting recipes entirely in-game, no datapacks, no ids typ
 
 **Main menu:** New Recipe · Browse Recipes · Import Starter Pack · Reload.
 
-**New recipe:** a 54-slot editor with a real 3x3 grid and a result slot. Put real items
-in (they come back on Save, Cancel or close). Under each filled grid slot is a match
-toggle: *any item of this material* (default) or *this exact item* (name, enchantments,
-components). Buttons: Shaped/Shapeless, Save, Cancel. The id is generated from the
-result (`ender_pearl`, then `ender_pearl_2`…). Save validates that the result and grid
-are non-empty, then asks the server whether that layout already crafts something
-(`Bukkit.getCraftingRecipe`); if it does, a warning line appears and a second Save
-click adds the recipe anyway (the older recipe may still win at the table).
+**New recipe:** a 54-slot editor with a real 3x3 grid and a result slot.
+
+* **The regions are framed** so they stand out from the background: a **cyan** frame down
+  both sides of the crafting grid, an **orange** frame around the result with a labelled
+  item-frame marker above it, a muted frame around the match-mode toggles with its own
+  labelled marker, and a neutral dark background everywhere else. Colour is never the only
+  cue — the markers are named items, and every frame pane names its region on hover.
+* **The grid and result slots start genuinely empty.** No placeholder is ever placed in a
+  slot the admin is meant to fill: `Menu#fill` skips editable slots, and
+  `RecipeEditorLayout` keeps the editable and decorated slot sets disjoint (unit tested).
+  Everything decorative sits in a slot with no handler, and `MenuListener` cancels every
+  click, shift-click, drag, number-key swap and drop on those, so nothing can be taken out
+  of the GUI. (Before this, the grid was pre-filled with glass panes that clicking handed
+  to the admin as real items — a confusing infinite glass source.)
+* **Two ways to fill a slot.** Put a real item in as before (fastest when you have it), or
+  **click an empty slot with an empty hand** to open a paginated item picker: every item
+  the server knows plus CraftBridge's own custom items (its blocks and every custom
+  recipe's result), with the same All / Blocks / Tools & armor / Food / Misc quick filters
+  used elsewhere and a Custom items filter. Picking sets the slot without consuming or
+  requiring anything, so recipes for items that are unobtainable on this server can be
+  defined without switching to creative. Chest GUIs only, no anvil text input, so it
+  behaves the same on Geyser/Bedrock.
+* **Result count:** +/- buttons beside the result slot (click ±1, right-click ±8, clamped
+  to the item's stack size). If the result is a stack you physically put in, it is handed
+  straight back to your inventory and the editor keeps a display copy, so changing the
+  count can never mint items.
+* Under each filled grid slot is a match toggle: *any item of this material* (default) or
+  *this exact item* (name, enchantments, components). Buttons: Shaped/Shapeless, Save,
+  Cancel. The id is generated from the result (`ender_pearl`, then `ender_pearl_2`…). Save
+  validates that the result and grid are non-empty, then asks the server whether that
+  layout already crafts something (`Bukkit.getCraftingRecipe`); if it does, a warning line
+  appears and a second Save click adds the recipe anyway (the older recipe may still win at
+  the table).
+* Items you put in come back on Save, Cancel or close — including when you leave from the
+  item picker rather than from the editor.
 
 **Browse:** paginated list of result items with the shape (`A G A` rows) and legend in
 the lore. Left-click edits in place (the grid is seeded with display copies that are
@@ -487,7 +514,11 @@ See the comments in `src/main/resources/config.yml`. Everything reloads with
 * Package layout: `com.dierks.craftbridge.<feature>`; each feature implements
   `CraftBridgePlugin.Feature` and is only constructed when its switch is on.
 * `gui.Menu` / `gui.MenuListener` is the shared click-driven chest GUI base (with
-  optional editable slots for menus that take real items).
+  optional editable slots for menus that take real items). Two rules hold everywhere: a
+  slot with no handler cancels every interaction, and `fill` never puts a decorative item
+  in an editable slot — so no GUI item is ever removable unless it is explicitly an item
+  the player is meant to receive. Clicking an *empty* editable slot with an empty cursor
+  (a no-op in vanilla) is routed to the menu, which is how the editor opens its picker.
   Menus can also opt into deposits (`acceptsDeposits()` / `deposit(...)`): cursor clicks,
   shift-clicks from the player inventory and drags over the menu are cancelled and
   routed through `deposit`, which returns whatever did not fit.
