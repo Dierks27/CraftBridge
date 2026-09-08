@@ -7,6 +7,9 @@ features:
   recipes: true
   linked-workbench: true
   jei-transfer: true
+  # Send the server's recipe list to Fabric/JEI clients (Fabric's recipe-sync protocol) so
+  # JEI shows custom recipes instead of the vanilla ones bundled with the client.
+  jei-recipe-sync: true
 
 # Promote CraftBridge's DEBUG logging (packet decode failures, trigger detection) to
 # INFO so it shows in the console without touching log4j config.
@@ -93,3 +96,22 @@ linked-workbench:
       C: COPPER_INGOT
       T: CRAFTING_TABLE
       E: ENDER_PEARL
+
+# -----------------------------------------------------------------------------
+# JEI (Feature 1 lives under features.jei-transfer; this is the recipe sync)
+# -----------------------------------------------------------------------------
+jei:
+  recipe-sync:
+    # Recipe types sent to JEI clients, in priority order. The whole set must fit in one
+    # 1 MiB custom payload (vanilla's limit; Fabric's packet splitter only exists on
+    # Fabric servers). If it does not, types are dropped from the END of this list until
+    # it fits, with a console warning. The full vanilla set is ~100-300 KB, so this only
+    # matters with thousands of plugin recipes.
+    types:
+      - minecraft:crafting
+      - minecraft:smelting
+      - minecraft:blasting
+      - minecraft:smoking
+      - minecraft:campfire_cooking
+      - minecraft:stonecutting
+      - minecraft:smithing

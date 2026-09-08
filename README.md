@@ -16,7 +16,9 @@ config and rebuilds every feature.
 
 ## Target environment
 
-* **Paper 26.2** (year-based versioning). Built against `io.papermc.paper:paper-api:26.2.build.107-stable`.
+* **Paper 26.2** (year-based versioning). Built against the `26.2.build.107-stable` dev bundle
+  (paperweight-userdev), which provides `paper-api` at the same version plus the
+  Mojang-mapped server for the one NMS class.
 * **Java 25** (Paper 26.x requires it). Gradle 9.7 runs on JDK 25 directly, so CI and a
   dev machine need exactly one JDK.
 * Mixed Java + Bedrock (Geyser/Floodgate). Every GUI is a plain chest layout so it renders
@@ -30,8 +32,10 @@ config and rebuilds every feature.
 ./gradlew build
 ```
 
-The jar lands in `build/libs/CraftBridge-<version>.jar`. Nothing is shaded — the plugin
-uses only the Paper API and the JDK. CI (`.github/workflows/build.yml`) builds every PR,
+The jar lands in `build/libs/CraftBridge-<version>.jar`. The first build takes a few
+minutes while paperweight downloads and decompiles the server; CI caches that. Nothing
+is shaded — the plugin uses only the Paper API, Paper internals (one class) and the JDK.
+Paper 1.20.5+ runs Mojang-mapped, so the plain jar is the production artifact. CI (`.github/workflows/build.yml`) builds every PR,
 attaches the jar to the workflow run, and publishes a GitHub Release on `v*` tags.
 
 Install: copy the jar into the server's `plugins/` folder and restart (or start once to
@@ -147,12 +151,11 @@ file.
 
 **Clients:** every add/remove/toggle/reload calls `Bukkit.updateRecipes()` and unlocks
 the recipes in online players' recipe books (and on join). Vanilla clients are current
-immediately. JEI clients: JEI 26.2 on a non-Fabric server only knows the recipes
-bundled with the *client* (it falls back to the vanilla recipe JSONs) — so custom
-recipes will not show in JEI until CraftBridge's own recipe sync lands in a later PR.
-JEIServerProxy does not listen for recipe changes; it unlocks the recipe book on join
-and answers a legacy `jei:network` handshake, neither of which carries recipe data.
-Until the sync PR, the console prints a reminder after each change.
+immediately. JEI clients get the new set live through the **JEI recipe sync** below —
+no rejoin, no `/jeiproxy handshake`. (JEIServerProxy does not listen for recipe changes;
+it unlocks the recipe book on join and answers a legacy `jei:network` handshake, neither
+of which carries recipe data. With `features.jei-recipe-sync: false` the console prints
+a rejoin reminder after each change instead.)
 
 ## Feature 1 — JEI `[+]` recipe transfer
 
@@ -217,6 +220,44 @@ JEI version this was built against (`JEI 26.2.0`).
 **Missing items** stay client-side: JEI only sends a transfer when every ingredient is
 visible in the player's inventory (or grid); otherwise it shows its red highlight and
 never contacts the server.
+
+### JEI recipe sync (`features.jei-recipe-sync`)
+
+Found while reading JEI 26.2: on a server that is not Fabric, JEI loads its recipe list
+from the recipe JSONs **bundled with the client** (`VanillaClientRecipeLoader`, "only a
+fallback for connections where the server does not send recipe data to JEI"). Server
+recipes — CraftBridge's, HomeCraftMgmt's, anyone's — never show up, and JEIServerProxy
+does not change that (it only unlocks the recipe book and speaks a `jei:network`
+handshake JEI 26.2 no longer has). What JEI does consume is Fabric API's recipe
+synchronisation (`fabric-recipe-api-v1`), so CraftBridge speaks that protocol:
+
+* Channel `fabric:recipe_sync` (server → client), payload:
+  `VarInt entryCount, then per entry: Identifier serializerId, VarInt n, n × (ResourceKey recipeId, recipe via serializerId's stream codec)`.
+  JEI syncs every `minecraft:` serializer; every Bukkit-registered recipe uses one of
+  those, so the whole server set is encodable. Exact-item ingredients are sent as their
+  item types (that is how Paper encodes them for any client).
+* Sent on join once the client has announced the channel (Fabric clients with the recipe
+  API always do; vanilla/Bedrock clients never do, so nothing is sent to them), and
+  re-sent to everyone whenever CraftBridge's custom recipes change.
+* After the payload the server re-sends vanilla's `ClientboundUpdateRecipesPacket` (and
+  the recipe book) to that player: JEI (re)starts on that packet, and by the time a Paper
+  plugin can act the join-time one has already gone out. Expect JEI to start twice on
+  join — once with the fallback set, once with the synced set.
+* Fabric's configuration-phase "supported serializers" request cannot be answered from
+  the Bukkit API (there is no configuration-phase channel API), and is not needed: the
+  client only uses it to *limit* what the server sends.
+* The payload must fit vanilla's 1 MiB custom-payload limit — Fabric's packet splitter
+  only exists on Fabric servers. `jei.recipe-sync.types` is the priority list; types are
+  dropped from the end until it fits (a full vanilla set is roughly 100–300 KB).
+
+This is the only feature that touches server internals (`jei.nms.PaperRecipeSyncEncoder`,
+compiled with paperweight-userdev against the pinned dev bundle). It is loaded
+reflectively: if a future 26.x build renames something, the feature logs one WARN and
+disables itself, and the rest of the plugin is unaffected. Names it depends on:
+`RecipeManager.recipes.values()`, `RecipeHolder#id()/value()`, `Recipe#getSerializer()/getType()`,
+`RecipeSerializer#streamCodec()`, `RegistryFriendlyByteBuf` + `writeIdentifier`/`writeResourceKey`,
+`ClientboundUpdateRecipesPacket(getSynchronizedItemProperties(), getSynchronizedStonecutterRecipes())`,
+`ServerRecipeBook#sendInitialRecipeBook`.
 
 ## Feature 2 — Linked Workbench
 

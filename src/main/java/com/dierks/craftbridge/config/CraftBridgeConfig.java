@@ -54,6 +54,19 @@ public final class CraftBridgeConfig {
         return raw.getBoolean("features.jei-transfer", true);
     }
 
+    public boolean jeiRecipeSyncEnabled() {
+        return raw.getBoolean("features.jei-recipe-sync", true);
+    }
+
+    /** Recipe types to sync to JEI, in priority order (later ones are dropped first if the payload is too big). */
+    public List<String> jeiRecipeSyncTypes() {
+        List<String> types = raw.getStringList("jei.recipe-sync.types");
+        return types.isEmpty()
+                ? List.of("minecraft:crafting", "minecraft:smelting", "minecraft:blasting", "minecraft:smoking",
+                        "minecraft:campfire_cooking", "minecraft:stonecutting", "minecraft:smithing")
+                : types;
+    }
+
     // ---- sorting --------------------------------------------------------------
 
     public SortTrigger sortDefaultTrigger() {
