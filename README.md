@@ -356,9 +356,11 @@ out, and takes deposits — no activation, no modes, and no sneak-clicking.
 **The block.** Physically a `BARREL` (so Towny/WorldGuard/vanilla break-and-drop rules
 apply unchanged) placed from a PDC-tagged item (`craftbridge:combo_chest`) and tracked
 in the same `linked-workbenches.yml` as the workbench, with `type: combo_chest`. An
-`ItemDisplay` sits on the barrel: a custom head when `combo-chest.head-texture` is set,
-otherwise the `display-item` (default a plain `CHEST`, scaled 1.16 so the 14/16-block
-chest model just covers the barrel). Tune it live with
+`ItemDisplay` sits on the barrel: the head from `combo-chest.head-texture` (blank uses
+the built-in Combo Chest head, `none` falls back to `display-item` — a plain `CHEST`).
+A head model is half a block, so both kinds default to scale 2.02 with the entity at the
+top of the block; the chest item model wants scale 1.16 at the block centre instead.
+Tune it live with
 `/craftbridge combochest display <scale|x|y|z|yaw|transform> <value>`. Breaking it drops
 the Combo Chest item back; burning/exploding do too; pistons cannot move it; the sweep
 that fixes stray workbench displays covers Combo Chests as well. Craftable
@@ -382,10 +384,19 @@ Linked Workbench and by the phantom-slot snapshot, so nothing ever ends up "insi
   Items come out of the nearest containers first. "No room in your inventory" if full.
 * **Deposit.** Three ways, all handled by the shared GUI base: click anywhere in the
   terminal with an item on the cursor, shift-click an item in your own inventory, or drag
-  it over the terminal. The stack goes to a container that already holds that type
-  (topping up partial stacks), else to the nearest one with a free slot. If nothing has
-  room the item stays with you and you get "No room in nearby storage". Locked or
-  no-permission containers are never written to because they never make it into the scan.
+  it over the terminal. Where it lands is a fixed order (`workbench.DepositPlanner`, unit
+  tested), the same for a single click and a shift-click bulk move:
+  1. top up partial stacks of the same item (same components), nearest container first,
+     up to the item's stack size;
+  2. then an empty slot in a container that already holds that item, nearest first;
+  3. then an empty slot in the nearest container with space;
+  4. anything still left stays with you, with "No room in nearby storage" — a deposit
+     never destroys part of a stack.
+
+  So 5 cobblestone deposited while a nearby chest holds a stack of 10 makes one stack of
+  15, rather than a second stack in a free slot. Locked or no-permission containers are
+  never written to because they never make it into the scan, and a shulker box is never
+  put inside another shulker box.
 * **Live.** Every click (pull, deposit, page, filter) re-scans, so hoppers and other
   players' changes show on the next click. The info icon in the middle of the bottom row
   shows the container count, item-type count and page.

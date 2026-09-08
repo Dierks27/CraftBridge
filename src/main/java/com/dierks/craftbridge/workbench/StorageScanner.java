@@ -203,51 +203,69 @@ public final class StorageScanner {
     }
 
     /**
-     * Put {@code stack} into nearby storage: first into a container that already holds
-     * that item type, else the nearest container with a free slot. Returns what did not
-     * fit (empty when everything was stored). Sources are already permission-filtered.
+     * Put {@code stack} into nearby storage, in the order {@link DepositPlanner} defines:
+     * top up partial stacks of the same item (nearest container first), then an empty slot
+     * in a container that already holds it, then an empty slot in the nearest container
+     * with space. Returns what did not fit (null when everything was stored) — a deposit
+     * never destroys part of a stack. {@code sources} is already permission-filtered, so
+     * locked and protected containers are skipped at every step.
      */
     public ItemStack deposit(List<Source> sources, ItemStack stack) {
         if (Items.isEmpty(stack)) {
             return null;
         }
-        ItemStack remaining = stack.clone();
+        ItemStack item = stack.clone();
+        List<Inventory> targets = new ArrayList<>();
+        List<DepositPlanner.Container> containers = new ArrayList<>();
+        Set<Inventory> seen = new HashSet<>();
         for (Source source : sources) {
-            if (!holds(source.inventory(), remaining)) {
+            Inventory inventory = source.inventory();
+            if (!seen.add(inventory) || !accepts(inventory, item)) {
                 continue;
             }
-            remaining = addAll(source.inventory(), remaining);
-            if (Items.isEmpty(remaining)) {
-                return null;
+            ItemStack[] contents = inventory.getStorageContents();
+            int[] slots = new int[contents.length];
+            for (int i = 0; i < contents.length; i++) {
+                ItemStack held = contents[i];
+                slots[i] = Items.isEmpty(held) ? DepositPlanner.EMPTY
+                        : (held.isSimilar(item) ? held.getAmount() : DepositPlanner.OTHER);
             }
+            targets.add(inventory);
+            containers.add(new DepositPlanner.Container(slots,
+                    Math.min(item.getMaxStackSize(), inventory.getMaxStackSize())));
         }
-        for (Source source : sources) {
-            if (source.inventory().firstEmpty() < 0) {
-                continue;
-            }
-            remaining = addAll(source.inventory(), remaining);
-            if (Items.isEmpty(remaining)) {
-                return null;
-            }
-        }
-        return remaining;
-    }
 
-    private static boolean holds(Inventory inventory, ItemStack key) {
-        for (ItemStack s : inventory.getStorageContents()) {
-            if (!Items.isEmpty(s) && s.isSimilar(key)) {
-                return true;
+        DepositPlanner.Plan plan = DepositPlanner.plan(containers, item.getAmount());
+        Map<Integer, ItemStack[]> edited = new LinkedHashMap<>();
+        for (DepositPlanner.Move move : plan.moves()) {
+            ItemStack[] contents = edited.computeIfAbsent(move.container(),
+                    i -> targets.get(i).getStorageContents());
+            ItemStack held = contents[move.slot()];
+            if (Items.isEmpty(held)) {
+                ItemStack put = item.clone();
+                put.setAmount(move.amount());
+                contents[move.slot()] = put;
+            } else {
+                held.setAmount(held.getAmount() + move.amount());
+                contents[move.slot()] = held;
             }
         }
-        return false;
-    }
+        for (Map.Entry<Integer, ItemStack[]> entry : edited.entrySet()) {
+            targets.get(entry.getKey()).setStorageContents(entry.getValue());
+        }
 
-    private static ItemStack addAll(Inventory inventory, ItemStack stack) {
-        Map<Integer, ItemStack> left = inventory.addItem(stack);
-        if (left.isEmpty()) {
+        if (plan.leftover() <= 0) {
             return null;
         }
-        return left.values().iterator().next();
+        ItemStack left = item.clone();
+        left.setAmount(plan.leftover());
+        return left;
+    }
+
+    /** Vanilla never lets a shulker box hold another one; neither do we. */
+    private static boolean accepts(Inventory inventory, ItemStack stack) {
+        return !Tag.SHULKER_BOXES.isTagged(stack.getType())
+                || !(inventory.getHolder(false) instanceof org.bukkit.block.ShulkerBox);
     }
 
     /** How many items matching {@code key} the sources hold in total. */
