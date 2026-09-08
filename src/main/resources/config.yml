@@ -53,3 +53,43 @@ sorting:
       match: ['@block']
     - name: items
       match: ['@default']
+
+# -----------------------------------------------------------------------------
+# Feature 2 — Linked Workbench
+# -----------------------------------------------------------------------------
+linked-workbench:
+  # Containers (chests, double chests, barrels, placed shulker boxes) within this many
+  # blocks of the table are considered "nearby storage". Hoppers/furnaces never are.
+  radius: 8
+  # Skip containers the player may not use (vanilla lock is always honoured; this adds
+  # Towny/WorldGuard-style checks via a synthetic interact event).
+  respect-protection: true
+  # Base64 "textures" value of the head the block should look like.
+  head-texture: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDkzZDExMmRjZTc0NGNjOWY3OTc5OTZmMTJjZTNhMmQ4MjJkY2E5ZDA5YzllOWVkZTZjNmIxMzIwODA5OWMxIn19fQ=="
+  # The ItemDisplay that draws the head at full block size over the real crafting
+  # table. Tune live with /craftbridge workbench display <scale|x|y|z|yaw|transform>.
+  #   transform: NONE renders the raw head model (a half-block cube whose top sits at
+  #              the entity position); HEAD/FIXED apply the item model's display
+  #              transforms instead (FIXED is half-size and rotated 180°, so it needs
+  #              scale ≈ 4.04 and yaw-offset 180).
+  #   scale:     2.02 turns the 0.5-block head into 1.01 blocks — a hair of overlap so
+  #              the table underneath never z-fights through.
+  #   offset-*:  entity position relative to the block's origin corner; with NONE the
+  #              model hangs down from the entity, so y = 1.005 puts it over the block.
+  display:
+    transform: NONE
+    scale: 2.02
+    offset-x: 0.5
+    offset-y: 1.005
+    offset-z: 0.5
+    yaw-offset: 0
+  # Crafting recipe for the place-item (the head). H = chest, C = copper ingot,
+  # T = crafting table, E = ender pearl.
+  recipe:
+    enabled: true
+    shape: ['HCH', 'CTC', 'HEH']
+    ingredients:
+      H: CHEST
+      C: COPPER_INGOT
+      T: CRAFTING_TABLE
+      E: ENDER_PEARL

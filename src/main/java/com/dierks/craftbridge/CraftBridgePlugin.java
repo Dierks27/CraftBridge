@@ -6,6 +6,7 @@ import com.dierks.craftbridge.gui.MenuListener;
 import com.dierks.craftbridge.integration.ContainerAccess;
 import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.sort.SortFeature;
+import com.dierks.craftbridge.workbench.WorkbenchFeature;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -55,6 +56,9 @@ public final class CraftBridgePlugin extends JavaPlugin {
         if (config.recipesEnabled()) {
             features.add(new RecipeFeature(this));
         }
+        if (config.linkedWorkbenchEnabled()) {
+            features.add(new WorkbenchFeature(this));
+        }
         for (Feature feature : features) {
             try {
                 feature.enable();
@@ -97,6 +101,16 @@ public final class CraftBridgePlugin extends JavaPlugin {
             names.add(f.name());
         }
         return String.join(", ", names);
+    }
+
+    /** The enabled feature of this type, or null when it is switched off. */
+    public <T extends Feature> T feature(Class<T> type) {
+        for (Feature f : features) {
+            if (type.isInstance(f)) {
+                return type.cast(f);
+            }
+        }
+        return null;
     }
 
     public CraftBridgeConfig config() {

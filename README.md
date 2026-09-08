@@ -7,7 +7,7 @@ server and modded-client conveniences:
 |---|---------|--------|
 | 3 | **Chest sorting** with a per-player trigger (`/sort`, `/sort settings`) | PR 1 |
 | 4 | **Admin-defined custom recipes**, fully GUI-driven (`/recipe`) — fills the peaceful-mode gap | PR 2 |
-| 2 | **Linked Workbench** — a crafting table that pulls from nearby chests | planned |
+| 2 | **Linked Workbench** — a crafting table that pulls from nearby chests | PR 3 |
 | 1 | **JEI `[+]` recipe transfer** for Fabric/JEI clients on a plugin server | planned |
 
 Every feature has its own master switch under `features:` in `config.yml`, so any one
@@ -42,6 +42,7 @@ generate `plugins/CraftBridge/config.yml`).
 | Command | Permission | Default |
 |---------|-----------|---------|
 | `/craftbridge reload` / `/craftbridge version` (alias `/cb`) | `craftbridge.admin` | op |
+| `/craftbridge workbench give [player] [amount]` / `list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
 | `/sort settings` — pick your trigger and toggles | `craftbridge.sort` | everyone |
 | `/sort debug` — print the raw click your client sends when clicking outside a GUI | `craftbridge.sort` | everyone |
@@ -152,6 +153,61 @@ recipes will not show in JEI until CraftBridge's own recipe sync lands in a late
 JEIServerProxy does not listen for recipe changes; it unlocks the recipe book on join
 and answers a legacy `jei:network` handshake, neither of which carries recipe data.
 Until the sync PR, the console prints a reminder after each change.
+
+## Feature 2 — Linked Workbench
+
+A crafting table that can pull ingredients from the chests around it.
+
+**The block.** Physically a normal `CRAFTING_TABLE`, so vanilla interaction, breaking,
+Towny/WorldGuard checks and the vanilla crafting menu (which JEI knows how to fill) all
+keep working. It is placed from a special item — a player head wearing the configured
+texture, named *Linked Workbench*, PDC-tagged `craftbridge:linked_workbench` — and
+tracked in `plugins/CraftBridge/linked-workbenches.yml` (world + xyz + display UUID +
+owner + yaw). Breaking it drops the head item back; burning or exploding it does too;
+pistons cannot move it. Craftable (`craftbridge:linked_workbench`, shape and
+ingredients in `linked-workbench.recipe`; default: crafting table in the middle, 4
+chests in the corners, 3 copper ingots, 1 ender pearl at the bottom).
+Admins: `/craftbridge workbench give`.
+
+**The look.** On placement an `ItemDisplay` holding the head is spawned at the block,
+scaled ≈ 2.02 so the half-block head model covers the table with a hair of overlap,
+rotated to face the player who placed it (yaw snapped to 90°), persistent, tagged
+`craftbridge:linked_display` = the table key, with its UUID stored on the record. It
+has no hitbox, so the real table underneath stays the interaction target.
+`transform`, `scale`, the offsets and `yaw-offset` live in `config.yml` and can be
+dialled in live with `/craftbridge workbench display <scale|x|y|z|yaw|transform>
+<value>` (saves config + respawns every loaded display) — the defaults (`NONE`, 2.02,
+entity at block centre-top) are derived from the item renderer's `-0.5` model
+translation and the skull renderer's geometry, not from an in-game test, so expect to
+tune them once. If `NONE` looks wrong, `HEAD` is the other candidate; `FIXED` is
+half-size and rotated 180°, so it needs scale ≈ 4.04 and `yaw-offset: 180`.
+
+A startup sweep (and a sweep whenever a chunk's entities load) removes any tagged
+display whose table is gone (WorldEdit / Towny regen) and respawns missing displays for
+tables that still exist. A record whose block is no longer a crafting table is
+forgotten — the head item is not refunded in that case. Bedrock/Geyser players may see
+the display as a generic head or not at all; the block still works for them because it
+is a real crafting table. *(Observed Geyser behaviour: to be filled in after the first
+live test.)*
+
+**Nearby storage** = every chest, trapped chest, double chest (counted once), barrel and
+placed shulker box within `linked-workbench.radius` (8) blocks that the player may use:
+vanilla lock, Towny plot permission (reflection), then a synthetic `PlayerInteractEvent`
+any protection plugin can cancel (`respect-protection`). Hoppers and furnaces are never
+read.
+
+**Using it.**
+* **Right-click** → opens a real vanilla crafting menu attached to the table
+  (`MenuType.CRAFTING`, `checkReachable`), tracked as a *linked session* for the player.
+  Vanilla's reach check closes it when the player is more than 8 blocks away or the table
+  is gone; death, teleport, quit and Escape end it too.
+* **Sneak + right-click** → the storage GUI: everything in nearby storage aggregated by
+  item with counts, 45 per page, ordered like the sorter. Click takes one stack into your
+  inventory, shift-click takes as many as fit. This is the manual / Bedrock path.
+* **JEI `[+]`** inside a linked session — sourcing from containers arrives with the JEI
+  PRs. The session already records, per grid slot, which container an item came from, and
+  on close those items go back to their container if it has room; anything left in the
+  grid is returned by vanilla to the player (or dropped at the player if full).
 
 ## Configuration
 
