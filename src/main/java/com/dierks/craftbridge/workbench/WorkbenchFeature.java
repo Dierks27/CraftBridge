@@ -33,6 +33,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     private WorkbenchListener listener;
     private PhantomManager phantoms;
     private final java.util.Set<BlockKind> recipesRegistered = java.util.EnumSet.noneOf(BlockKind.class);
+    private RecipeIngredientIndex ingredientIndex;
 
     public WorkbenchFeature(CraftBridgePlugin plugin) {
         this.plugin = plugin;
@@ -105,6 +106,21 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     }
 
     /** Null when phantom slots are disabled in config or the packet bridge failed to load. */
+    /**
+     * "Which items are ingredients in which recipes", built once from the server's recipe
+     * list the first time a workbench is opened (so every plugin has registered by then)
+     * and used to order the phantom pages. Rebuilt with the feature on /craftbridge reload.
+     */
+    public RecipeIngredientIndex ingredientIndex() {
+        if (ingredientIndex == null) {
+            long start = System.nanoTime();
+            ingredientIndex = RecipeIngredientIndex.build();
+            plugin.debug("Recipe ingredient index: " + ingredientIndex.recipeCount() + " recipe(s) in "
+                    + ((System.nanoTime() - start) / 1_000_000) + " ms");
+        }
+        return ingredientIndex;
+    }
+
     public PhantomManager phantoms() {
         return phantoms;
     }

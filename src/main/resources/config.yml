@@ -71,6 +71,11 @@ linked-workbench:
   # only, the real inventory is untouched) holding one nearby-storage item type each, so
   # JEI's [+] believes the ingredients are in the inventory and sends the transfer; the
   # real items are then pulled out of the chests. Turn off if it misbehaves.
+  # Show nearby storage in the player's empty inventory slots while the table is open,
+  # so JEI's client-side check passes and [+] can fill the grid from chests. Display
+  # only: no click can take an item out of a phantom slot. A crafting menu has 36
+  # inventory slots and JEI reads only those, so more item types than free slots are
+  # split into pages (buttons in the last two free slots, or /craftbridge page).
   phantom-slots: true
   # Empty slots kept free of phantoms so JEI can still move leftovers out of the grid.
   phantom-reserve-empty-slots: 2

@@ -179,9 +179,10 @@ public final class WorkbenchListener implements Listener {
 
     /**
      * Clicks in the linked view: a click that involves a phantom slot (the hovered slot, the
-     * hotbar slot of a number-key swap) is cancelled and turned into "pull one real stack
-     * from storage into that slot"; every other click just triggers a rebuild next tick
-     * so the phantoms follow what is now empty.
+     * hotbar slot of a number-key swap) is cancelled and the slot is re-sent as it was:
+     * phantoms are display only, so nothing ever moves out of one. Clicking a page button
+     * turns the page; every other click triggers a rebuild next tick so the phantoms
+     * follow what is now empty.
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onClick(InventoryClickEvent event) {
@@ -191,18 +192,25 @@ public final class WorkbenchListener implements Listener {
             return;
         }
         int target = -1;
-        if (phantoms.isPhantom(player, event.getRawSlot())) {
+        if (phantoms.isPhantomSlot(player, event.getRawSlot())) {
             target = event.getRawSlot();
         } else if (event.getClick() == ClickType.NUMBER_KEY && event.getHotbarButton() >= 0) {
             int hotbarRaw = 37 + event.getHotbarButton(); // crafting table view: hotbar is raw 37-45
-            if (phantoms.isPhantom(player, hotbarRaw)) {
+            if (phantoms.isPhantomSlot(player, hotbarRaw)) {
                 target = hotbarRaw;
             }
         }
         if (target >= 0) {
             event.setCancelled(true);
             final int slot = target;
-            Bukkit.getScheduler().runTask(plugin, () -> phantoms.pullIntoSlot(player, slot));
+            PhantomManager.Button button = phantoms.buttonAt(player, slot);
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (button != null) {
+                    phantoms.turnPage(player, button);
+                } else {
+                    phantoms.resend(player, slot);
+                }
+            });
             return;
         }
         phantoms.rebuildLater(player);
@@ -216,8 +224,11 @@ public final class WorkbenchListener implements Listener {
             return;
         }
         for (int raw : event.getRawSlots()) {
-            if (phantoms.isPhantom(player, raw)) {
+            if (phantoms.isPhantomSlot(player, raw)) {
                 event.setCancelled(true);
+                for (int shown : event.getRawSlots()) {
+                    phantoms.resend(player, shown);
+                }
                 break;
             }
         }

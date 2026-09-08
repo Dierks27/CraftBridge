@@ -47,6 +47,7 @@ generate `plugins/CraftBridge/config.yml`).
 | Command | Permission | Default |
 |---------|-----------|---------|
 | `/craftbridge reload` / `/craftbridge version` (alias `/cb`) | `craftbridge.admin` | op |
+| `/craftbridge page next\|prev` — turn the nearby-storage page at a Linked Workbench | none | everyone |
 | `/craftbridge give <player> workbench|combochest [amount]` | `craftbridge.admin` | op |
 | `/craftbridge workbench|combochest list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
@@ -318,20 +319,22 @@ empty inventory and no "First JEI packet on …" line ever appears.) CraftBridge
 makes the client *see* nearby storage as inventory:
 
 * On open, nearby storage (chests, barrels, shulkers, double chests within the radius,
-  permission-checked; hoppers/furnaces excluded) is aggregated by item type. Each of the
-  player's **empty** inventory slots (main + hotbar; armour and offhand excluded, and
-  `phantom-reserve-empty-slots` left free so JEI can still shuffle leftovers) is shown —
-  packet-only, via `ClientboundContainerSetSlotPacket` on the open crafting menu — holding
-  one type, count-descending, capped at the stack size, with the lore line
+  permission-checked; hoppers/furnaces and Combo Chest barrels excluded) is aggregated by
+  item type. Each of the player's **empty** inventory slots (main + hotbar; armour and
+  offhand excluded, and `phantom-reserve-empty-slots` left free so JEI can still shuffle
+  leftovers) is shown — packet-only, via `ClientboundContainerSetSlotPacket` on the open
+  crafting menu — holding one type, capped at the stack size, with the lore line
   *"From nearby storage (N available)"*. The real inventory is never touched.
+* **Display only.** Any click, shift-click, drag, number-key swap, offhand swap or drop
+  involving a phantom slot is cancelled and the slot is re-sent exactly as it was. Nothing
+  ever moves from storage into the inventory this way; the only path storage items take is
+  the JEI transfer packet, straight into the crafting grid. Taking items out by hand is the
+  Combo Chest's job.
 * `[+]` / shift-`[+]`: when JEI's transfer draws from a phantom slot, the server pulls the
   real items out of the recorded containers (nearest first) straight into the grid and
   records the origin per grid slot. Items the engine "stows" into a phantom slot go back
   into storage. If a chest emptied between snapshot and click, the grid is trimmed by the
   shortfall. Real slots behave exactly as before; the shift-`[+]` top-up still runs after.
-* Any click, drag, number-key swap or drop on a phantom slot is cancelled and becomes
-  "pull one real stack of that type into this slot" — the items really move from the
-  container into the inventory, and the phantom shifts to another empty slot.
 * After every click, craft and transfer the snapshot is rebuilt and re-sent so counts stay
   honest; slots that stopped being empty get their real content re-sent.
 * On session end (close, death, teleport, out of range, quit, kick) `updateInventory()`
@@ -339,8 +342,35 @@ makes the client *see* nearby storage as inventory:
 * JEI's `delete_player_item` and cheat-mode packets are never acted on (the latter are not
   even registered), so nothing can be "deleted" out of a phantom slot.
 
-Limitation: only as many item types as there are empty inventory slots can be shown at
-once (the biggest stacks win). The Combo Chest is the way to see everything.
+**The 36-type ceiling, and paging.** A `CraftingMenu` has exactly 36 player-inventory
+slots, JEI's transfer handler reads only the slots of the open container, and that menu has
+no scrollable region a server can write into — so **at most 36 item types can be visible to
+JEI at any instant**, and in practice fewer: only genuinely empty slots are used, minus
+`phantom-reserve-empty-slots`. A base with 400 item types in range cannot show them all at
+once, and no amount of server-side work changes that. (A fake container, a resized menu or
+a custom menu type all lose `[+]` entirely: JEI's transfer handler is registered against the
+vanilla crafting menu.) So instead:
+
+* **Pages.** Storage types are split into pages of "however many free slots there are". With
+  more than one page, the last two free slots become ◀ / ▶ buttons (barriers, which are an
+  ingredient in no recipe, so JEI ignores them); clicking one turns the page. There is also
+  `/craftbridge page next|prev` for when the buttons do not fit (fewer than three free
+  slots) — the only `/craftbridge` subcommand that needs no permission.
+* **Order, so page one is almost always the right page:** items that are ingredients in
+  recipes *this player has unlocked* first, most-used first (`RecipeIngredientIndex`, built
+  once from `Bukkit.recipeIterator()` on the first workbench open, weighted per player from
+  `getDiscoveredRecipes()` when the table is opened), then raw count descending, then
+  alphabetically.
+* **The action bar** says where you are on open and on every change:
+  *"Nearby storage — page 1/12 (417 types)"*.
+* **No free slots at all** (a completely full inventory): nothing is shown, nothing real is
+  ever overwritten, and the action bar says *"Nearby storage hidden — no free inventory
+  slots."* once.
+
+A search box would beat paging, but it needs text input (an anvil GUI or chat), which
+breaks on Geyser/Bedrock — so it is deliberately not built. If it is ever wanted it should
+land behind its own config flag, with paging staying the default.
+
 Implementation: `workbench.PhantomManager`; the one NMS call lives in
 `workbench.nms.PaperSlotPackets` (the same packet CraftBukkit's own
 `CraftInventoryPlayer#setItem` sends) and is loaded reflectively, so a rename on a
