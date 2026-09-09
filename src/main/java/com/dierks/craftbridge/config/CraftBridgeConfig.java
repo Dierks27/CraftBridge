@@ -23,9 +23,34 @@ public final class CraftBridgeConfig {
     private final JavaPlugin plugin;
     private final FileConfiguration raw;
 
+    /** Top-level sections the plugin expects; a config from an older version may lack some. */
+    private static final List<String> SECTIONS = List.of("features", "sorting", "linked-workbench",
+            "combo-chest", "jei");
+
     public CraftBridgeConfig(JavaPlugin plugin) {
         this.plugin = plugin;
         this.raw = plugin.getConfig();
+        reportMissingSections();
+    }
+
+    /**
+     * A config.yml carried over from an older version is missing whatever sections were added
+     * since. Every accessor falls back to a built-in default, so nothing throws and nothing
+     * stops working — but say so once at boot, because "the Combo Chest is not craftable"
+     * should not be something an admin has to work out from a stack trace.
+     */
+    private void reportMissingSections() {
+        List<String> missing = new ArrayList<>();
+        for (String section : SECTIONS) {
+            if (!raw.isConfigurationSection(section)) {
+                missing.add(section);
+            }
+        }
+        if (!missing.isEmpty()) {
+            plugin.getLogger().info("config.yml has no " + String.join(", ", missing)
+                    + " section; using the built-in defaults for those. Copy the section from the"
+                    + " jar's config.yml (or delete config.yml and restart) to customise it.");
+        }
     }
 
     public FileConfiguration raw() {
@@ -217,27 +242,14 @@ public final class CraftBridgeConfig {
 
     public List<String> recipeShape(com.dierks.craftbridge.workbench.BlockKind kind) {
         List<String> shape = raw.getStringList(kind.configSection() + ".recipe.shape");
-        if (!shape.isEmpty()) {
-            return shape;
-        }
-        return kind == com.dierks.craftbridge.workbench.BlockKind.COMBO_CHEST
-                ? List.of("HEH", "CBC", "HRH") : List.of("HCH", "CTC", "HEH");
+        return shape.isEmpty() ? kind.defaultRecipeShape() : shape;
     }
 
     public Map<Character, Material> recipeIngredients(com.dierks.craftbridge.workbench.BlockKind kind) {
         Map<Character, Material> out = new LinkedHashMap<>();
         ConfigurationSection section = raw.getConfigurationSection(kind.configSection() + ".recipe.ingredients");
         if (section == null) {
-            out.put('H', Material.CHEST);
-            out.put('C', Material.COPPER_INGOT);
-            out.put('E', Material.ENDER_PEARL);
-            if (kind == com.dierks.craftbridge.workbench.BlockKind.COMBO_CHEST) {
-                out.put('B', Material.BARREL);
-                out.put('R', Material.COMPARATOR);
-            } else {
-                out.put('T', Material.CRAFTING_TABLE);
-            }
-            return out;
+            return kind.defaultRecipeIngredients();
         }
         for (String key : section.getKeys(false)) {
             String name = section.getString(key, "");
