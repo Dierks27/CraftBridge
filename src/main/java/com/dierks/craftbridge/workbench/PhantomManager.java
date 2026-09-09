@@ -31,11 +31,13 @@ import java.util.UUID;
  * JEI's client believes the ingredients are in the inventory and sends its transfer.
  *
  * <ul>
- *   <li><b>Display only.</b> Nothing here changes the real inventory, and no click can move
- *       a phantom anywhere: every click, shift-click, drag, number-key swap, offhand swap
- *       and drop on a phantom slot is cancelled and the slot is re-sent as it was. The one
- *       path storage items take is the JEI transfer packet, straight into the crafting
- *       grid — taking items out by hand is the Combo Chest's job.</li>
+ *   <li><b>The snapshot itself never changes the inventory.</b> Phantoms are packet-only:
+ *       the server keeps those slots empty, so they are always free to receive something.</li>
+ *   <li><b>Clicking one takes items for real</b>, bounded by {@link PullPlanner}: left-click
+ *       a stack, right-click half, shift-click as much as fits. Everything else on a phantom
+ *       (number keys, drops, double-click collect, offhand swaps) is cancelled and the slot
+ *       re-sent. Putting an item <em>into</em> a phantom slot is ordinary vanilla behaviour
+ *       and is always allowed — the slot really is empty.</li>
  *   <li><b>Paged.</b> A crafting menu has exactly 36 player-inventory slots and JEI only
  *       reads those, so at most that many types can be visible at once (fewer, because
  *       occupied slots and the reserve do not count). The rest live on further pages,
@@ -130,6 +132,93 @@ public final class PhantomManager {
     public Button buttonAt(Player player, int rawSlot) {
         Session s = sessions.get(player.getUniqueId());
         return s == null ? null : s.buttons.get(rawSlot);
+    }
+
+    /** What the click handler needs to know about a slot: phantom, page button, or real. */
+    public WorkbenchClicks.Slot slotKind(Player player, int rawSlot) {
+        Session s = sessions.get(player.getUniqueId());
+        if (s == null) {
+            return WorkbenchClicks.Slot.REAL;
+        }
+        if (s.byRaw.containsKey(rawSlot)) {
+            return WorkbenchClicks.Slot.PHANTOM;
+        }
+        return s.buttons.containsKey(rawSlot) ? WorkbenchClicks.Slot.BUTTON : WorkbenchClicks.Slot.REAL;
+    }
+
+    /**
+     * Take items out of storage into the player's inventory: what clicking a phantom slot
+     * does. The amount is bounded by {@link PullPlanner} — by what storage actually holds and
+     * by the empty slots the player actually has — so this can neither overflow nor need to
+     * drop anything, which is what made the v0.2 version of this unsafe.
+     *
+     * <p>Storage is re-scanned first, so a container emptied or locked since the snapshot is
+     * handled by moving what is really there rather than by trusting a stale count.
+     *
+     * @return how many items were moved
+     */
+    public int pull(Player player, int rawSlot, PullPlanner.Mode mode) {
+        Session session = sessions.get(player.getUniqueId());
+        LinkedSession linked = feature.sessions().of(player);
+        Phantom phantom = session == null ? null : session.byRaw.get(rawSlot);
+        if (phantom == null || linked == null || !player.isOnline()) {
+            return 0;
+        }
+        InventoryView view = linked.view();
+        if (!Items.isEmpty(view.getItem(rawSlot))) {
+            rebuild(player); // something real landed there in the meantime
+            return 0;
+        }
+        session.sources = feature.scanner().scan(player, linked.record().location(), plugin.config().workbenchRadius());
+        ItemStack key = phantom.key();
+        int maxStack = Math.max(1, key.getMaxStackSize());
+        int available = StorageScanner.count(session.sources, key);
+        int want = PullPlanner.amount(mode, available, maxStack, freeInventorySlots(view));
+        if (want <= 0) {
+            rebuild(player);
+            return 0;
+        }
+
+        int got = 0;
+        for (StorageScanner.Pulled pulled : feature.scanner().pull(session.sources, key, want)) {
+            got += pulled.stack().getAmount();
+        }
+        if (got <= 0) {
+            rebuild(player);
+            return 0;
+        }
+        int intoClicked = Math.min(got, maxStack);
+        view.setItem(rawSlot, key.asQuantity(intoClicked));
+        int rest = got - intoClicked;
+        if (rest > 0) {
+            for (ItemStack over : player.getInventory().addItem(key.asQuantity(rest)).values()) {
+                putBack(player, session, over);
+            }
+        }
+        rebuild(player);
+        return got;
+    }
+
+    /** Anything that would not fit goes back where it came from, never on the floor. */
+    private void putBack(Player player, Session session, ItemStack stack) {
+        ItemStack left = feature.scanner().deposit(session.sources, stack);
+        if (Items.isEmpty(left)) {
+            return;
+        }
+        plugin.getLogger().warning("Linked Workbench: " + Items.describe(left) + " x" + left.getAmount()
+                + " fit neither " + player.getName() + "'s inventory nor nearby storage; dropping it at their feet.");
+        player.getWorld().dropItemNaturally(player.getLocation(), left);
+    }
+
+    /** Empty inventory slots in the open view — phantoms are packet-only, so these really are empty. */
+    private static int freeInventorySlots(InventoryView view) {
+        int free = 0;
+        for (int raw : GridLayout.WORKBENCH.inventorySlots()) {
+            if (Items.isEmpty(view.getItem(raw))) {
+                free++;
+            }
+        }
+        return free;
     }
 
     public List<StorageScanner.Source> sources(Player player) {

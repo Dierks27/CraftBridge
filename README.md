@@ -418,18 +418,29 @@ makes the client *see* nearby storage as inventory:
   leftovers) is shown — packet-only, via `ClientboundContainerSetSlotPacket` on the open
   crafting menu — holding one type, capped at the stack size, with the lore line
   *"From nearby storage (N available)"*. The real inventory is never touched.
-* **Display only, and only the phantom slots.** Any click, shift-click, drag, number-key
-  swap, offhand swap or drop *on a phantom slot* is cancelled and the slot is re-sent exactly
-  as it was. Nothing ever moves from storage into the inventory this way; the only path
-  storage items take is the JEI transfer packet, straight into the crafting grid. Taking
-  items out by hand is the Combo Chest's job.
-* **Everything else is a vanilla crafting table.** The player's own slots, the grid and the
-  result behave exactly as they always did: items can be placed by hand and crafted normally,
-  and a number-key swap whose *destination* is a phantom slot is allowed, because that slot is
-  genuinely empty server-side and the phantom just moves elsewhere. Phantoms are also not
-  re-sent while the player is holding something on the cursor, and only slots whose contents
-  actually changed are re-sent at all — a burst of slot packets mid-interaction is what made
-  hand-placing feel broken in v0.3.
+* **Only phantom slots are special, and only in one direction.** Every interaction with the
+  player's own slots, the crafting grid and the result is left to vanilla — pick up, place,
+  shift-click, drag, number keys, double-click collect, offhand swap, craft, take the result.
+  Hand-placing items into the grid and crafting with them works exactly as at a plain
+  crafting table. `workbench.WorkbenchClicks` decides this and is unit tested for every click
+  type against every kind of slot, because getting it wrong is what broke hand-crafting twice.
+* **Putting something into a phantom slot is always allowed.** The slot genuinely is empty
+  server-side — phantoms are packet-only — so placing there is an ordinary vanilla move and
+  the phantom simply relocates on the next rebuild. Drags are never refused either: a drag
+  only ever puts items down.
+* **Clicking a phantom takes the items for real**, bounded so it can never overflow:
+  left-click pulls one stack, right-click half a stack, shift-click as much as the player's
+  free slots and storage allow (`workbench.PullPlanner`, unit tested). Storage is re-scanned
+  first, so a container emptied or locked since the snapshot moves what is really there
+  rather than what the snapshot claimed. Anything that somehow does not fit goes back into
+  storage rather than onto the floor. Number keys, drops, double-click collect and offhand
+  swaps on a phantom are cancelled and the slot re-sent — they have no sensible meaning on
+  contents that are not really there.
+* **Nothing creates or destroys items.** Storage plus inventory is counted before and after
+  in `StorageAccountingTest`, across every pull mode, stack size and full-inventory case.
+  Items pulled into the crafting grid by a JEI transfer can be taken into the inventory like
+  any other — it is the same move as clicking the phantom, by a slower route — and whatever
+  is still in the grid on close goes back to the container it came from.
 * `[+]` / shift-`[+]`: when JEI's transfer draws from a phantom slot, the server pulls the
   real items out of the recorded containers (nearest first) straight into the grid and
   records the origin per grid slot. Items the engine "stows" into a phantom slot go back
