@@ -44,6 +44,28 @@ public final class VarInts {
             }
         }
 
+        /** A length-prefixed UTF-8 string. */
+        public String readString() {
+            int length = readVarInt();
+            if (length < 0 || length > remaining()) {
+                throw new IllegalArgumentException("string length " + length + " runs past end of payload");
+            }
+            String value = new String(data, pos, length, java.nio.charset.StandardCharsets.UTF_8);
+            pos += length;
+            return value;
+        }
+
+        /** A length-prefixed blob — an item stack encoded by the game's own codec, say. */
+        public byte[] readBytes() {
+            int length = readVarInt();
+            if (length < 0 || length > remaining()) {
+                throw new IllegalArgumentException("blob length " + length + " runs past end of payload");
+            }
+            byte[] value = java.util.Arrays.copyOfRange(data, pos, pos + length);
+            pos += length;
+            return value;
+        }
+
         public boolean readBoolean() {
             if (pos >= data.length) {
                 throw new IllegalArgumentException("boolean runs past end of payload at byte " + pos);
@@ -66,6 +88,20 @@ public final class VarInts {
 
         public Writer writeBoolean(boolean value) {
             out.write(value ? 1 : 0);
+            return this;
+        }
+
+        public Writer writeString(String value) {
+            byte[] utf8 = (value == null ? "" : value).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            writeVarInt(utf8.length);
+            out.writeBytes(utf8);
+            return this;
+        }
+
+        public Writer writeBytes(byte[] value) {
+            byte[] safe = value == null ? new byte[0] : value;
+            writeVarInt(safe.length);
+            out.writeBytes(safe);
             return this;
         }
 
