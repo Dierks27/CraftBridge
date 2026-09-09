@@ -129,6 +129,9 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
             refreshIfStale();
             syncIfListening(event.getPlayer());
         });
+        // The client's minecraft:register can lag the join by a few ticks, more through a
+        // proxy, so only complain once it has clearly not arrived.
+        Bukkit.getScheduler().runTaskLater(plugin, () -> reportIfNotSynced(event.getPlayer()), 100L);
     }
 
     /**
@@ -325,8 +328,34 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
             plugin.getLogger().warning("JEI recipe sync: could not re-send vanilla recipes to " + player.getName() + " (" + ex + ")");
         }
         synced.add(player.getUniqueId());
-        plugin.debug("JEI recipe sync: sent " + cachedCount + " recipe(s) (" + cachedPayload.length + " bytes) to " + player.getName());
+        // At INFO on purpose: this one line is the difference between "the payload went out"
+        // and "the client never announced the channel", which is otherwise invisible.
+        plugin.getLogger().info("JEI recipe sync: sent to " + player.getName() + " on " + CHANNEL
+                + " (" + describe() + ")");
         return true;
+    }
+
+    /**
+     * A few seconds after joining, say something if this player still has not been sent the
+     * payload. A client that speaks JEI's own channels but not ours is the interesting case —
+     * that is a JEI on a loader whose recipe sync is not {@code fabric:recipe_sync} (a
+     * NeoForge client, say), and one line naming the channels it did register turns the next
+     * mismatch into a diagnosis instead of a testing session.
+     */
+    private void reportIfNotSynced(Player player) {
+        if (!isActive() || !player.isOnline() || synced.contains(player.getUniqueId())) {
+            return;
+        }
+        Set<String> channels = new java.util.TreeSet<>(player.getListeningPluginChannels());
+        boolean looksLikeJei = channels.stream().anyMatch(c -> c.startsWith("jei:"));
+        String message = "JEI recipe sync: nothing sent to " + player.getName() + " — the client did not"
+                + " register " + CHANNEL + ". Channels it did register: " + channels;
+        if (looksLikeJei) {
+            plugin.getLogger().warning(message + " (it speaks JEI's own channels, so this is a JEI"
+                    + " client whose recipe sync uses a different channel — recipe sync needs a Fabric client.)");
+        } else {
+            plugin.debug(message);
+        }
     }
 
     /** Encode with the configured type list, dropping types from the end until the payload fits. */

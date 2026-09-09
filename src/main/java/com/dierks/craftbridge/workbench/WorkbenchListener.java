@@ -21,7 +21,6 @@ import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -178,11 +177,13 @@ public final class WorkbenchListener implements Listener {
     // ---- phantom slots -------------------------------------------------------------
 
     /**
-     * Clicks in the linked view: a click that involves a phantom slot (the hovered slot, the
-     * hotbar slot of a number-key swap) is cancelled and the slot is re-sent as it was:
-     * phantoms are display only, so nothing ever moves out of one. Clicking a page button
-     * turns the page; every other click triggers a rebuild next tick so the phantoms
-     * follow what is now empty.
+     * Clicks in the linked view. Only a click on a phantom slot itself is cancelled (and the
+     * slot re-sent as it was) — phantoms are display only. <b>Everything else behaves exactly
+     * as at a vanilla crafting table</b>: the player's real slots, the grid and the result
+     * are untouched, so items can be placed by hand and crafted normally. In particular a
+     * number-key swap whose <em>destination</em> is a phantom slot is allowed: that slot is
+     * genuinely empty server-side, so the swap is an ordinary vanilla move that takes nothing
+     * out of storage, and the phantom simply moves elsewhere on the next rebuild.
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onClick(InventoryClickEvent event) {
@@ -191,18 +192,9 @@ public final class WorkbenchListener implements Listener {
                 || !feature.sessions().isLinkedView(player, event.getView())) {
             return;
         }
-        int target = -1;
         if (phantoms.isPhantomSlot(player, event.getRawSlot())) {
-            target = event.getRawSlot();
-        } else if (event.getClick() == ClickType.NUMBER_KEY && event.getHotbarButton() >= 0) {
-            int hotbarRaw = 37 + event.getHotbarButton(); // crafting table view: hotbar is raw 37-45
-            if (phantoms.isPhantomSlot(player, hotbarRaw)) {
-                target = hotbarRaw;
-            }
-        }
-        if (target >= 0) {
             event.setCancelled(true);
-            final int slot = target;
+            final int slot = event.getRawSlot();
             PhantomManager.Button button = phantoms.buttonAt(player, slot);
             Bukkit.getScheduler().runTask(plugin, () -> {
                 if (button != null) {
@@ -223,6 +215,8 @@ public final class WorkbenchListener implements Listener {
                 || !feature.sessions().isLinkedView(player, event.getView())) {
             return;
         }
+        // Only a drag that would write into a phantom slot is refused; a drag confined to
+        // real slots and the grid is ordinary vanilla behaviour.
         for (int raw : event.getRawSlots()) {
             if (phantoms.isPhantomSlot(player, raw)) {
                 event.setCancelled(true);
