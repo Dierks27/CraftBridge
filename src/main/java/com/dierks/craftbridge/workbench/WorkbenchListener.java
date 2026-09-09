@@ -1,6 +1,7 @@
 package com.dierks.craftbridge.workbench;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
+import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.integration.ContainerAccess;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -177,13 +178,12 @@ public final class WorkbenchListener implements Listener {
     // ---- phantom slots -------------------------------------------------------------
 
     /**
-     * Clicks in the linked view. Only a click on a phantom slot itself is cancelled (and the
-     * slot re-sent as it was) — phantoms are display only. <b>Everything else behaves exactly
-     * as at a vanilla crafting table</b>: the player's real slots, the grid and the result
-     * are untouched, so items can be placed by hand and crafted normally. In particular a
-     * number-key swap whose <em>destination</em> is a phantom slot is allowed: that slot is
-     * genuinely empty server-side, so the swap is an ordinary vanilla move that takes nothing
-     * out of storage, and the phantom simply moves elsewhere on the next rebuild.
+     * Clicks in the linked view, decided by {@link WorkbenchClicks} (which is unit tested for
+     * every combination). Real slots, the crafting grid and the result are always left to
+     * vanilla, so hand-placing items and crafting behave exactly as at a plain crafting
+     * table. A phantom slot is special in one direction only: taking from it pulls the real
+     * items out of storage, while putting something into it is an ordinary place, because
+     * the slot genuinely is empty.
      */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onClick(InventoryClickEvent event) {
@@ -192,39 +192,42 @@ public final class WorkbenchListener implements Listener {
                 || !feature.sessions().isLinkedView(player, event.getView())) {
             return;
         }
-        if (phantoms.isPhantomSlot(player, event.getRawSlot())) {
-            event.setCancelled(true);
-            final int slot = event.getRawSlot();
-            PhantomManager.Button button = phantoms.buttonAt(player, slot);
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (button != null) {
-                    phantoms.turnPage(player, button);
-                } else {
-                    phantoms.resend(player, slot);
-                }
-            });
+        final int slot = event.getRawSlot();
+        WorkbenchClicks.Slot kind = phantoms.slotKind(player, slot);
+        WorkbenchClicks.Action action = WorkbenchClicks.decide(kind,
+                Items.isEmpty(event.getCursor()), event.getClick().name());
+        if (action == WorkbenchClicks.Action.ALLOW) {
+            phantoms.rebuildLater(player);
             return;
         }
-        phantoms.rebuildLater(player);
+        event.setCancelled(true);
+        PhantomManager.Button button = phantoms.buttonAt(player, slot);
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            switch (action) {
+                case PAGE -> {
+                    if (button != null) {
+                        phantoms.turnPage(player, button);
+                    }
+                }
+                case PULL_ONE -> phantoms.pull(player, slot, PullPlanner.Mode.ONE);
+                case PULL_HALF -> phantoms.pull(player, slot, PullPlanner.Mode.HALF);
+                case PULL_ALL -> phantoms.pull(player, slot, PullPlanner.Mode.ALL);
+                default -> phantoms.resend(player, slot);
+            }
+        });
     }
 
+    /**
+     * Drags only ever put items down, never take them, so a drag is never refused on account
+     * of a phantom: the slots it writes into are genuinely empty. The snapshot is rebuilt
+     * afterwards so the display catches up.
+     */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onDrag(InventoryDragEvent event) {
         PhantomManager phantoms = feature.phantoms();
         if (phantoms == null || !(event.getWhoClicked() instanceof Player player)
                 || !feature.sessions().isLinkedView(player, event.getView())) {
             return;
-        }
-        // Only a drag that would write into a phantom slot is refused; a drag confined to
-        // real slots and the grid is ordinary vanilla behaviour.
-        for (int raw : event.getRawSlots()) {
-            if (phantoms.isPhantomSlot(player, raw)) {
-                event.setCancelled(true);
-                for (int shown : event.getRawSlots()) {
-                    phantoms.resend(player, shown);
-                }
-                break;
-            }
         }
         phantoms.rebuildLater(player);
     }
