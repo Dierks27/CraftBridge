@@ -27,6 +27,9 @@ class StorageAccountingTest {
         int cursor;
         /** What vanilla dropped at their feet when a session ended mid-hold. Still in the world. */
         int dropped;
+        /** The crafting grid, and how much of each slot was sourced from a container. */
+        int[] grid = new int[0];
+        int[] owed = new int[0];
 
         Sim(int storage, int maxStack, int... slots) {
             this.storage = storage;
@@ -46,6 +49,9 @@ class StorageAccountingTest {
 
         int total() {
             int n = storage + cursor + dropped;
+            for (int g : grid) {
+                n += g;
+            }
             for (int s : slots) {
                 if (s > 0) {
                     n += s;
@@ -67,6 +73,44 @@ class StorageAccountingTest {
             storage -= moved;
             cursor += moved;
             return moved;
+        }
+
+        Sim withGrid(int[] amounts, int[] fromStorage) {
+            this.grid = amounts.clone();
+            this.owed = fromStorage.clone();
+            return this;
+        }
+
+        /**
+         * A session force-ended by teleport, death, going out of range or the plugin stopping.
+         * Same code path in all four cases, and the order is the specified one: what came from
+         * a container goes back to it, the rest goes to the player, and anything they cannot
+         * hold is dropped at the table. A held stack goes with them too.
+         *
+         * @param containerRoom how much the source container will still take
+         */
+        void forceEnd(int containerRoom) {
+            for (int i = 0; i < grid.length; i++) {
+                int back = Math.min(Math.min(owed[i], grid[i]), containerRoom);
+                storage += back;
+                containerRoom -= back;
+                grid[i] -= back;
+            }
+            for (int i = 0; i < grid.length; i++) {
+                int rest = grid[i];
+                grid[i] = 0;
+                int into = Math.min(rest, free() * maxStack);
+                int slot = firstFree();
+                while (into > 0 && slot >= 0) {
+                    int put = Math.min(into, maxStack);
+                    slots[slot] = put;
+                    into -= put;
+                    rest -= put;
+                    slot = firstFree();
+                }
+                dropped += rest;
+            }
+            endSessionMidHold();
         }
 
         /**
@@ -228,6 +272,57 @@ class StorageAccountingTest {
                     assertEquals(before, sim.total(), mode + " maxStack=" + maxStack + " round " + round);
                     assertTrue(sim.storage >= 0, "storage went negative for " + mode);
                 }
+            }
+        }
+    }
+
+    @Test
+    void aForceEndReturnsStorageItemsToTheContainerFirst() {
+        Sim sim = new Sim(0, 64, 0, 0).withGrid(new int[]{9, 4}, new int[]{9, 0});
+        int before = sim.total();
+        sim.forceEnd(64);
+        assertEquals(before, sim.total());
+        assertEquals(9, sim.storage, "what came from the container goes back to it");
+        assertEquals(4, sim.slots[0], "what the player put in is theirs");
+        assertEquals(0, sim.dropped);
+    }
+
+    @Test
+    void aForceEndFallsBackToThePlayerWhenTheContainerIsFull() {
+        Sim sim = new Sim(0, 64, 0).withGrid(new int[]{9}, new int[]{9});
+        int before = sim.total();
+        sim.forceEnd(0); // the chest was filled while the workbench was open
+        assertEquals(before, sim.total());
+        assertEquals(0, sim.storage);
+        assertEquals(9, sim.slots[0]);
+        assertEquals(0, sim.dropped);
+    }
+
+    @Test
+    void aForceEndDropsWhatNeitherTheContainerNorThePlayerCanTake() {
+        Sim sim = new Sim(0, 64, -1, -1).withGrid(new int[]{9}, new int[]{9});
+        int before = sim.total();
+        sim.forceEnd(0);
+        assertEquals(before, sim.total(), "nothing may be destroyed even with nowhere to put it");
+        assertEquals(9, sim.dropped);
+    }
+
+    @Test
+    void everyForceEndPathBalancesIncludingAHeldStack() {
+        // Teleport, death and plugin disable are the same path; none can be staged by hand
+        // in-game, which is exactly why they are asserted here.
+        for (String reason : new String[]{"teleport", "death", "plugin disable"}) {
+            for (int containerRoom : new int[]{0, 5, 64}) {
+                Sim sim = new Sim(20, 16, 0, -1, 0).withGrid(new int[]{7, 3}, new int[]{7, 0});
+                sim.pullToCursor(PullPlanner.Mode.ONE);
+                int before = sim.total();
+                sim.forceEnd(containerRoom);
+                assertEquals(before, sim.total(), reason + " with room " + containerRoom);
+                assertEquals(0, sim.cursor, reason + ": nothing may be left on the cursor");
+                for (int g : sim.grid) {
+                    assertEquals(0, g, reason + ": the grid must be empty afterwards");
+                }
+                assertTrue(sim.storage >= 0, reason);
             }
         }
     }

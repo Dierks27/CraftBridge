@@ -41,15 +41,15 @@ public final class WorkbenchStore {
         return records.containsKey(WorkbenchRecord.keyOf(block));
     }
 
-    /** Block locations of every placed block of {@code kind} (used to keep terminals out of storage scans). */
-    public java.util.Set<org.bukkit.Location> locationsOf(BlockKind kind) {
-        java.util.Set<org.bukkit.Location> out = new java.util.HashSet<>();
+    /**
+     * {@link BlockKeys} of every placed block of {@code kind}. Used to keep terminals out of
+     * storage scans — a Combo Chest's own barrel is a terminal, never storage.
+     */
+    public java.util.Set<String> keysOf(BlockKind kind) {
+        java.util.Set<String> out = new java.util.HashSet<>();
         for (WorkbenchRecord r : records.values()) {
             if (r.kind() == kind) {
-                org.bukkit.Location loc = r.location();
-                if (loc != null) {
-                    out.add(loc);
-                }
+                out.add(BlockKeys.of(r.world(), r.x(), r.y(), r.z()));
             }
         }
         return out;

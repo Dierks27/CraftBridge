@@ -238,6 +238,21 @@ public final class WorkbenchListener implements Listener {
         phantoms.rebuildLater(player);
     }
 
+    /**
+     * A terminal's own barrel is not storage, and nothing may fill it — not the terminal, not
+     * a hopper, not a dropper. Without this the block under a Combo Chest is a container that
+     * the terminal itself lists but no player can reach, so items put there are visible and
+     * unreachable at the same time.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void onHopperMove(org.bukkit.event.inventory.InventoryMoveItemEvent event) {
+        org.bukkit.inventory.InventoryHolder holder = event.getDestination().getHolder(false);
+        if (holder instanceof org.bukkit.block.Container container
+                && feature.store().keysOf(BlockKind.COMBO_CHEST).contains(BlockKeys.of(container.getBlock()))) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler
     public void onKick(PlayerKickEvent event) {
         feature.sessions().end(event.getPlayer(), true);

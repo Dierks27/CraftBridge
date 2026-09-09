@@ -530,8 +530,16 @@ chests in the corners, 2 copper ingots, an ender pearl on top and a comparator b
 `combo-chest.recipe` in `config.yml`).
 
 **Right-click** opens the terminal GUI instead of the barrel. The barrel underneath is
-*never* storage: it is skipped by the terminal itself, by other Combo Chests, by the
-Linked Workbench and by the phantom-slot snapshot, so nothing ever ends up "inside" it.
+*never* storage, and nothing can put anything in it: it is skipped by the terminal itself,
+by other Combo Chests, by the Linked Workbench and by the phantom-slot snapshot; it is
+refused as a deposit destination at the point of writing rather than merely filtered out of
+the caller's source list; and hoppers and droppers cannot move items into it either.
+
+Exclusion is keyed by `world:x:y:z` (`workbench.BlockKeys`, unit tested) rather than by
+comparing `Location` objects, whose equality folds in the world reference plus yaw and
+pitch. A single mismatch there turns "skip this container" into "use this container", which
+is how a deposit could end up inside the terminal it was made from — listed in the terminal
+and reachable from no chest.
 
 * **Range and permissions.** Every chest, trapped chest, double chest (once), barrel and
   shulker box within `combo-chest.radius` (8) blocks that the player may open — vanilla
