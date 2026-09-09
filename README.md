@@ -438,16 +438,26 @@ makes the client *see* nearby storage as inventory:
   server-side — phantoms are packet-only — so placing there is an ordinary vanilla move and
   the phantom simply relocates on the next rebuild. Drags are never refused either: a drag
   only ever puts items down.
-* **Clicking a phantom takes the items for real**, bounded so it can never overflow:
-  left-click pulls one stack, right-click half a stack, shift-click as much as the player's
-  free slots and storage allow (`workbench.PullPlanner`, unit tested). Storage is re-scanned
+* **Clicking a phantom takes the items for real, in one click.** Left-click puts a stack
+  straight **on the cursor** — like taking it out of a chest, ready to place — right-click
+  half a stack, and shift-click fills the player's empty inventory slots instead (shift-click
+  has no cursor semantics). The pull runs in the same tick as the click, and the slot's true
+  contents and the cursor go to the client immediately rather than on the next scheduled
+  rebuild: waiting for that is what left the client drawing a phantom the player had already
+  taken, so the next click was spent re-syncing instead of doing what they meant. Amounts are
+  bounded so a pull can never overflow (`workbench.PullPlanner`, unit tested). Storage is re-scanned
   first, so a container emptied or locked since the snapshot moves what is really there
   rather than what the snapshot claimed. Anything that somehow does not fit goes back into
   storage rather than onto the floor. Number keys, drops, double-click collect and offhand
   swaps on a phantom are cancelled and the slot re-sent — they have no sensible meaning on
   contents that are not really there.
-* **Nothing creates or destroys items.** Storage plus inventory is counted before and after
-  in `StorageAccountingTest`, across every pull mode, stack size and full-inventory case.
+* **Nothing creates or destroys items.** Storage plus inventory plus the cursor is counted
+  before and after in `StorageAccountingTest`, across every pull mode, stack size and
+  full-inventory case, and across a session ending while the player is still holding a pulled
+  stack. That last case needs no code of ours: Paper drops a carried item at the player's feet
+  on disconnect (its own "Drop carried item when player has disconnected" patch) and vanilla
+  does the same when a container closes, so the item is always visible and recoverable —
+  intervening would risk handing it back *and* dropping it.
   Items pulled into the crafting grid by a JEI transfer can be taken into the inventory like
   any other — it is the same move as clicking the phantom, by a slower route — and whatever
   is still in the grid on close goes back to the container it came from.
