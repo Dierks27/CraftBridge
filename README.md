@@ -123,14 +123,23 @@ add shaped/shapeless crafting recipes entirely in-game, no datapacks, no ids typ
   click, shift-click, drag, number-key swap and drop on those, so nothing can be taken out
   of the GUI. (Before this, the grid was pre-filled with glass panes that clicking handed
   to the admin as real items — a confusing infinite glass source.)
-* **Two ways to fill a slot.** Put a real item in as before (fastest when you have it), or
-  **click an empty slot with an empty hand** to open a paginated item picker: every item
+* **Two ways to fill a slot, and only one of them is a real item.** Put a real item in as
+  before (fastest when you have it), or **click an empty slot with an empty hand** to open a
+  paginated item picker: every item
   the server knows plus CraftBridge's own custom items (its blocks and every custom
   recipe's result), with the same All / Blocks / Tools & armor / Food / Misc quick filters
   used elsewhere and a Custom items filter. Picking sets the slot without consuming or
   requiring anything, so recipes for items that are unobtainable on this server can be
   defined without switching to creative. Chest GUIs only, no anvil text input, so it
   behaves the same on Geyser/Bedrock.
+* **Picked ingredients are ghosts.** They are menu state, not inventory contents: while one
+  is in a slot that slot is non-editable, so every click, shift-click, drag, number-key
+  swap and drop on it is cancelled. Click one to replace it, right-click to clear it; on
+  close it simply stops existing. Items you physically placed are the opposite — they stay
+  real, behave like vanilla, and come back to you on Save, Cancel or close, exactly once.
+  (In v0.3 a picked item was a real removable stack, which was an unlimited source of
+  whatever the picker could reach.) The same rule covers the result slot and the copies
+  used to seed an existing recipe for editing.
 * **Result count:** +/- buttons beside the result slot (click ±1, right-click ±8, clamped
   to the item's stack size). If the result is a stack you physically put in, it is handed
   straight back to your inventory and the editor keeps a display copy, so changing the

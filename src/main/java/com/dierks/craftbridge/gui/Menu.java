@@ -77,6 +77,20 @@ public abstract class Menu implements InventoryHolder {
         }
     }
 
+    /**
+     * Turn a slot's editability on or off. A slot showing something the player must not be
+     * able to take (a picked "ghost" ingredient) is switched off, which makes
+     * {@link MenuListener} cancel every interaction with it and route the click to the
+     * menu's handler instead.
+     */
+    protected void editable(int slot, boolean on) {
+        if (on) {
+            editableSlots.add(slot);
+        } else {
+            editableSlots.remove(slot);
+        }
+    }
+
     public boolean isEditable(int rawSlot) {
         return editableSlots.contains(rawSlot);
     }

@@ -7,20 +7,19 @@ import com.dierks.craftbridge.recipes.Ingredient;
 import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.recipes.RecipeShape;
 import com.dierks.craftbridge.util.Items;
-import com.dierks.craftbridge.util.Keys;
 import com.dierks.craftbridge.util.Text;
 import org.bukkit.Keyed;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The recipe editor: a real 3x3 grid + result slot the admin fills with real items.
@@ -33,10 +32,19 @@ import java.util.List;
  * <p>Items can be put in by hand, or picked from {@link ItemPickerMenu} by clicking an
  * empty slot with an empty hand — which needs neither the item nor creative mode.
  *
- * <p>Items in the grid are the admin's own and are returned on Save, Cancel or close.
- * When editing an existing recipe the grid is seeded with <em>display copies</em> tagged
- * {@code craftbridge:editor_seed}; those are discarded on close (and removed from the
- * admin's inventory if they were dragged out), so editing never duplicates items.
+ * <p>Two kinds of thing can sit in an input slot, and the difference is what keeps the
+ * editor from minting items:
+ * <ul>
+ *   <li><b>Real items</b> the admin physically placed. The slot stays editable, vanilla
+ *       click behaviour applies, and every one of them is handed back on Save, Cancel or
+ *       close — exactly once.</li>
+ *   <li><b>Ghosts</b> chosen from {@link ItemPickerMenu} (and the copies used to seed an
+ *       existing recipe for editing). These live in the {@code ghosts} map, never in the
+ *       player's reach: the slot is switched to non-editable while a ghost is in it, so
+ *       every click, shift-click, drag, number-key swap and drop is cancelled. The only
+ *       things a ghost slot accepts are "replace it" (click) and "clear it"
+ *       (right-click), and on close a ghost simply stops existing.</li>
+ * </ul>
  */
 public final class RecipeEditorMenu extends Menu {
 
@@ -51,14 +59,21 @@ public final class RecipeEditorMenu extends Menu {
     static final int INFO = RecipeEditorLayout.INFO;
     static final int WARNING = RecipeEditorLayout.WARNING;
 
-    private static final NamespacedKey SEED = Keys.key("editor_seed");
-
     private final RecipeFeature feature;
     private final Player player;
     private final String existingId;
     private boolean shaped = true;
     private boolean enabled = true;
     private final boolean[] exact = new boolean[9];
+    /**
+     * Ingredients chosen from the item picker, by slot. These are <em>ghosts</em>: the GUI
+     * shows them so the recipe can be read and edited, but they are menu state, never
+     * inventory contents the player can take. A slot holding one is switched to
+     * non-editable, so every click, shift-click, drag, number-key swap and drop on it is
+     * cancelled. Items the admin physically placed are not in here — those are real, stay
+     * in the inventory slot, and are handed back on close.
+     */
+    private final Map<Integer, ItemStack> ghosts = new HashMap<>();
     private boolean overrideArmed;
     private String conflictText;
     private boolean finished;
@@ -86,23 +101,78 @@ public final class RecipeEditorMenu extends Menu {
             Ingredient ing = grid.get(i);
             if (ing != null) {
                 exact[i] = ing.isExact();
-                getInventory().setItem(GRID[i], tagSeed(ing.display()));
+                ghosts.put(GRID[i], ing.display());
             }
         }
-        getInventory().setItem(RESULT, tagSeed(recipe.result()));
+        ghosts.put(RESULT, recipe.result().clone());
+    }
+
+    /** What is in a slot for recipe purposes: the ghost if there is one, else the real item. */
+    private ItemStack contentOf(int slot) {
+        ItemStack ghost = ghosts.get(slot);
+        if (ghost != null) {
+            return ghost;
+        }
+        ItemStack real = getInventory().getItem(slot);
+        return Items.isEmpty(real) ? null : real;
+    }
+
+    /** Draw one input slot: a ghost (locked), a real item (vanilla), or empty (opens the picker). */
+    private void drawInput(int slot, String what) {
+        ItemStack ghost = ghosts.get(slot);
+        if (ghost != null) {
+            editable(slot, false);
+            set(slot, ghostDisplay(ghost), e -> {
+                if (e.isRightClick()) {
+                    ghosts.remove(slot);
+                    onInputChanged();
+                } else {
+                    openPicker(slot, what);
+                }
+            });
+            return;
+        }
+        editable(slot, true);
+        if (Items.isEmpty(getInventory().getItem(slot))) {
+            // Only reachable with an empty cursor on an empty slot, where vanilla does nothing.
+            handler(slot, e -> openPicker(slot, what));
+        }
+    }
+
+    /** The ghost as the player sees it: the item, plus a line saying it cannot be taken. */
+    private static ItemStack ghostDisplay(ItemStack ghost) {
+        ItemStack copy = ghost.clone();
+        ItemMeta meta = copy.getItemMeta();
+        if (meta != null) {
+            List<net.kyori.adventure.text.Component> lore = new ArrayList<>();
+            if (meta.hasLore() && meta.lore() != null) {
+                lore.addAll(meta.lore());
+            }
+            lore.add(Text.item("<dark_gray>Picked from the item list"));
+            lore.add(Text.item("<yellow>Click <gray>to change  <yellow>Right-click <gray>to clear"));
+            meta.lore(lore);
+            copy.setItemMeta(meta);
+        }
+        return copy;
+    }
+
+    private void onInputChanged() {
+        overrideArmed = false;
+        conflictText = null;
+        refresh();
     }
 
     @Override
     protected void build() {
         frame();
         for (int i = 0; i < 9; i++) {
-            ItemStack cell = getInventory().getItem(GRID[i]);
+            drawInput(GRID[i], "grid slot " + (i + 1));
+            ItemStack cell = contentOf(GRID[i]);
             final int idx = i;
             if (Items.isEmpty(cell)) {
                 set(INDICATOR[i], Items.icon(Material.BLACK_STAINED_GLASS_PANE, "<dark_gray>empty slot",
                         "<gray>Put an item in the slot above,",
                         "<gray>or click it with an empty hand to", "<gray>pick one from the item list."), null);
-                handler(GRID[i], e -> openPicker(GRID[idx], "grid slot " + (idx + 1)));
                 continue;
             }
             String matName = Items.prettyMaterial(cell.getType());
@@ -121,10 +191,9 @@ public final class RecipeEditorMenu extends Menu {
         }
         set(ARROW, Items.icon(Material.SPECTRAL_ARROW, "<gray>Result →", "Put the crafted item (with its count)",
                 "in the framed slot to the right, or click", "the empty slot to pick one from a list."), null);
-        ItemStack result = getInventory().getItem(RESULT);
-        if (Items.isEmpty(result)) {
-            handler(RESULT, e -> openPicker(RESULT, "the result"));
-        } else {
+        drawInput(RESULT, "the result");
+        ItemStack result = contentOf(RESULT);
+        if (!Items.isEmpty(result)) {
             int amount = result.getAmount();
             set(RecipeEditorLayout.COUNT_UP, Items.icon(Material.LIME_DYE, "<green>More <white>(" + amount + ")",
                     "<yellow>Click <gray>+1", "<yellow>Right-click <gray>+8"),
@@ -215,7 +284,8 @@ public final class RecipeEditorMenu extends Menu {
         switching = true;
         org.bukkit.Bukkit.getScheduler().runTask(feature.plugin(), () -> {
             new ItemPickerMenu(feature, player, what, picked -> {
-                getInventory().setItem(slot, tagSeed(picked));
+                giveBackReal(slot);
+                ghosts.put(slot, picked);
                 reopen();
             }, this::reopen, this::pickerClosed).openFor();
             switching = false;
@@ -246,30 +316,39 @@ public final class RecipeEditorMenu extends Menu {
 
     /**
      * Change the result count. A stack the admin physically put in is handed straight back
-     * first and replaced with a display copy, so changing the count can never mint items.
+     * first and becomes a ghost, so changing the count can never mint items.
      */
     private void changeCount(int delta) {
-        ItemStack result = getInventory().getItem(RESULT);
+        ItemStack result = contentOf(RESULT);
         if (Items.isEmpty(result)) {
             return;
         }
         int max = Math.max(1, result.getMaxStackSize());
         int amount = Math.max(1, Math.min(max, result.getAmount() + delta));
-        if (!isSeed(result)) {
-            ItemStack back = result.clone();
-            getInventory().setItem(RESULT, null);
-            for (ItemStack left : player.getInventory().addItem(back).values()) {
-                player.getWorld().dropItemNaturally(player.getLocation(), left);
-            }
-            player.sendMessage(Text.msg("<gray>Your " + Items.describe(back) + " went back to your inventory; "
-                    + "the editor keeps a copy."));
+        ItemStack ghost = result.clone();
+        if (!ghosts.containsKey(RESULT)) {
+            player.sendMessage(Text.msg("<gray>Your " + Items.describe(result)
+                    + " went back to your inventory; the editor keeps a copy."));
+            giveBackReal(RESULT);
         }
-        ItemStack display = tagSeed(result.clone());
-        display.setAmount(amount);
-        getInventory().setItem(RESULT, display);
-        overrideArmed = false;
-        conflictText = null;
-        refresh();
+        ghost.setAmount(amount);
+        ghosts.put(RESULT, ghost);
+        onInputChanged();
+    }
+
+    /** Hand back whatever real item is in a slot (a no-op for an empty or ghost slot). */
+    private void giveBackReal(int slot) {
+        if (ghosts.containsKey(slot)) {
+            return;
+        }
+        ItemStack real = getInventory().getItem(slot);
+        getInventory().setItem(slot, null);
+        if (Items.isEmpty(real)) {
+            return;
+        }
+        for (ItemStack left : player.getInventory().addItem(real).values()) {
+            player.getWorld().dropItemNaturally(player.getLocation(), left);
+        }
     }
 
     @Override
@@ -283,12 +362,12 @@ public final class RecipeEditorMenu extends Menu {
         if (existingId != null) {
             return existingId;
         }
-        ItemStack result = getInventory().getItem(RESULT);
+        ItemStack result = contentOf(RESULT);
         return Items.isEmpty(result) ? "?" : feature.store().freeId(result.getType());
     }
 
     private void save() {
-        ItemStack result = getInventory().getItem(RESULT);
+        ItemStack result = contentOf(RESULT);
         if (Items.isEmpty(result)) {
             player.sendMessage(Text.msg("<red>Put the result item in the slot next to the arrow first."));
             return;
@@ -296,12 +375,12 @@ public final class RecipeEditorMenu extends Menu {
         List<Ingredient> grid = new ArrayList<>(9);
         boolean any = false;
         for (int i = 0; i < 9; i++) {
-            ItemStack cell = getInventory().getItem(GRID[i]);
+            ItemStack cell = contentOf(GRID[i]);
             if (Items.isEmpty(cell)) {
                 grid.add(null);
             } else {
                 any = true;
-                grid.add(exact[i] ? Ingredient.ofExact(clean(cell)) : Ingredient.ofMaterial(cell.getType()));
+                grid.add(exact[i] ? Ingredient.ofExact(cell.clone()) : Ingredient.ofMaterial(cell.getType()));
             }
         }
         if (!any) {
@@ -321,7 +400,7 @@ public final class RecipeEditorMenu extends Menu {
         CustomRecipe recipe;
         if (shaped) {
             RecipeShape.Shape<Ingredient> shape = RecipeShape.of(grid, Ingredient::sameAs);
-            recipe = new CustomRecipe(id, true, enabled, groupOf(id), clean(result), shape.rows(), shape.legend(), List.of());
+            recipe = new CustomRecipe(id, true, enabled, groupOf(id), result.clone(), shape.rows(), shape.legend(), List.of());
         } else {
             List<Ingredient> ingredients = new ArrayList<>();
             for (Ingredient ing : grid) {
@@ -329,7 +408,7 @@ public final class RecipeEditorMenu extends Menu {
                     ingredients.add(ing);
                 }
             }
-            recipe = new CustomRecipe(id, false, enabled, groupOf(id), clean(result), List.of(), java.util.Map.of(), ingredients);
+            recipe = new CustomRecipe(id, false, enabled, groupOf(id), result.clone(), List.of(), java.util.Map.of(), ingredients);
         }
         boolean ok = feature.save(recipe);
         finish();
@@ -352,7 +431,11 @@ public final class RecipeEditorMenu extends Menu {
         return what;
     }
 
-    /** Give back the admin's real items and drop the seeded display copies. */
+    /**
+     * Give the admin back every item they physically placed. Ghosts are menu state, never
+     * inventory contents, so there is nothing to clean up for them — which is exactly why
+     * a picked item can no longer be taken out of the GUI.
+     */
     private void finish() {
         if (finished) {
             return;
@@ -362,64 +445,21 @@ public final class RecipeEditorMenu extends Menu {
         System.arraycopy(GRID, 0, slots, 0, GRID.length);
         slots[GRID.length] = RESULT;
         for (int slot : slots) {
-            ItemStack stack = getInventory().getItem(slot);
-            getInventory().setItem(slot, null);
-            if (Items.isEmpty(stack) || isSeed(stack)) {
+            if (ghosts.containsKey(slot)) {
+                getInventory().setItem(slot, null);
                 continue;
             }
-            for (ItemStack left : player.getInventory().addItem(stack).values()) {
-                player.getWorld().dropItemNaturally(player.getLocation(), left);
-            }
+            giveBackReal(slot);
         }
-        // Seed copies that were dragged out must not survive as real items.
-        ItemStack[] contents = player.getInventory().getContents();
-        for (int i = 0; i < contents.length; i++) {
-            if (isSeed(contents[i])) {
-                player.getInventory().setItem(i, null);
-            }
-        }
-        if (isSeed(player.getItemOnCursor())) {
-            player.setItemOnCursor(null);
-        }
+        ghosts.clear();
     }
 
     @Override
     protected void onClose(InventoryCloseEvent event) {
-        if (isSeed(event.getView().getCursor())) {
-            event.getView().setCursor(null);
-        }
         if (switching) {
             return; // opening the item picker, not leaving the editor
         }
         finish();
     }
 
-    private static ItemStack tagSeed(ItemStack stack) {
-        ItemStack copy = stack.clone();
-        ItemMeta meta = copy.getItemMeta();
-        if (meta != null) {
-            meta.getPersistentDataContainer().set(SEED, PersistentDataType.BYTE, (byte) 1);
-            copy.setItemMeta(meta);
-        }
-        return copy;
-    }
-
-    private static boolean isSeed(ItemStack stack) {
-        if (Items.isEmpty(stack)) {
-            return false;
-        }
-        ItemMeta meta = stack.getItemMeta();
-        return meta != null && meta.getPersistentDataContainer().has(SEED, PersistentDataType.BYTE);
-    }
-
-    /** A copy without the seed tag, so stored recipes never carry editor bookkeeping. */
-    private static ItemStack clean(ItemStack stack) {
-        ItemStack copy = stack.clone();
-        ItemMeta meta = copy.getItemMeta();
-        if (meta != null && meta.getPersistentDataContainer().has(SEED, PersistentDataType.BYTE)) {
-            meta.getPersistentDataContainer().remove(SEED);
-            copy.setItemMeta(meta);
-        }
-        return copy;
-    }
 }
