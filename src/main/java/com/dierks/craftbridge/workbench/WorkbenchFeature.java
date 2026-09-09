@@ -41,7 +41,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         this.items = new WorkbenchItems(plugin);
         this.displays = new DisplayManager(plugin, store, items);
         this.scanner = new StorageScanner(plugin);
-        this.scanner.terminals(() -> store.locationsOf(BlockKind.COMBO_CHEST));
+        this.scanner.terminals(() -> store.keysOf(BlockKind.COMBO_CHEST));
         this.sessions = new SessionManager(plugin);
     }
 

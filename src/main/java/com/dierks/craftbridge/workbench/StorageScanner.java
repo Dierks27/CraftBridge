@@ -35,14 +35,14 @@ public final class StorageScanner {
     }
 
     private final CraftBridgePlugin plugin;
-    private java.util.function.Supplier<Set<Location>> terminals = Set::of;
+    private java.util.function.Supplier<Set<String>> terminals = Set::of;
 
     public StorageScanner(CraftBridgePlugin plugin) {
         this.plugin = plugin;
     }
 
     /** Container blocks that are terminals (Combo Chest barrels) and therefore never storage, for any scan. */
-    public void terminals(java.util.function.Supplier<Set<Location>> terminals) {
+    public void terminals(java.util.function.Supplier<Set<String>> terminals) {
         this.terminals = terminals;
     }
 
@@ -59,7 +59,7 @@ public final class StorageScanner {
     /** As {@link #scan(Player, Location, int)} but also skipping the given container blocks. */
     public List<Source> scan(Player player, Location center, int radius, Set<Location> exclude) {
         World world = center.getWorld();
-        Set<Location> terminalBlocks = terminals.get();
+        Set<String> terminalBlocks = terminals.get();
         List<Source> sources = new ArrayList<>();
         Set<Location> seenInventories = new HashSet<>();
         boolean protection = plugin.config().workbenchRespectProtection();
@@ -80,7 +80,7 @@ public final class StorageScanner {
         }
         candidates.sort((a, b) -> Double.compare(a.getLocation().distanceSquared(center), b.getLocation().distanceSquared(center)));
         for (Block block : candidates) {
-            if (exclude.contains(block.getLocation()) || terminalBlocks.contains(block.getLocation())) {
+            if (exclude.contains(block.getLocation()) || terminalBlocks.contains(BlockKeys.of(block))) {
                 continue;
             }
             if (!(block.getState(false) instanceof Container container)) {
@@ -218,8 +218,14 @@ public final class StorageScanner {
         List<Inventory> targets = new ArrayList<>();
         List<DepositPlanner.Container> containers = new ArrayList<>();
         Set<Inventory> seen = new HashSet<>();
+        Set<String> terminalBlocks = terminals.get();
         for (Source source : sources) {
             Inventory inventory = source.inventory();
+            // Belt and braces: a terminal's own container is never a deposit destination, even
+            // if a stale source list somehow still holds it. Overflow stays with the player.
+            if (terminalBlocks.contains(BlockKeys.of(source.block()))) {
+                continue;
+            }
             if (!seen.add(inventory) || !accepts(inventory, item)) {
                 continue;
             }

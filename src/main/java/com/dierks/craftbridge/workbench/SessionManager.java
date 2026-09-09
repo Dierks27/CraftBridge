@@ -65,9 +65,19 @@ public final class SessionManager {
     }
 
     /**
-     * End the session. With {@code returnToOrigins}, grid items that came from a container
-     * go back there if it has room; whatever stays in the grid is handed to the player
-     * by vanilla when the menu closes.
+     * End the session and empty the crafting grid in a defined order, rather than leaving it
+     * to whenever vanilla's own close handling runs:
+     *
+     * <ol>
+     *   <li>items that came from a container go back to that container;</li>
+     *   <li>whatever it will not take goes to the player;</li>
+     *   <li>anything the player cannot hold is dropped at the table.</li>
+     * </ol>
+     *
+     * Items the player put in by hand are theirs and go straight to step 2. Draining the grid
+     * ourselves is what makes the order deterministic: vanilla hands the whole grid back to
+     * the player when a crafting menu closes, so anything still in it by then has skipped
+     * step 1 — which is why storage items were coming back to the player instead of the chest.
      */
     public void end(Player player, boolean returnToOrigins) {
         LinkedSession session = sessions.remove(player.getUniqueId());
@@ -83,44 +93,63 @@ public final class SessionManager {
                 }
             });
         }
-        if (!returnToOrigins || session.origins().isEmpty()) {
-            return;
-        }
-        Inventory top = session.view().getTopInventory();
-        if (!(top instanceof CraftingInventory crafting)) {
+        if (!(session.view().getTopInventory() instanceof CraftingInventory crafting)) {
             return;
         }
         ItemStack[] matrix = crafting.getMatrix();
         boolean changed = false;
-        for (Map.Entry<Integer, LinkedSession.Origin> e : session.origins().entrySet()) {
-            int index = e.getKey();
-            if (index < 0 || index >= matrix.length || Items.isEmpty(matrix[index])) {
+
+        if (returnToOrigins) {
+            for (Map.Entry<Integer, LinkedSession.Origin> e : session.origins().entrySet()) {
+                int index = e.getKey();
+                if (index < 0 || index >= matrix.length || Items.isEmpty(matrix[index])) {
+                    continue;
+                }
+                Block block = e.getValue().block().getBlock();
+                if (!(block.getState(false) instanceof Container container)) {
+                    continue;
+                }
+                ItemStack present = matrix[index];
+                int owed = Math.min(e.getValue().count(), present.getAmount());
+                if (owed <= 0) {
+                    continue;
+                }
+                ItemStack giveBack = present.clone();
+                giveBack.setAmount(owed);
+                Map<Integer, ItemStack> left = container.getInventory().addItem(giveBack);
+                int notTaken = left.values().stream().mapToInt(ItemStack::getAmount).sum();
+                int returned = owed - notTaken;
+                if (returned <= 0) {
+                    continue;
+                }
+                int remaining = present.getAmount() - returned;
+                matrix[index] = remaining <= 0 ? null : present.clone().asQuantity(remaining);
+                changed = true;
+            }
+        }
+
+        // Whatever is still in the grid is the player's: hand it over, and drop what they
+        // cannot hold rather than letting a later close path decide.
+        for (int i = 0; i < matrix.length; i++) {
+            ItemStack rest = matrix[i];
+            if (Items.isEmpty(rest)) {
                 continue;
             }
-            Block block = e.getValue().block().getBlock();
-            if (!(block.getState(false) instanceof Container container)) {
-                continue;
-            }
-            ItemStack present = matrix[index];
-            int owed = Math.min(e.getValue().count(), present.getAmount());
-            if (owed <= 0) {
-                continue;
-            }
-            ItemStack giveBack = present.clone();
-            giveBack.setAmount(owed);
-            Map<Integer, ItemStack> left = container.getInventory().addItem(giveBack);
-            int notTaken = left.values().stream().mapToInt(ItemStack::getAmount).sum();
-            int returned = owed - notTaken;
-            if (returned <= 0) {
-                continue;
-            }
-            int remaining = present.getAmount() - returned;
-            matrix[index] = remaining <= 0 ? null : present.clone().asQuantity(remaining);
+            matrix[i] = null;
             changed = true;
+            for (ItemStack over : player.getInventory().addItem(rest).values()) {
+                player.getWorld().dropItemNaturally(dropSpot(player, session), over);
+            }
         }
         if (changed) {
             crafting.setMatrix(matrix);
         }
+    }
+
+    /** At the table if we still know where it is, else at the player. */
+    private static org.bukkit.Location dropSpot(Player player, LinkedSession session) {
+        org.bukkit.Location table = session.record() == null ? null : session.record().location();
+        return table == null ? player.getLocation() : table.clone().add(0.5, 1.0, 0.5);
     }
 
     public void endAll() {
