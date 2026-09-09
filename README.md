@@ -326,6 +326,15 @@ side, JEI itself says which set it is using: if it fell back to the client's own
 JSONs it prints a recipe-sync warning in chat and in `latest.log`
 (`jei.message.server.recipe.sync.*`); no warning means it accepted the payload.
 
+**Inspecting one recipe.** `/craftbridge jei dump <recipe key>` (e.g.
+`/craftbridge jei dump homecraftmanagement:pc`) prints the recipe as the server holds it and
+again after an encode/decode round trip through the same codecs the payload uses — result,
+shape and every ingredient slot, including whether a choice is an `ExactChoice` and what
+stacks it carries. That is how to tell what the wire does to a custom-item ingredient
+without guessing. Every recipe is also round-tripped at encode time, and one that does not
+survive is left out with a WARN naming it: the client decodes the payload in a single pass
+and discards **all** of it on the first bad recipe, so shipping one is worse than dropping it.
+
 **What does not survive the wire.** The result item keeps everything — custom name, lore,
 PDC, components — because a shaped/shapeless recipe's result is a full `ItemStack`.
 *Ingredients* do not: Paper stores an `ExactChoice`'s stacks in a CraftBukkit-only field

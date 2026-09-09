@@ -267,6 +267,35 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
         return sb.toString();
     }
 
+    /**
+     * {@code /craftbridge jei dump <key>}: the live recipe next to the same recipe after an
+     * encode/decode round trip, so what the wire does to an ingredient is a fact rather than
+     * a theory.
+     */
+    public List<String> dump(String recipeKey) {
+        List<String> out = new ArrayList<>();
+        org.bukkit.NamespacedKey key = org.bukkit.NamespacedKey.fromString(recipeKey);
+        org.bukkit.inventory.Recipe live = key == null ? null : Bukkit.getRecipe(key);
+        if (live == null) {
+            out.add("No recipe '" + recipeKey + "' on this server.");
+            return out;
+        }
+        out.addAll(RecipeDump.describe("on the server", live));
+        if (!isActive()) {
+            out.add("Recipe sync is not active, so there is nothing to round-trip.");
+            return out;
+        }
+        RecipeSyncEncoder.RoundTrip trip = encoder.roundTrip(recipeKey);
+        if (trip.error() != null) {
+            out.add("round trip FAILED: " + trip.error());
+            out.add("A recipe that cannot be encoded is left out of the payload entirely.");
+            return out;
+        }
+        out.add("wire size: " + trip.bytes() + " bytes");
+        out.addAll(RecipeDump.describe("as the client receives it", trip.decoded()));
+        return out;
+    }
+
     public int syncedPlayerCount() {
         return synced.size();
     }
@@ -364,6 +393,11 @@ public final class RecipeSyncFeature implements CraftBridgePlugin.Feature, Liste
         while (true) {
             Set<String> allowed = types.isEmpty() ? null : new LinkedHashSet<>(types);
             RecipeSyncEncoder.Encoded encoded = encoder.encode(allowed);
+            for (String problem : encoded.problems()) {
+                plugin.getLogger().warning("JEI recipe sync: left out " + problem
+                        + " — it does not survive the wire, and one bad recipe makes the client"
+                        + " discard the whole payload.");
+            }
             if (encoded.bytes().length <= MAX_PAYLOAD) {
                 cachedPayload = encoded.bytes();
                 cachedCount = encoded.recipeCount();

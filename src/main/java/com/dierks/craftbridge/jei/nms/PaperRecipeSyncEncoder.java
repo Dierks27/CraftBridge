@@ -29,12 +29,19 @@ import java.util.Set;
  * were verified:
  * <ul>
  *   <li>{@code MinecraftServer.getServer().getRecipeManager().recipes.values()} — Paper AT
- *       exposes the {@code recipes} RecipeMap (used by CraftBukkit's RecipeIterator).</li>
- *   <li>{@code RecipeHolder#id()} / {@code #value()}, {@code Recipe#getSerializer()},
- *       {@code RecipeSerializer#streamCodec()} (deprecated in vanilla, used by Fabric's sync).</li>
+ *       exposes the {@code recipes} RecipeMap. This is the same collection plugin recipes
+ *       land in: Paper's {@code RecipeMap#addRecipe} (what {@code Bukkit.addRecipe} ends up
+ *       calling through {@code CraftRecipe#addToRecipeManager} and
+ *       {@code RecipeManager#addRecipe}) puts the holder in both {@code byKey} — which
+ *       {@code values()} returns — and {@code byType}, which CraftBukkit's
+ *       {@code RecipeIterator} walks. Iterating either one sees plugin recipes.</li>
+ *   <li>{@code RecipeHolder#id()} / {@code #value()} / {@code #toBukkitRecipe()},
+ *       {@code Recipe#getSerializer()}, {@code RecipeSerializer#streamCodec()} (deprecated in
+ *       vanilla, used by Fabric's sync).</li>
  *   <li>{@code RegistryFriendlyByteBuf(ByteBuf, RegistryAccess)}, {@code writeVarInt},
- *       {@code writeIdentifier}, {@code writeResourceKey} — exactly what
- *       {@code net.fabricmc.fabric.impl.recipe.sync.ClientboundRecipeSyncPayload} writes.</li>
+ *       {@code writeIdentifier}, {@code writeResourceKey}/{@code readResourceKey} — exactly
+ *       what {@code net.fabricmc.fabric.impl.recipe.sync.ClientboundRecipeSyncPayload}
+ *       reads and writes.</li>
  *   <li>{@code new ClientboundUpdateRecipesPacket(getSynchronizedItemProperties(), getSynchronizedStonecutterRecipes())}
  *       + {@code ServerRecipeBook#sendInitialRecipeBook} — what Paper's {@code PlayerList#reloadRecipes} does.</li>
  * </ul>
@@ -50,6 +57,7 @@ public final class PaperRecipeSyncEncoder implements RecipeSyncEncoder {
 
         Map<RecipeSerializer<?>, List<RecipeHolder<?>>> bySerializer = new LinkedHashMap<>();
         Map<String, Integer> byNamespace = new LinkedHashMap<>();
+        List<String> problems = new ArrayList<>();
         for (RecipeHolder<?> holder : recipeManager.recipes.values()) {
             Recipe<?> recipe = holder.value();
             if (recipeTypeIds != null) {
@@ -61,6 +69,13 @@ public final class PaperRecipeSyncEncoder implements RecipeSyncEncoder {
             RecipeSerializer<?> serializer = recipe.getSerializer();
             if (BuiltInRegistries.RECIPE_SERIALIZER.getKey(serializer) == null) {
                 continue; // unregistered serializer: the client could never decode it
+            }
+            // The client decodes the whole payload in one pass and aborts all of it on the
+            // first recipe that throws, so verify each one round-trips before including it.
+            String failure = verify(server, serializer, holder);
+            if (failure != null) {
+                problems.add(holder.id().identifier() + ": " + failure);
+                continue;
             }
             bySerializer.computeIfAbsent(serializer, k -> new ArrayList<>()).add(holder);
             byNamespace.merge(holder.id().identifier().getNamespace(), 1, Integer::sum);
@@ -75,9 +90,7 @@ public final class PaperRecipeSyncEncoder implements RecipeSyncEncoder {
                 RecipeSerializer<?> serializer = entry.getKey();
                 buf.writeIdentifier(BuiltInRegistries.RECIPE_SERIALIZER.getKey(serializer));
                 buf.writeVarInt(entry.getValue().size());
-                @SuppressWarnings({"unchecked", "deprecation"})
-                StreamCodec<RegistryFriendlyByteBuf, Recipe<?>> codec =
-                        (StreamCodec<RegistryFriendlyByteBuf, Recipe<?>>) serializer.streamCodec();
+                StreamCodec<RegistryFriendlyByteBuf, Recipe<?>> codec = codecOf(serializer);
                 for (RecipeHolder<?> holder : entry.getValue()) {
                     buf.writeResourceKey(holder.id());
                     codec.encode(buf, holder.value());
@@ -86,10 +99,64 @@ public final class PaperRecipeSyncEncoder implements RecipeSyncEncoder {
             }
             byte[] out = new byte[raw.readableBytes()];
             raw.readBytes(out);
-            return new Encoded(out, count, byNamespace);
+            return new Encoded(out, count, byNamespace, problems);
         } finally {
             raw.release();
         }
+    }
+
+    /** Encode one recipe and read it straight back; null when it survives, else why not. */
+    private static String verify(MinecraftServer server, RecipeSerializer<?> serializer, RecipeHolder<?> holder) {
+        ByteBuf scratch = Unpooled.buffer();
+        try {
+            RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(scratch, server.registryAccess());
+            StreamCodec<RegistryFriendlyByteBuf, Recipe<?>> codec = codecOf(serializer);
+            codec.encode(buf, holder.value());
+            codec.decode(buf);
+            return null;
+        } catch (Throwable t) {
+            return t.getClass().getSimpleName() + ": " + t.getMessage();
+        } finally {
+            scratch.release();
+        }
+    }
+
+    @Override
+    public RoundTrip roundTrip(String recipeKey) {
+        MinecraftServer server = MinecraftServer.getServer();
+        RecipeManager recipeManager = server.getRecipeManager();
+        RecipeHolder<?> found = null;
+        for (RecipeHolder<?> holder : recipeManager.recipes.values()) {
+            if (holder.id().identifier().toString().equals(recipeKey)) {
+                found = holder;
+                break;
+            }
+        }
+        if (found == null) {
+            return new RoundTrip(-1, null, "no recipe with that key on this server");
+        }
+        RecipeSerializer<?> serializer = found.value().getSerializer();
+        if (BuiltInRegistries.RECIPE_SERIALIZER.getKey(serializer) == null) {
+            return new RoundTrip(-1, null, "its serializer is not registered, so it is never sent");
+        }
+        ByteBuf scratch = Unpooled.buffer();
+        try {
+            RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(scratch, server.registryAccess());
+            StreamCodec<RegistryFriendlyByteBuf, Recipe<?>> codec = codecOf(serializer);
+            codec.encode(buf, found.value());
+            int bytes = buf.readableBytes();
+            Recipe<?> decoded = codec.decode(buf);
+            return new RoundTrip(bytes, new RecipeHolder<>(found.id(), decoded).toBukkitRecipe(), null);
+        } catch (Throwable t) {
+            return new RoundTrip(-1, null, t.getClass().getSimpleName() + ": " + t.getMessage());
+        } finally {
+            scratch.release();
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "deprecation"})
+    private static StreamCodec<RegistryFriendlyByteBuf, Recipe<?>> codecOf(RecipeSerializer<?> serializer) {
+        return (StreamCodec<RegistryFriendlyByteBuf, Recipe<?>>) serializer.streamCodec();
     }
 
     @Override
