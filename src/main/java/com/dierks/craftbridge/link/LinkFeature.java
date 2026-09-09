@@ -7,6 +7,8 @@ import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
 import com.dierks.craftbridge.workbench.BlockKind;
 import com.dierks.craftbridge.workbench.LinkedSession;
+import com.dierks.craftbridge.workbench.PullPlanner;
+import com.dierks.craftbridge.workbench.StoragePull;
 import com.dierks.craftbridge.workbench.StorageScanner;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
 import org.bukkit.Bukkit;
@@ -68,6 +70,13 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         final String modVersion;
         final SnapshotTracker sent = new SnapshotTracker();
         boolean sessionOpen;
+        /**
+         * Set once the client has confirmed it received a snapshot <em>and is showing it</em>.
+         * Until then the player keeps their phantom slots: a handshake only proves the mod is
+         * loaded, and a mod that cannot display what it was sent must leave the player with
+         * the server's own view rather than with nothing at all.
+         */
+        boolean displaying;
 
         Linked(String modVersion) {
             this.modVersion = modVersion;
@@ -91,6 +100,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
         Messenger messenger = plugin.getServer().getMessenger();
         for (String channel : List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_RESYNC,
+                LinkProtocol.CHANNEL_STORAGE_ACK, LinkProtocol.CHANNEL_PULL_REQUEST,
                 LinkProtocol.CHANNEL_TRANSFER_REQUEST)) {
             messenger.registerIncomingPluginChannel(plugin, channel, this);
         }
@@ -130,7 +140,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
      * running both would show every item twice.
      */
     public boolean handlesStorageItself(Player player) {
-        return linked.containsKey(player.getUniqueId());
+        Linked link = linked.get(player.getUniqueId());
+        return link != null && link.displaying;
     }
 
     /** A Linked Workbench just opened: send the snapshot now rather than on the next poll. */
@@ -165,6 +176,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             switch (channel) {
                 case LinkProtocol.CHANNEL_HELLO -> onHello(player, LinkProtocol.decodeClientHello(message));
                 case LinkProtocol.CHANNEL_RESYNC -> onResync(player);
+                case LinkProtocol.CHANNEL_STORAGE_ACK ->
+                        onStorageAck(player, LinkProtocol.decodeStorageAck(message));
+                case LinkProtocol.CHANNEL_PULL_REQUEST ->
+                        onPullRequest(player, LinkProtocol.decodePullRequest(message));
                 case LinkProtocol.CHANNEL_TRANSFER_REQUEST ->
                         onTransferRequest(player, LinkProtocol.decodeTransferRequest(message));
                 default -> {
@@ -186,22 +201,42 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     private void onHello(Player player, LinkProtocol.ClientHello hello) {
         linked.put(player.getUniqueId(), new Linked(hello.modVersion()));
         plugin.getLogger().info("CraftBridge client link: " + player.getName() + " has the mod (version "
-                + hello.modVersion() + "); phantom slots are off for them.");
+                + hello.modVersion() + "); phantom slots stay on until it confirms it is showing storage.");
+        // No FLAG_PHANTOM_SLOTS_OFF yet: the phantoms are still there, and stay there until the
+        // client acknowledges a snapshot. Saying otherwise here is what would let a mod that
+        // cannot display anything leave the player with nothing.
         send(player, LinkProtocol.CHANNEL_HELLO, LinkProtocol.encode(new LinkProtocol.ServerHello(
-                plugin.getPluginMeta().getVersion(), LinkProtocol.FLAG_PHANTOM_SLOTS_OFF)));
+                plugin.getPluginMeta().getVersion(), 0)));
         sendCatalog(player);
-
-        // A workbench opened before the hello arrived still has phantoms in it; take them away
-        // now that the client can see the real thing.
-        WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        if (workbench != null && workbench.phantoms() != null) {
-            workbench.phantoms().end(player, true);
-        }
         push(player, true);
     }
 
     private void onResync(Player player) {
         push(player, true);
+    }
+
+    /**
+     * The client has a snapshot and says whether it is putting it in front of the player. Only
+     * that second half earns the removal of their phantom slots.
+     */
+    private void onStorageAck(Player player, LinkProtocol.StorageAck ack) {
+        Linked link = linked.get(player.getUniqueId());
+        if (link == null || link.displaying == ack.displaying()) {
+            return;
+        }
+        link.displaying = ack.displaying();
+        plugin.getLogger().info("CraftBridge client link: " + player.getName() + " confirmed snapshot #"
+                + ack.sequence() + (ack.displaying()
+                ? " and is showing it; phantom slots off." : " but is not showing it; phantom slots stay on."));
+        WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
+        if (workbench == null || workbench.phantoms() == null) {
+            return;
+        }
+        if (ack.displaying()) {
+            workbench.phantoms().end(player, true);
+        } else {
+            workbench.phantoms().start(player); // hand the view back
+        }
     }
 
     // ---- storage ---------------------------------------------------------------------
@@ -247,9 +282,11 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
 
         if (full || !link.sessionOpen) {
             int sequence = link.sent.advanceTo(current);
-            send(player, LinkProtocol.CHANNEL_STORAGE,
-                    LinkProtocol.encode(new LinkProtocol.Storage(sequence, true, entries(current))));
+            byte[] payload = LinkProtocol.encode(new LinkProtocol.Storage(sequence, true, entries(current)));
+            send(player, LinkProtocol.CHANNEL_STORAGE, payload);
             link.sessionOpen = true;
+            plugin.getLogger().info("CraftBridge client link: sent " + player.getName() + " a full snapshot #"
+                    + sequence + " of " + current.size() + " item type(s), " + payload.length + " bytes.");
             return;
         }
         List<LinkProtocol.Entry> changes = link.sent.diff(current);
@@ -257,8 +294,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return;
         }
         int sequence = link.sent.advanceTo(current);
-        send(player, LinkProtocol.CHANNEL_STORAGE,
-                LinkProtocol.encode(new LinkProtocol.Storage(sequence, false, changes)));
+        byte[] payload = LinkProtocol.encode(new LinkProtocol.Storage(sequence, false, changes));
+        send(player, LinkProtocol.CHANNEL_STORAGE, payload);
+        plugin.debug("CraftBridge client link: sent " + player.getName() + " delta #" + sequence + " of "
+                + changes.size() + " change(s), " + payload.length + " bytes.");
     }
 
     private Map<ItemStack, Integer> inRange(WorkbenchFeature workbench, Player player, LinkedSession session) {
@@ -388,6 +427,73 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         send(player, LinkProtocol.CHANNEL_TRANSFER_RESULT,
                 LinkProtocol.encode(new LinkProtocol.TransferResult(request.requestId(), true, "")));
         push(player, true); // the chests just changed, and by more than a delta is worth
+    }
+
+    /**
+     * The player clicked an item in the storage panel. The same rules as clicking a phantom
+     * slot, because it goes through the same {@link StoragePull}: a stack or half a stack to
+     * the cursor, as many as fit into the inventory, and anything that fits nowhere back into
+     * storage rather than onto the floor.
+     */
+    private void onPullRequest(Player player, LinkProtocol.PullRequest request) {
+        Linked link = linked.get(player.getUniqueId());
+        if (link == null) {
+            return;
+        }
+        WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
+        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
+        if (session == null) {
+            reply(player, request.requestId(), false, "Open a Linked Workbench first.");
+            return;
+        }
+        ItemStack wanted = blobs.decode(request.item());
+        if (Items.isEmpty(wanted)) {
+            reply(player, request.requestId(), false, "That is not an item this server can read.");
+            return;
+        }
+        PullPlanner.Mode mode;
+        try {
+            mode = PullPlanner.Mode.valueOf(request.mode());
+        } catch (IllegalArgumentException unknown) {
+            reply(player, request.requestId(), false, "Unknown click.");
+            return;
+        }
+        if (mode != PullPlanner.Mode.ALL && !Items.isEmpty(player.getItemOnCursor())) {
+            // Same guard the phantom path has: with something already on the cursor this
+            // click was a place, not a take.
+            reply(player, request.requestId(), false, "");
+            return;
+        }
+
+        List<StorageScanner.Source> sources = sources(workbench, player, session);
+        ItemStack key = StorageScanner.keyOf(wanted);
+        StoragePull.Result result = StoragePull.pull(player, workbench.scanner(), sources, key, mode,
+                StoragePull.freeInventorySlots(session.view()), over -> putBack(player, sources, over));
+        if (!result.happened()) {
+            reply(player, request.requestId(), false, "No room, or none left in range.");
+            push(player, true);
+            return;
+        }
+        player.updateInventory();
+        reply(player, request.requestId(), true, "");
+        push(player, true); // the chests just changed
+    }
+
+    /** Anything that fits neither cursor nor inventory goes back where it came from. */
+    private void putBack(Player player, List<StorageScanner.Source> sources, ItemStack stack) {
+        WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
+        ItemStack left = workbench == null ? stack : workbench.scanner().deposit(sources, stack);
+        if (Items.isEmpty(left)) {
+            return;
+        }
+        plugin.getLogger().warning("CraftBridge client link: " + Items.describe(left) + " x" + left.getAmount()
+                + " fit neither " + player.getName() + "'s inventory nor nearby storage; dropping it at their feet.");
+        player.getWorld().dropItemNaturally(player.getLocation(), left);
+    }
+
+    private void reply(Player player, int requestId, boolean ok, String message) {
+        send(player, LinkProtocol.CHANNEL_TRANSFER_RESULT,
+                LinkProtocol.encode(new LinkProtocol.TransferResult(requestId, ok, message)));
     }
 
     private void refuse(Player player, LinkProtocol.TransferRequest request, String why) {

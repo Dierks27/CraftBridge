@@ -30,11 +30,13 @@ import java.util.List;
 public final class LinkProtocol {
 
     /** Bumped whenever any payload's layout changes. Both sides must agree exactly. */
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
 
     public static final String CHANNEL_HELLO = "craftbridge:hello";
     public static final String CHANNEL_STORAGE = "craftbridge:storage";
     public static final String CHANNEL_RESYNC = "craftbridge:resync";
+    public static final String CHANNEL_STORAGE_ACK = "craftbridge:storage_ack";
+    public static final String CHANNEL_PULL_REQUEST = "craftbridge:pull_request";
     public static final String CHANNEL_TRANSFER_REQUEST = "craftbridge:transfer_request";
     public static final String CHANNEL_TRANSFER_RESULT = "craftbridge:transfer_result";
     public static final String CHANNEL_SESSION_END = "craftbridge:session_end";
@@ -75,6 +77,15 @@ public final class LinkProtocol {
     public record Resync(int lastSequence) {
     }
 
+    /**
+     * "I have this snapshot and I am showing it." The server waits for this before taking a
+     * player's phantom slots away: a handshake only proves the mod is loaded, and a mod that
+     * cannot display what it was sent must leave the player with the server's own view rather
+     * than with nothing at all.
+     */
+    public record StorageAck(int sequence, boolean displaying) {
+    }
+
     /** One crafting-grid slot's acceptable items, for a recipe with no id of its own. */
     public record SlotChoices(int gridIndex, List<byte[]> choices) {
     }
@@ -90,7 +101,18 @@ public final class LinkProtocol {
                                   boolean requireCompleteSets, String recipeId, List<SlotChoices> slots) {
     }
 
-    /** Success, or why not — shown as a JEI transfer error tooltip rather than silence. */
+    /**
+     * The player clicked an item in the storage panel. Which item, and which click — nothing
+     * about how many, because the server decides that from what is actually in range and how
+     * much room the player actually has.
+     *
+     * @param mode {@code ONE} (a stack, to the cursor), {@code HALF} (half a stack, to the
+     *             cursor) or {@code ALL} (as many as fit, into the inventory)
+     */
+    public record PullRequest(int requestId, byte[] item, String mode) {
+    }
+
+    /** Success, or why not — for a transfer or a pull; shown to the player rather than silence. */
     public record TransferResult(int requestId, boolean ok, String message) {
     }
 
@@ -132,6 +154,10 @@ public final class LinkProtocol {
         return header().writeVarInt(resync.lastSequence()).toByteArray();
     }
 
+    public static byte[] encode(StorageAck ack) {
+        return header().writeVarInt(ack.sequence()).writeBoolean(ack.displaying()).toByteArray();
+    }
+
     public static byte[] encode(TransferRequest request) {
         VarInts.Writer w = header()
                 .writeVarInt(request.requestId())
@@ -153,6 +179,11 @@ public final class LinkProtocol {
             }
         }
         return w.toByteArray();
+    }
+
+    public static byte[] encode(PullRequest request) {
+        return header().writeVarInt(request.requestId()).writeBytes(request.item())
+                .writeString(request.mode()).toByteArray();
     }
 
     public static byte[] encode(TransferResult result) {
@@ -204,6 +235,11 @@ public final class LinkProtocol {
         return new Resync(open(payload).readVarInt());
     }
 
+    public static StorageAck decodeStorageAck(byte[] payload) {
+        VarInts.Reader r = open(payload);
+        return new StorageAck(r.readVarInt(), r.readBoolean());
+    }
+
     public static TransferRequest decodeTransferRequest(byte[] payload) {
         VarInts.Reader r = open(payload);
         int requestId = r.readVarInt();
@@ -225,6 +261,11 @@ public final class LinkProtocol {
             slots.add(new SlotChoices(gridIndex, choices));
         }
         return new TransferRequest(requestId, basedOn, maxTransfer, completeSets, "", slots);
+    }
+
+    public static PullRequest decodePullRequest(byte[] payload) {
+        VarInts.Reader r = open(payload);
+        return new PullRequest(r.readVarInt(), r.readBytes(), r.readString());
     }
 
     public static TransferResult decodeTransferResult(byte[] payload) {
