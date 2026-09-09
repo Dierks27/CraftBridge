@@ -13,6 +13,11 @@ import java.util.List;
 /** {@code /recipe}: New Recipe, Browse Recipes, Import Starter Pack, Reload. */
 public final class RecipeMainMenu extends Menu {
 
+    @Override
+    protected String requiredPermission() {
+        return com.dierks.craftbridge.recipes.RecipeFeature.ADMIN_PERMISSION;
+    }
+
     private final RecipeFeature feature;
     private final Player player;
 

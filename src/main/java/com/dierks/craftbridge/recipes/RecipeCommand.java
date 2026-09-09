@@ -26,6 +26,10 @@ public final class RecipeCommand implements TabExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!sender.hasPermission(RecipeFeature.ADMIN_PERMISSION)) {
+            sender.sendMessage(com.dierks.craftbridge.util.Text.msg("<red>You do not have permission to do that."));
+            return true;
+        }
         if (args.length == 0) {
             if (sender instanceof Player player) {
                 new RecipeMainMenu(feature, player).open(player);

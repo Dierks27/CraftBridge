@@ -27,6 +27,11 @@ import java.util.Map;
  */
 public final class RecipeBrowseMenu extends Menu {
 
+    @Override
+    protected String requiredPermission() {
+        return com.dierks.craftbridge.recipes.RecipeFeature.ADMIN_PERMISSION;
+    }
+
     private static final int PAGE_SIZE = 45;
 
     private final RecipeFeature feature;

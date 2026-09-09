@@ -38,6 +38,9 @@ public final class MenuListener implements Listener {
         if (!(event.getView().getTopInventory().getHolder(false) instanceof Menu menu)) {
             return;
         }
+        if (refuseWithoutPermission(menu, event.getWhoClicked(), event)) {
+            return;
+        }
         boolean top = event.getClickedInventory() == event.getView().getTopInventory();
         boolean bulkMove = event.getAction() == InventoryAction.COLLECT_TO_CURSOR
                 || event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY;
@@ -94,6 +97,9 @@ public final class MenuListener implements Listener {
         if (!(event.getView().getTopInventory().getHolder(false) instanceof Menu menu)) {
             return;
         }
+        if (refuseWithoutPermission(menu, event.getWhoClicked(), event)) {
+            return;
+        }
         int topSize = event.getView().getTopInventory().getSize();
         if (menu.handleDepositsAccepted() && event.getWhoClicked() instanceof Player depositor) {
             for (int raw : event.getRawSlots()) {
@@ -120,6 +126,25 @@ public final class MenuListener implements Listener {
         if (!menu.hasEditableSlots()) {
             event.setCancelled(true);
         }
+    }
+
+    /**
+     * Cancel and close when the viewer no longer holds the menu's permission. Returns true
+     * when the interaction was refused.
+     */
+    private boolean refuseWithoutPermission(Menu menu, org.bukkit.entity.HumanEntity who,
+                                            org.bukkit.event.Cancellable event) {
+        String node = menu.permissionNode();
+        if (node == null || !(who instanceof Player player) || player.hasPermission(node)) {
+            return false;
+        }
+        event.setCancelled(true);
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            player.closeInventory();
+            player.sendMessage(com.dierks.craftbridge.util.Text.msg(
+                    "<red>You no longer have permission to use that."));
+        });
+        return true;
     }
 
     @EventHandler

@@ -13,6 +13,9 @@ import java.util.List;
 /** Feature 4: admin-defined crafting recipes, GUI-driven via {@code /recipe}. */
 public final class RecipeFeature implements CraftBridgePlugin.Feature, Listener {
 
+    /** Gates /recipe and every screen it opens. Re-checked on each click, not just on open. */
+    public static final String ADMIN_PERMISSION = "craftbridge.recipes.admin";
+
     private final CraftBridgePlugin plugin;
     private final RecipeStore store;
     private final RecipeRegistry registry;

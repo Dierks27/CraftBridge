@@ -29,6 +29,11 @@ import java.util.function.Consumer;
  */
 public final class ItemPickerMenu extends Menu {
 
+    @Override
+    protected String requiredPermission() {
+        return com.dierks.craftbridge.recipes.RecipeFeature.ADMIN_PERMISSION;
+    }
+
     private static final int PAGE_SIZE = 45;
 
     enum Filter {

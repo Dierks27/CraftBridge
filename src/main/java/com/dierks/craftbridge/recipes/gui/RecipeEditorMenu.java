@@ -48,6 +48,11 @@ import java.util.Map;
  */
 public final class RecipeEditorMenu extends Menu {
 
+    @Override
+    protected String requiredPermission() {
+        return com.dierks.craftbridge.recipes.RecipeFeature.ADMIN_PERMISSION;
+    }
+
     static final int[] GRID = RecipeEditorLayout.GRID;
     static final int[] INDICATOR = RecipeEditorLayout.INDICATOR;
     static final int RESULT = RecipeEditorLayout.RESULT;
