@@ -35,7 +35,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             sender.sendMessage(Text.msg("<gray>/craftbridge version <dark_gray>- show version"));
             sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest [amount] <dark_gray>- hand out CraftBridge blocks"));
             sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
-            sender.sendMessage(Text.msg("<gray>/craftbridge jei [resync] <dark_gray>- JEI recipe sync state, or re-send it now"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge jei [resync|dump <recipe>] <dark_gray>- recipe sync state, re-send, or inspect one recipe on the wire"));
             return true;
         }
         String sub = args[0].toLowerCase(java.util.Locale.ROOT);
@@ -85,6 +85,11 @@ public final class CraftBridgeCommand implements TabExecutor {
                         plugin.feature(com.dierks.craftbridge.jei.RecipeSyncFeature.class);
                 if (sync == null) {
                     sender.sendMessage(Text.msg("<red>features.jei-recipe-sync is off in config.yml."));
+                } else if (args.length > 2 && args[1].equalsIgnoreCase("dump")) {
+                    for (String line : sync.dump(args[2])) {
+                        sender.sendMessage(Text.msg("<gray>" + line.replace("<", "\\<")));
+                        plugin.getLogger().info("[jei dump] " + line);
+                    }
                 } else if (args.length > 1 && args[1].equalsIgnoreCase("resync")) {
                     int n = sync.resyncNow();
                     sender.sendMessage(Text.msg("<green>Re-encoded and sent to " + n + " JEI client(s): <gray>" + sync.describe()));
@@ -152,7 +157,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             return List.of("next", "prev");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("jei")) {
-            return List.of("status", "resync");
+            return List.of("status", "resync", "dump");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             return null; // player names
