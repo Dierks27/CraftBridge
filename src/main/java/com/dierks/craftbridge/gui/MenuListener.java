@@ -1,29 +1,30 @@
 package com.dierks.craftbridge.gui;
 
+import com.dierks.craftbridge.util.Text;
+import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Cancellable;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
- * Single dispatcher for every {@link Menu}.
+ * Single dispatcher for every {@link Menu}. What each gesture means is decided by
+ * {@link MenuClicks}, which is a plain table with a test per cell; this class only carries
+ * the decision out.
  *
- * <ul>
- *   <li>Clicks on menu buttons are cancelled and routed to the menu's slot handler.</li>
- *   <li>Clicks in slots the menu marked editable keep vanilla behaviour (pick up / put
- *       down / hotbar swap), minus shift-moves and double-click collects that would spray
- *       items across button slots. Clicking an <em>empty</em> editable slot with an empty
- *       cursor does nothing in vanilla, so it is handed to the menu instead — that is how
- *       the recipe editor opens its item picker.</li>
- *   <li>Clicks in the player's own inventory are only allowed when the menu has editable
- *       slots (so items can be picked up for it), again minus shift-move / collect.</li>
- * </ul>
+ * <p>The important half of that table is what it does <em>not</em> refuse: clicks in the
+ * player's own inventory are ordinary vanilla clicks, so an item can always be picked up onto
+ * the cursor while a menu is open. Only shift-clicks and double-click collects — the two
+ * gestures that reach up into the menu — are handled specially.
  */
 public final class MenuListener implements Listener {
 
@@ -41,55 +42,70 @@ public final class MenuListener implements Listener {
         if (refuseWithoutPermission(menu, event.getWhoClicked(), event)) {
             return;
         }
+        int raw = event.getRawSlot();
         boolean top = event.getClickedInventory() == event.getView().getTopInventory();
-        boolean bulkMove = event.getAction() == InventoryAction.COLLECT_TO_CURSOR
-                || event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY;
-        if (menu.handleDepositsAccepted() && event.getWhoClicked() instanceof Player depositor) {
-            ItemStack cursor = event.getCursor();
-            if (top && cursor != null && !cursor.isEmpty()) {
-                // Clicking anywhere in the menu with an item in hand = deposit it.
+        MenuClicks.Region region;
+        if (event.getClickedInventory() == null) {
+            region = MenuClicks.Region.OUTSIDE;
+        } else if (top) {
+            region = menu.isEditable(raw) ? MenuClicks.Region.TOP_EDITABLE : MenuClicks.Region.TOP_BUTTON;
+        } else {
+            region = MenuClicks.Region.BOTTOM;
+        }
+
+        ItemStack cursor = event.getCursor();
+        ItemStack inSlot = event.getCurrentItem();
+        MenuClicks.Action action = MenuClicks.decide(region, event.getClick().name(),
+                isEmpty(cursor), isEmpty(inSlot),
+                new MenuClicks.Traits(menu.handleDepositsAccepted(), menu.hasHandler(raw)));
+
+        Player player = event.getWhoClicked() instanceof Player p ? p : null;
+        switch (action) {
+            case VANILLA -> {
+            }
+            case CANCEL -> event.setCancelled(true);
+            case BUTTON, PICKER -> {
                 event.setCancelled(true);
-                event.getView().setCursor(menu.handleDeposit(depositor, cursor.clone()));
-                return;
+                menu.handleClick(event);
             }
-            ItemStack current = event.getCurrentItem();
-            if (!top && event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY && current != null && !current.isEmpty()) {
-                // Shift-click from the player's inventory = deposit that stack.
+            case EDITABLE -> {
+                if (player != null) {
+                    plugin.getServer().getScheduler().runTask(plugin, () -> menu.handleEditableChange(player, raw));
+                }
+            }
+            case DEPOSIT_ALL -> {
                 event.setCancelled(true);
-                event.setCurrentItem(menu.handleDeposit(depositor, current.clone()));
-                return;
+                if (player != null) {
+                    event.getView().setCursor(menu.handleDeposit(player, cursor.clone()));
+                }
+            }
+            case DEPOSIT_ONE -> {
+                event.setCancelled(true);
+                if (player != null) {
+                    event.getView().setCursor(depositOne(menu, player, cursor));
+                }
+            }
+            case DEPOSIT_SLOT -> {
+                event.setCancelled(true);
+                if (player != null) {
+                    event.setCurrentItem(menu.handleDeposit(player, inSlot.clone()));
+                }
             }
         }
-        if (top) {
-            if (menu.isEditable(event.getRawSlot())) {
-                ItemStack cursor = event.getCursor();
-                ItemStack inSlot = event.getCurrentItem();
-                boolean emptyHanded = (cursor == null || cursor.isEmpty()) && (inSlot == null || inSlot.isEmpty());
-                if (emptyHanded && menu.hasHandler(event.getRawSlot())) {
-                    // Empty hand on an empty input slot: vanilla would do nothing, so the menu
-                    // gets it instead (the recipe editor opens its item picker there).
-                    event.setCancelled(true);
-                    menu.handleClick(event);
-                    return;
-                }
-                if (bulkMove) {
-                    event.setCancelled(true);
-                    return;
-                }
-                if (event.getWhoClicked() instanceof Player player) {
-                    int slot = event.getRawSlot();
-                    plugin.getServer().getScheduler().runTask(plugin, () -> menu.handleEditableChange(player, slot));
-                }
-                return;
-            }
-            event.setCancelled(true);
-            menu.handleClick(event);
-            return;
+    }
+
+    /** Right-click deposit: one item off the cursor, and the cursor keeps the rest. */
+    private static ItemStack depositOne(Menu menu, Player player, ItemStack cursor) {
+        ItemStack one = cursor.clone();
+        one.setAmount(1);
+        ItemStack left = menu.handleDeposit(player, one);
+        int keep = MenuClicks.keptOnCursor(cursor.getAmount(), 1, isEmpty(left) ? 0 : left.getAmount());
+        if (keep <= 0) {
+            return null;
         }
-        // Bottom (player) inventory.
-        if (!menu.hasEditableSlots() || bulkMove) {
-            event.setCancelled(true);
-        }
+        ItemStack kept = cursor.clone();
+        kept.setAmount(keep);
+        return kept;
     }
 
     @EventHandler(priority = EventPriority.LOW)
@@ -100,40 +116,71 @@ public final class MenuListener implements Listener {
         if (refuseWithoutPermission(menu, event.getWhoClicked(), event)) {
             return;
         }
-        int topSize = event.getView().getTopInventory().getSize();
-        if (menu.handleDepositsAccepted() && event.getWhoClicked() instanceof Player depositor) {
-            for (int raw : event.getRawSlots()) {
-                if (raw < topSize) {
-                    // Dragging over the menu = deposit the whole cursor stack (next tick, after the
-                    // cancelled drag has restored it).
-                    event.setCancelled(true);
-                    ItemStack dragged = event.getOldCursor().clone();
-                    plugin.getServer().getScheduler().runTask(plugin, () -> {
-                        if (depositor.isOnline() && depositor.getOpenInventory().getTopInventory().getHolder(false) == menu) {
-                            depositor.setItemOnCursor(menu.handleDeposit(depositor, dragged));
-                        }
-                    });
-                    return;
-                }
+        int menuSize = event.getView().getTopInventory().getSize();
+        boolean touchesMenu = false;
+        boolean touchesNonEditable = false;
+        for (int raw : event.getRawSlots()) {
+            if (raw < menuSize) {
+                touchesMenu = true;
+                touchesNonEditable |= !menu.isEditable(raw);
             }
         }
-        for (int raw : event.getRawSlots()) {
-            if (raw < topSize && !menu.isEditable(raw)) {
-                event.setCancelled(true);
+
+        MenuClicks.Drag decision = MenuClicks.decideDrag(touchesMenu, touchesNonEditable,
+                menu.handleDepositsAccepted());
+        if (decision == MenuClicks.Drag.ALLOW) {
+            return;
+        }
+        event.setCancelled(true);
+        if (decision == MenuClicks.Drag.CANCEL || !(event.getWhoClicked() instanceof Player depositor)) {
+            return;
+        }
+
+        ItemStack dragged = event.getOldCursor().clone();
+        int aimedAtMenu = MenuClicks.dragIntoMenu(addedAmounts(event), menuSize);
+        // Nothing measurably destined for the menu (every covered slot was already occupied):
+        // the gesture was still aimed at the menu, so treat it as depositing the stack.
+        int amount = aimedAtMenu > 0 ? Math.min(aimedAtMenu, dragged.getAmount()) : dragged.getAmount();
+        // The drag is cancelled, so the cursor is whole again next tick; deposit its share then.
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (!depositor.isOnline() || depositor.getOpenInventory().getTopInventory().getHolder(false) != menu) {
                 return;
             }
+            ItemStack toDeposit = dragged.clone();
+            toDeposit.setAmount(amount);
+            ItemStack left = menu.handleDeposit(depositor, toDeposit);
+            int keep = MenuClicks.keptOnCursor(dragged.getAmount(), amount, isEmpty(left) ? 0 : left.getAmount());
+            if (keep <= 0) {
+                depositor.setItemOnCursor(null);
+                return;
+            }
+            ItemStack kept = dragged.clone();
+            kept.setAmount(keep);
+            depositor.setItemOnCursor(kept);
+        });
+    }
+
+    /** How many items each raw slot would gain from this drag. */
+    private static Map<Integer, Integer> addedAmounts(InventoryDragEvent event) {
+        Map<Integer, Integer> added = new HashMap<>();
+        for (Map.Entry<Integer, ItemStack> entry : event.getNewItems().entrySet()) {
+            int rawSlot = entry.getKey();
+            ItemStack before = event.getView().getItem(rawSlot);
+            int had = isEmpty(before) ? 0 : before.getAmount();
+            added.put(rawSlot, entry.getValue().getAmount() - had);
         }
-        if (!menu.hasEditableSlots()) {
-            event.setCancelled(true);
-        }
+        return added;
+    }
+
+    private static boolean isEmpty(ItemStack stack) {
+        return stack == null || stack.getType().isAir() || stack.getAmount() <= 0;
     }
 
     /**
      * Cancel and close when the viewer no longer holds the menu's permission. Returns true
      * when the interaction was refused.
      */
-    private boolean refuseWithoutPermission(Menu menu, org.bukkit.entity.HumanEntity who,
-                                            org.bukkit.event.Cancellable event) {
+    private boolean refuseWithoutPermission(Menu menu, HumanEntity who, Cancellable event) {
         String node = menu.permissionNode();
         if (node == null || !(who instanceof Player player) || player.hasPermission(node)) {
             return false;
@@ -141,8 +188,7 @@ public final class MenuListener implements Listener {
         event.setCancelled(true);
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             player.closeInventory();
-            player.sendMessage(com.dierks.craftbridge.util.Text.msg(
-                    "<red>You no longer have permission to use that."));
+            player.sendMessage(Text.msg("<red>You no longer have permission to use that."));
         });
         return true;
     }
