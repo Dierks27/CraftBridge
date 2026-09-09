@@ -59,6 +59,26 @@ public enum BlockKind {
         return this == COMBO_CHEST ? DEFAULT_COMBO_CHEST_TEXTURE : "";
     }
 
+    /** The recipe shipped for this block, used whenever config.yml does not describe a usable one. */
+    public java.util.List<String> defaultRecipeShape() {
+        return this == COMBO_CHEST ? java.util.List.of("HEH", "CBC", "HRH") : java.util.List.of("HCH", "CTC", "HEH");
+    }
+
+    /** Ingredient letters for {@link #defaultRecipeShape()}. */
+    public java.util.Map<Character, Material> defaultRecipeIngredients() {
+        java.util.Map<Character, Material> out = new java.util.LinkedHashMap<>();
+        out.put('H', Material.CHEST);
+        out.put('C', Material.COPPER_INGOT);
+        out.put('E', Material.ENDER_PEARL);
+        if (this == COMBO_CHEST) {
+            out.put('B', Material.BARREL);
+            out.put('R', Material.COMPARATOR);
+        } else {
+            out.put('T', Material.CRAFTING_TABLE);
+        }
+        return out;
+    }
+
     /** Base64 "textures" value for the Combo Chest's head (chosen for the live server). */
     private static final String DEFAULT_COMBO_CHEST_TEXTURE =
             "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1"

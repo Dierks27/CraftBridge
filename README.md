@@ -551,6 +551,15 @@ tag, recipe key, config section and display defaults per kind.
 See the comments in `src/main/resources/config.yml`. Everything reloads with
 `/craftbridge reload`.
 
+**A config from an older version keeps working.** Every setting falls back to a built-in
+default, and any top-level section your `config.yml` does not have is named once at boot
+with a line saying the defaults are in use — nothing throws, and nothing silently stops
+working. In particular a recipe block that cannot be parsed (missing, empty, or left over
+from a version with a different shape) is reported by *key* with what was wrong —
+"`combo-chest.recipe.shape` is unusable — no rows: expected 1 to 3 rows like
+['HEH', 'CBC', 'HRH']" — and the built-in recipe is registered instead, so the block is
+never left uncraftable. `config.ShapeSpec` does that validation and is unit tested.
+
 ## Development notes
 
 * Package layout: `com.dierks.craftbridge.<feature>`; each feature implements

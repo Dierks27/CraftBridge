@@ -177,6 +177,18 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         }
         List<String> shape = plugin.config().recipeShape(kind);
         Map<Character, Material> ingredients = plugin.config().recipeIngredients(kind);
+        // An optional config block that cannot be parsed must never leave a block
+        // uncraftable, and the reason must name the key rather than surface whatever
+        // exception Bukkit happens to throw first.
+        String problem = com.dierks.craftbridge.config.ShapeSpec.problem(shape, ingredients.keySet());
+        if (problem != null) {
+            plugin.getLogger().warning(kind.configSection() + ".recipe.shape is unusable — " + problem
+                    + " (found " + shape + " with ingredients " + ingredients.keySet() + ").");
+            shape = kind.defaultRecipeShape();
+            ingredients = kind.defaultRecipeIngredients();
+            plugin.getLogger().info("Using the built-in " + kind.displayName() + " recipe instead: "
+                    + shape + " with " + ingredients + ". Copy that section from the jar's config.yml to change it.");
+        }
         try {
             ShapedRecipe recipe = new ShapedRecipe(kind.recipeKey(), items.placeItem(kind, 1));
             recipe.shape(shape.toArray(new String[0]));
@@ -191,7 +203,9 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
                 plugin.getLogger().warning(kind.displayName() + " recipe was rejected by the server.");
             }
         } catch (RuntimeException ex) {
-            plugin.getLogger().warning(kind.displayName() + " recipe in config.yml is invalid: " + ex.getMessage());
+            plugin.getLogger().warning(kind.displayName() + " recipe could not be registered from "
+                    + kind.configSection() + ".recipe (" + ex + "); the block will not be craftable."
+                    + " Remove that section from config.yml to fall back to the built-in recipe.");
         }
     }
 
