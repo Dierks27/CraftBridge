@@ -178,43 +178,11 @@ public final class PhantomManager {
             return 0;
         }
         session.sources = feature.scanner().scan(player, linked.record().location(), plugin.config().workbenchRadius());
-        ItemStack key = phantom.key();
-        int maxStack = Math.max(1, key.getMaxStackSize());
-        int available = StorageScanner.count(session.sources, key);
-        // To the cursor, one stack is the whole bound; into the inventory, the free slots are.
-        int room = toCursor ? 1 : freeInventorySlots(view);
-        int want = PullPlanner.amount(mode, available, maxStack, room);
-        if (want <= 0) {
-            rebuildNow(player, rawSlot);
-            return 0;
-        }
-
-        int got = 0;
-        for (StorageScanner.Pulled pulled : feature.scanner().pull(session.sources, key, want)) {
-            got += pulled.stack().getAmount();
-        }
-        if (got <= 0) {
-            rebuildNow(player, rawSlot);
-            return 0;
-        }
-
-        if (toCursor) {
-            // Straight onto the cursor, like taking a stack out of a chest: one click, no
-            // intermediate state. setItemOnCursor sends the cursor packet itself.
-            player.setItemOnCursor(key.asQuantity(Math.min(got, maxStack)));
-            int rest = got - Math.min(got, maxStack);
-            if (rest > 0) {
-                for (ItemStack over : player.getInventory().addItem(key.asQuantity(rest)).values()) {
-                    putBack(player, session, over);
-                }
-            }
-        } else {
-            for (ItemStack over : player.getInventory().addItem(key.asQuantity(got)).values()) {
-                putBack(player, session, over);
-            }
-        }
+        // Shared with the client mod's storage panel, so a click means the same thing either way.
+        StoragePull.Result result = StoragePull.pull(player, feature.scanner(), session.sources, phantom.key(),
+                mode, StoragePull.freeInventorySlots(view), over -> putBack(player, session, over));
         rebuildNow(player, rawSlot);
-        return got;
+        return result.moved();
     }
 
     /**
@@ -241,17 +209,6 @@ public final class PhantomManager {
         plugin.getLogger().warning("Linked Workbench: " + Items.describe(left) + " x" + left.getAmount()
                 + " fit neither " + player.getName() + "'s inventory nor nearby storage; dropping it at their feet.");
         player.getWorld().dropItemNaturally(player.getLocation(), left);
-    }
-
-    /** Empty inventory slots in the open view — phantoms are packet-only, so these really are empty. */
-    private static int freeInventorySlots(InventoryView view) {
-        int free = 0;
-        for (int raw : GridLayout.WORKBENCH.inventorySlots()) {
-            if (Items.isEmpty(view.getItem(raw))) {
-                free++;
-            }
-        }
-        return free;
     }
 
     public List<StorageScanner.Source> sources(Player player) {

@@ -7,6 +7,8 @@ import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
 import com.dierks.craftbridge.workbench.BlockKind;
 import com.dierks.craftbridge.workbench.LinkedSession;
+import com.dierks.craftbridge.workbench.PullPlanner;
+import com.dierks.craftbridge.workbench.StoragePull;
 import com.dierks.craftbridge.workbench.StorageScanner;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
 import org.bukkit.Bukkit;
@@ -98,7 +100,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
         Messenger messenger = plugin.getServer().getMessenger();
         for (String channel : List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_RESYNC,
-                LinkProtocol.CHANNEL_STORAGE_ACK, LinkProtocol.CHANNEL_TRANSFER_REQUEST)) {
+                LinkProtocol.CHANNEL_STORAGE_ACK, LinkProtocol.CHANNEL_PULL_REQUEST,
+                LinkProtocol.CHANNEL_TRANSFER_REQUEST)) {
             messenger.registerIncomingPluginChannel(plugin, channel, this);
         }
         for (String channel : List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_STORAGE,
@@ -175,6 +178,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 case LinkProtocol.CHANNEL_RESYNC -> onResync(player);
                 case LinkProtocol.CHANNEL_STORAGE_ACK ->
                         onStorageAck(player, LinkProtocol.decodeStorageAck(message));
+                case LinkProtocol.CHANNEL_PULL_REQUEST ->
+                        onPullRequest(player, LinkProtocol.decodePullRequest(message));
                 case LinkProtocol.CHANNEL_TRANSFER_REQUEST ->
                         onTransferRequest(player, LinkProtocol.decodeTransferRequest(message));
                 default -> {
@@ -422,6 +427,73 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         send(player, LinkProtocol.CHANNEL_TRANSFER_RESULT,
                 LinkProtocol.encode(new LinkProtocol.TransferResult(request.requestId(), true, "")));
         push(player, true); // the chests just changed, and by more than a delta is worth
+    }
+
+    /**
+     * The player clicked an item in the storage panel. The same rules as clicking a phantom
+     * slot, because it goes through the same {@link StoragePull}: a stack or half a stack to
+     * the cursor, as many as fit into the inventory, and anything that fits nowhere back into
+     * storage rather than onto the floor.
+     */
+    private void onPullRequest(Player player, LinkProtocol.PullRequest request) {
+        Linked link = linked.get(player.getUniqueId());
+        if (link == null) {
+            return;
+        }
+        WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
+        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
+        if (session == null) {
+            reply(player, request.requestId(), false, "Open a Linked Workbench first.");
+            return;
+        }
+        ItemStack wanted = blobs.decode(request.item());
+        if (Items.isEmpty(wanted)) {
+            reply(player, request.requestId(), false, "That is not an item this server can read.");
+            return;
+        }
+        PullPlanner.Mode mode;
+        try {
+            mode = PullPlanner.Mode.valueOf(request.mode());
+        } catch (IllegalArgumentException unknown) {
+            reply(player, request.requestId(), false, "Unknown click.");
+            return;
+        }
+        if (mode != PullPlanner.Mode.ALL && !Items.isEmpty(player.getItemOnCursor())) {
+            // Same guard the phantom path has: with something already on the cursor this
+            // click was a place, not a take.
+            reply(player, request.requestId(), false, "");
+            return;
+        }
+
+        List<StorageScanner.Source> sources = sources(workbench, player, session);
+        ItemStack key = StorageScanner.keyOf(wanted);
+        StoragePull.Result result = StoragePull.pull(player, workbench.scanner(), sources, key, mode,
+                StoragePull.freeInventorySlots(session.view()), over -> putBack(player, sources, over));
+        if (!result.happened()) {
+            reply(player, request.requestId(), false, "No room, or none left in range.");
+            push(player, true);
+            return;
+        }
+        player.updateInventory();
+        reply(player, request.requestId(), true, "");
+        push(player, true); // the chests just changed
+    }
+
+    /** Anything that fits neither cursor nor inventory goes back where it came from. */
+    private void putBack(Player player, List<StorageScanner.Source> sources, ItemStack stack) {
+        WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
+        ItemStack left = workbench == null ? stack : workbench.scanner().deposit(sources, stack);
+        if (Items.isEmpty(left)) {
+            return;
+        }
+        plugin.getLogger().warning("CraftBridge client link: " + Items.describe(left) + " x" + left.getAmount()
+                + " fit neither " + player.getName() + "'s inventory nor nearby storage; dropping it at their feet.");
+        player.getWorld().dropItemNaturally(player.getLocation(), left);
+    }
+
+    private void reply(Player player, int requestId, boolean ok, String message) {
+        send(player, LinkProtocol.CHANNEL_TRANSFER_RESULT,
+                LinkProtocol.encode(new LinkProtocol.TransferResult(requestId, ok, message)));
     }
 
     private void refuse(Player player, LinkProtocol.TransferRequest request, String why) {

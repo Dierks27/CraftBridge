@@ -601,6 +601,12 @@ never to nothing.
   `docs/link-protocol.md`. Both halves keep the same copy of it and every payload starts with
   a protocol version, so a mismatched pair says so in chat and stays dormant rather than
   misreading each other.
+* **Clicking an item in the mod's panel** is the same act as clicking a phantom slot, and goes
+  through the same code (`workbench.StoragePull`, shared by both paths so they cannot drift):
+  left takes a stack to the cursor, right takes half a stack to the cursor, shift takes as many
+  as fit into the inventory, and anything that fits nowhere goes back into storage rather than
+  onto the floor. The client names the item and the click; the server decides the amount from
+  what is in range and how much room the player has.
 * **Every snapshot is logged** at INFO with the player, sequence, type count and byte size,
   and so is the acknowledgement that comes back. "The client sees no storage" is then a
   question the console answers rather than one that needs a special build.
