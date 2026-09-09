@@ -26,9 +26,11 @@ import java.util.Map;
  *
  * <ul>
  *   <li><b>Pull:</b> click an entry = one stack into your inventory; shift-click = as many as fit.</li>
- *   <li><b>Deposit:</b> click the GUI with an item on the cursor, shift-click from your
- *       inventory, or drag over it — routed to a container that already holds that type,
- *       else the nearest one with a free slot; refused (stays with you) if nothing has room.</li>
+ *   <li><b>Deposit:</b> left-click the GUI with an item on the cursor (the stack), right-click
+ *       it (one item), shift-click from your inventory, or drag over it — routed to a container
+ *       that already holds that type, else the nearest one with a free slot; refused (stays with
+ *       you) if nothing has room. Your own inventory keeps ordinary click behaviour throughout,
+ *       so an item can always be picked up onto the cursor to start a deposit.</li>
  *   <li><b>Filters:</b> all / blocks / tools &amp; armor / food / misc, from the sort categories.</li>
  *   <li><b>Live:</b> every click re-scans, so changes by hoppers or other players show on the next click.</li>
  * </ul>
@@ -164,8 +166,9 @@ public final class ComboChestMenu extends Menu {
                 "<yellow>Click <gray>an item: take one stack",
                 "<yellow>Shift-click<gray>: take as many as fit",
                 "",
-                "<yellow>Deposit<gray>: click here with an item,",
-                "<gray>shift-click it in your inventory, or drag it in.",
+                "<yellow>Deposit<gray>: left-click here with an item",
+                "<gray>(right-click for one), shift-click it in your",
+                "<gray>inventory, or drag it in.",
                 "<gray>It goes to a chest that already has that item,",
                 "<gray>else the nearest one with space."), null);
         if (page < pages - 1) {

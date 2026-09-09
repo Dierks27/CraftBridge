@@ -551,9 +551,12 @@ and reachable from no chest.
   & armor / Food / Misc*, derived from the sorter's category rules — sit in the bottom row.
 * **Pull.** Click an entry = one stack into your inventory; shift-click = as many as fit.
   Items come out of the nearest containers first. "No room in your inventory" if full.
-* **Deposit.** Three ways, all handled by the shared GUI base: click anywhere in the
-  terminal with an item on the cursor, shift-click an item in your own inventory, or drag
-  it over the terminal. Where it lands is a fixed order (`workbench.DepositPlanner`, unit
+* **Deposit.** Four gestures, all handled by the shared GUI base: left-click anywhere in
+  the terminal with an item on the cursor (the whole stack), right-click (one item),
+  shift-click an item in your own inventory, or drag over the terminal (a drag that spans
+  both inventories deposits only the part aimed at the terminal; the rest stays on the
+  cursor). Your own inventory keeps ordinary click behaviour the whole time, so an item can
+  always be picked up onto the cursor to start a deposit. Where it lands is a fixed order (`workbench.DepositPlanner`, unit
   tested), the same for a single click and a shift-click bulk move:
   1. top up partial stacks of the same item (same components), nearest container first,
      up to the item's stack size;
@@ -601,6 +604,20 @@ never left uncraftable. `config.ShapeSpec` does that validation and is unit test
   Menus can also opt into deposits (`acceptsDeposits()` / `deposit(...)`): cursor clicks,
   shift-clicks from the player inventory and drags over the menu are cancelled and
   routed through `deposit`, which returns whatever did not fit.
+* **What a click means is a table, not a chain of ifs.** `gui.MenuClicks` maps
+  (region x click type x cursor state x slot state) to one action, with a test per cell,
+  and `MenuListener` only carries the decision out. The rule it enforces is that a gesture
+  which merely *puts items down* is never refused by default: in the player's own
+  inventory the fallback is plain vanilla behaviour, and exactly two gestures are refused,
+  each because it reaches up into the menu — shift-click (which would shove items into
+  button slots) and double-click collect (which would vacuum the menu's icons onto the
+  cursor, minting items). This is the same shape as `workbench.WorkbenchClicks`, and for
+  the same reason: a blanket "cancel anything we did not build" broke an ordinary
+  put-things-down gesture twice — at the workbench, and then in the Combo Chest, where
+  cancelling every click in the player's own inventory meant an item could not be picked
+  up onto the cursor at all, so no cursor or drag deposit could even begin. Item loss and
+  item minting both come down to one sum, `MenuClicks#keptOnCursor`, which is stated once
+  and asserted.
 * `integration.ContainerAccess` is the one place that answers "may this player use this
   container?": vanilla lock → Towny (reflection, optional) → a synthetic
   `PlayerInteractEvent` any protection plugin can cancel.
