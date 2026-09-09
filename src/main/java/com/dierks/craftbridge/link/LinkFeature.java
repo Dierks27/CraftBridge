@@ -12,6 +12,7 @@ import com.dierks.craftbridge.workbench.StoragePull;
 import com.dierks.craftbridge.workbench.StorageScanner;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
 import org.bukkit.Bukkit;
+import org.bukkit.Keyed;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -25,11 +26,14 @@ import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.plugin.messaging.Messenger;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +62,14 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     private static final int PUSH_TICKS = 20;
     /** Encoded item blobs are the same bytes every time; keep the recent ones rather than re-encoding. */
     private static final int BLOB_CACHE_LIMIT = 4096;
+    /**
+     * How many custom items the catalog will carry. A textured head costs the best part of a
+     * kilobyte, and this whole thing goes out on join in one custom payload, so a server with a
+     * recipe-heavy plugin gets a bounded list and a warning rather than a refused packet.
+     */
+    private static final int CATALOG_LIMIT = 256;
+    /** A backstop on the recipe walk itself, so a misbehaving iterator cannot hang the join. */
+    private static final int RECIPE_SCAN_LIMIT = 20_000;
 
     private final CraftBridgePlugin plugin;
     private final Map<UUID, Linked> linked = new HashMap<>();
@@ -330,13 +342,20 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     // ---- the item catalog ------------------------------------------------------------
 
     /**
-     * The items this server invented: CraftBridge's own blocks and every custom recipe's
-     * result. They are renamed vanilla items carrying plugin data rather than registry
-     * entries of their own, so JEI has no tile for them and nothing to look a recipe up
-     * from until it is told they exist.
+     * Every custom item on this server: CraftBridge's own blocks, its own recipes' results,
+     * and the result of every other plugin's recipe. They are renamed vanilla items carrying
+     * plugin data rather than registry entries of their own, so JEI has no tile for them and
+     * nothing to look a recipe up from until it is told they exist.
+     *
+     * <p>This catalog is the <em>only</em> thing that puts such an item in JEI's list. Syncing
+     * a recipe is not enough on its own: an item nobody told the client about has no tile, no
+     * search entry and no [+], however perfectly its recipe arrived. That is why the list has
+     * to reach past CraftBridge's own handful of items — a mailbox another plugin registered a
+     * recipe for is an item a player is meant to be able to make, and it belongs here.
      */
     private void sendCatalog(Player player) {
-        List<LinkProtocol.CatalogEntry> entries = new ArrayList<>();
+        // Keyed by the stack so the same result reached by three recipes is catalogued once.
+        Map<ItemStack, LinkProtocol.CatalogEntry> entries = new LinkedHashMap<>();
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
         if (workbench != null) {
             for (BlockKind kind : BlockKind.values()) {
@@ -349,21 +368,92 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 add(entries, recipe.result());
             }
         }
+        addEveryOtherPluginsResults(entries);
         if (entries.isEmpty()) {
             return;
         }
         send(player, LinkProtocol.CHANNEL_ITEM_CATALOG,
-                LinkProtocol.encode(new LinkProtocol.ItemCatalog(entries)));
+                LinkProtocol.encode(new LinkProtocol.ItemCatalog(List.copyOf(entries.values()))));
         plugin.debug("CraftBridge client link: sent " + entries.size() + " custom item(s) to " + player.getName());
     }
 
-    private void add(List<LinkProtocol.CatalogEntry> entries, ItemStack stack) {
+    /**
+     * The result of every recipe on the server that is not vanilla's, so long as it is an item
+     * the server dressed up rather than an ordinary one.
+     *
+     * <p>Walked per join rather than cached: it is one pass over the recipe list and the blobs
+     * it encodes are the ones {@link #blobCache} already holds after the first player.
+     */
+    private void addEveryOtherPluginsResults(Map<ItemStack, LinkProtocol.CatalogEntry> entries) {
+        int before = entries.size();
+        try {
+            Iterator<Recipe> recipes = Bukkit.recipeIterator();
+            // Bounded independently of the iterator: a next() that throws without advancing
+            // would otherwise spin here forever, and this runs on the main thread.
+            for (int seen = 0; seen < RECIPE_SCAN_LIMIT && entries.size() < CATALOG_LIMIT
+                    && recipes.hasNext(); seen++) {
+                ItemStack result;
+                try {
+                    // A recipe another plugin registered badly throws from next(), not from
+                    // hasNext(), so one bad entry must not cost us the rest of the list.
+                    Recipe recipe = recipes.next();
+                    if (!(recipe instanceof Keyed keyed) || "minecraft".equals(keyed.getKey().getNamespace())) {
+                        continue;
+                    }
+                    result = recipe.getResult();
+                } catch (RuntimeException ex) {
+                    continue;
+                }
+                if (isDressedUp(result)) {
+                    add(entries, result);
+                }
+            }
+        } catch (RuntimeException | LinkageError ex) {
+            // Whatever we gathered before it went wrong is still worth sending.
+            plugin.debug("CraftBridge client link: stopped reading the server's recipes (" + ex + ")");
+        }
+        int added = entries.size() - before;
+        if (added > 0) {
+            plugin.debug("CraftBridge client link: catalogued " + added
+                    + " custom item(s) from other plugins' recipes");
+        }
+        if (entries.size() >= CATALOG_LIMIT) {
+            plugin.getLogger().warning("CraftBridge client link: the item catalog stopped at its "
+                    + CATALOG_LIMIT + "-item limit; custom items past that will not appear in JEI.");
+        }
+    }
+
+    /**
+     * Is this the plugin's invention rather than an ordinary item? A recipe whose result is a
+     * plain torch needs no entry: JEI has a tile for a torch already, and adding a second one
+     * would only clutter the list. Only a stack the server dressed up — a name, lore, plugin
+     * data, a head texture, a model — is something JEI cannot know about on its own.
+     */
+    private static boolean isDressedUp(ItemStack stack) {
         if (Items.isEmpty(stack)) {
+            return false;
+        }
+        ItemMeta meta = stack.getItemMeta();
+        if (meta == null) {
+            return false;
+        }
+        if (meta.hasDisplayName() || meta.hasLore() || meta.hasCustomModelData()) {
+            return true;
+        }
+        if (!meta.getPersistentDataContainer().isEmpty()) {
+            return true;
+        }
+        return meta instanceof SkullMeta skull && skull.getPlayerProfile() != null;
+    }
+
+    private void add(Map<ItemStack, LinkProtocol.CatalogEntry> entries, ItemStack stack) {
+        if (Items.isEmpty(stack) || entries.size() >= CATALOG_LIMIT) {
             return;
         }
         ItemStack one = stack.clone();
         one.setAmount(1);
-        entries.add(new LinkProtocol.CatalogEntry(blob(one), Items.describe(one), List.of()));
+        entries.computeIfAbsent(one, key ->
+                new LinkProtocol.CatalogEntry(blob(key), Items.describe(key), List.of()));
     }
 
     // ---- transfers -------------------------------------------------------------------
