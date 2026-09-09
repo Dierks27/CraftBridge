@@ -83,6 +83,11 @@ public final class CraftBridgeConfig {
         return raw.getBoolean("features.jei-recipe-sync", true);
     }
 
+    /** The link to the optional CraftBridge-Client mod. Off means every client uses phantom slots. */
+    public boolean clientLinkEnabled() {
+        return raw.getBoolean("features.client-link", true);
+    }
+
     /** Recipe types to sync to JEI, in priority order (later ones are dropped first if the payload is too big). */
     public List<String> jeiRecipeSyncTypes() {
         List<String> types = raw.getStringList("jei.recipe-sync.types");

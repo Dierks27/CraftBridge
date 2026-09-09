@@ -10,6 +10,10 @@ features:
   # Send the server's recipe list to Fabric/JEI clients (Fabric's recipe-sync protocol) so
   # JEI shows custom recipes instead of the vanilla ones bundled with the client.
   jei-recipe-sync: true
+  # Talk to the optional CraftBridge-Client mod. A player who has it sees every item in range
+  # in JEI instead of the 36 a server can fake, and their phantom slots are turned off. Players
+  # without the mod are unaffected either way; turn this off to put everyone on phantom slots.
+  client-link: true
 
 # Promote CraftBridge's DEBUG logging (packet decode failures, trigger detection) to
 # INFO so it shows in the console without touching log4j config.

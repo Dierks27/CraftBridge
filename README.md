@@ -10,6 +10,7 @@ server and modded-client conveniences:
 | 2 | **Linked Workbench** — a crafting table that pulls from nearby chests | PR 3 |
 | 1 | **JEI `[+]` recipe transfer** for Fabric/JEI clients on a plugin server | PR 4 |
 | 2b | **Combo Chest** — one block that browses, pulls from and deposits into every chest in range | PR 9 |
+| 1b | **Client link** — the optional [CraftBridge-Client](https://github.com/Dierks27/CraftBridge-Client) mod sees every item in range, not the 36 a server can fake | PR 24 |
 
 Every feature has its own master switch under `features:` in `config.yml`, so any one
 of them can be shipped or turned off independently. `/craftbridge reload` re-reads the
@@ -576,6 +577,50 @@ and reachable from no chest.
 **Getting the block:** craft it, or `/craftbridge give <player> combochest [amount]`.
 Both blocks share the code in `workbench.*`: `BlockKind` picks the physical block,
 tag, recipe key, config section and display defaults per kind.
+
+## Feature 1b — the client link
+
+JEI decides whether a recipe's `[+]` is available by scanning the slots of the open menu, so
+a server on its own can show it at most **36 item types** — the free slots of a crafting
+table's inventory (Feature 2's phantom slots). A real base has hundreds. The optional
+[CraftBridge-Client](https://github.com/Dierks27/CraftBridge-Client) mod removes that ceiling
+by being told what is in range directly.
+
+**Nobody has to install it.** A player without the mod never says hello, is never sent
+anything, and keeps phantom slots and the `jei:recipe_transfer` path exactly as before. A
+player with it gets their phantom slots turned off — the two mechanisms answer the same
+question, and running both would show every item twice.
+
+* **The wire contract** is `link.LinkProtocol` (channels, payloads, sizing) and
+  `docs/link-protocol.md`. Both halves keep the same copy of it and every payload starts with
+  a protocol version, so a mismatched pair says so in chat and stays dormant rather than
+  misreading each other.
+* **Storage** is sent as a full snapshot when the workbench opens and as deltas afterwards,
+  each with a sequence number; a client that sees a gap asks for a fresh snapshot rather than
+  acting on a view that lies about counts. Changes are found by re-reading the containers once
+  a second, because a hopper filling a chest is not something the plugin is told about — the
+  phantom slots this replaces re-scanned on every click for the same reason. A quiet second
+  sends nothing.
+* **A transfer is the server's work, not the client's.** The request names a recipe (and, for
+  a display with no registered recipe, what each slot would accept) and nothing else — never
+  what the player has, never how much. The server looks the recipe up in its own registry,
+  counts the player's inventory and the containers in range itself, and decides what may be
+  taken and from where (`link.GridPlanner`, unit tested: one item type per slot decided once,
+  the scarcest ingredient setting how many sets are made, stack sizes respected, the player's
+  own items spent before storage is touched). The worst a modified client can do is ask for a
+  recipe it could have asked for by clicking.
+* **Before the grid is refilled it is emptied** by the same rules a close uses — items that
+  came from a container go back to it, the rest to the player — so nothing is lost and nothing
+  is duplicated. Items pulled from storage remember which chest they came from and go back
+  there when the session ends.
+* **Custom items** (CraftBridge's own blocks, every custom recipe's result) are sent as a
+  catalog on hello. They are renamed vanilla items carrying plugin data rather than registry
+  entries of their own, so without this JEI has no tile for them and nothing to look their
+  recipes up from.
+* **`link.nms.PaperItemBlobs`** is the only new server-internals class: item stacks travel as
+  the bytes vanilla's own slot codec produces, so components survive the trip and neither side
+  has to know what they mean. If those names ever move, the link switches itself off at boot
+  and the plugin carries on with phantom slots.
 
 ## Configuration
 

@@ -259,8 +259,20 @@ public final class PhantomManager {
         return s == null ? List.of() : s.sources;
     }
 
+    /**
+     * True when this player's own client is showing them what is in storage, so faking items
+     * into their inventory slots would only show everything twice.
+     */
+    private boolean clientHandlesIt(Player player) {
+        com.dierks.craftbridge.link.LinkFeature link = plugin.feature(com.dierks.craftbridge.link.LinkFeature.class);
+        return link != null && link.handlesStorageItself(player);
+    }
+
     /** Start (or restart) the phantom view for the player's open linked workbench. */
     public void start(Player player) {
+        if (clientHandlesIt(player)) {
+            return;
+        }
         Session session = sessions.computeIfAbsent(player.getUniqueId(), k -> new Session());
         session.page = 0;
         session.weights = feature.ingredientIndex().weights(player);
@@ -343,6 +355,10 @@ public final class PhantomManager {
         Session session = sessions.get(player.getUniqueId());
         LinkedSession linked = feature.sessions().of(player);
         if (session == null || linked == null || !player.isOnline()) {
+            return;
+        }
+        if (clientHandlesIt(player)) {
+            end(player, true); // the mod arrived mid-session: hand the slots back to the client
             return;
         }
         InventoryView view = player.getOpenInventory();

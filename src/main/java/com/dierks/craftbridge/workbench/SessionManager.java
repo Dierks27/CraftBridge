@@ -53,8 +53,9 @@ public final class SessionManager {
         LinkedSession session = new LinkedSession(player.getUniqueId(), record, view);
         sessions.put(player.getUniqueId(), session);
         if (phantoms != null) {
-            phantoms.start(player);
+            phantoms.start(player); // a no-op for a player whose own client shows them storage
         }
+        link(link -> link.sessionOpened(player));
         return session;
     }
 
@@ -84,6 +85,7 @@ public final class SessionManager {
         if (session == null) {
             return;
         }
+        link(l -> l.sessionEnded(player, "the workbench was closed"));
         if (phantoms != null) {
             // The menu is closing: re-sync next tick so the inventory screen shows real contents only.
             phantoms.end(player, false);
@@ -93,6 +95,15 @@ public final class SessionManager {
                 }
             });
         }
+        drainGrid(player, session, returnToOrigins);
+    }
+
+    /**
+     * Empty the crafting grid the same way a close does: owed items back to the container they
+     * came from, the rest to the player, anything they cannot hold dropped at the table. Used
+     * on close, and before a client-link transfer refills the grid.
+     */
+    public void drainGrid(Player player, LinkedSession session, boolean returnToOrigins) {
         if (!(session.view().getTopInventory() instanceof CraftingInventory crafting)) {
             return;
         }
@@ -141,8 +152,18 @@ public final class SessionManager {
                 player.getWorld().dropItemNaturally(dropSpot(player, session), over);
             }
         }
+        session.origins().clear();
         if (changed) {
             crafting.setMatrix(matrix);
+        }
+    }
+
+    /** Tell the client link about a session change, when the link is switched on at all. */
+    private void link(java.util.function.Consumer<com.dierks.craftbridge.link.LinkFeature> action) {
+        com.dierks.craftbridge.link.LinkFeature feature =
+                plugin.feature(com.dierks.craftbridge.link.LinkFeature.class);
+        if (feature != null) {
+            action.accept(feature);
         }
     }
 
