@@ -22,12 +22,18 @@ public final class CraftBridgeCommand implements TabExecutor {
     }
 
     private static final String ADMIN = "craftbridge.admin";
+    /** Turning your own storage page changes nothing but your own view, so everyone may. */
+    private static final String PAGE = "craftbridge.page";
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
             if (!sender.hasPermission(ADMIN)) {
-                sender.sendMessage(Text.msg("<gray>/craftbridge page next|prev <dark_gray>- turn the storage page at a Linked Workbench"));
+                if (sender.hasPermission(PAGE)) {
+                    sender.sendMessage(Text.msg("<gray>/craftbridge page next|prev <dark_gray>- turn the storage page at a Linked Workbench"));
+                } else {
+                    sender.sendMessage(Text.msg("<red>You do not have permission to do that."));
+                }
                 return true;
             }
             sender.sendMessage(Text.msg("<gray>/craftbridge page next|prev <dark_gray>- turn the storage page at a Linked Workbench"));
@@ -41,6 +47,10 @@ public final class CraftBridgeCommand implements TabExecutor {
         String sub = args[0].toLowerCase(java.util.Locale.ROOT);
         // Paging is the player's own view of their own inventory, so it needs no permission.
         if (sub.equals("page")) {
+            if (!sender.hasPermission(PAGE)) {
+                sender.sendMessage(Text.msg("<red>You do not have permission to do that."));
+                return true;
+            }
             page(sender, args);
             return true;
         }
@@ -149,9 +159,10 @@ public final class CraftBridgeCommand implements TabExecutor {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return sender.hasPermission(ADMIN)
-                    ? List.of("page", "reload", "version", "give", "workbench", "combochest", "jei")
-                    : List.of("page");
+            if (sender.hasPermission(ADMIN)) {
+                return List.of("page", "reload", "version", "give", "workbench", "combochest", "jei");
+            }
+            return sender.hasPermission(PAGE) ? List.of("page") : List.of();
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("page")) {
             return List.of("next", "prev");

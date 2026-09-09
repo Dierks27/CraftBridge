@@ -56,8 +56,18 @@ generate `plugins/CraftBridge/config.yml`).
 | `/sort debug` — print the raw click your client sends when clicking outside a GUI | `craftbridge.sort` | everyone |
 | `/recipe` (alias `/recipes`) — the recipe menu; hidden console fallbacks: `/recipe list`, `/recipe reload`, `/recipe remove <id>`, `/recipe import starter` | `craftbridge.recipes.admin` | op |
 
-`craftbridge.sort.others` is reserved for a future "sort any container I'm looking at"
-admin tool and does nothing yet.
+Every node is declared in `plugin.yml` with a description and a default, so LuckPerms
+suggests them. `craftbridge.admin` (op) covers everything that hands out items or changes
+server state; `craftbridge.recipes.admin` (op) gates `/recipe` **and every screen it opens**
+— the check is re-run on each click, so revoking it mid-session closes the GUI immediately
+rather than at the next login. `craftbridge.sort` (everyone) covers `/sort`, and
+`craftbridge.sort.others` is reserved for a future "sort any container I'm looking at" admin
+tool and does nothing yet.
+
+`craftbridge.page` defaults to **everyone**, deliberately: `/craftbridge page` is the
+fallback for the ◀ / ▶ buttons at a Linked Workbench, it changes nothing but the player's own
+view of their own inventory, and making it op would break paging for ordinary players. It is
+a declared node, so an admin who disagrees can restrict it.
 
 ## Feature 3 — chest sorting
 

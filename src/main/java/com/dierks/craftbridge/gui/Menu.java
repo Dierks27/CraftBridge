@@ -121,6 +121,20 @@ public abstract class Menu implements InventoryHolder {
         player.openInventory(inventory);
     }
 
+    /**
+     * A permission the viewer must still hold for this menu to do anything, or null when
+     * anyone may use it. Checked on <em>every</em> interaction rather than only when the menu
+     * is opened, so revoking a permission mid-session takes effect immediately instead of at
+     * the next login.
+     */
+    protected String requiredPermission() {
+        return null;
+    }
+
+    String permissionNode() {
+        return requiredPermission();
+    }
+
     /** Menus that route items the player drops into them somewhere (the Combo Chest). */
     protected boolean acceptsDeposits() {
         return false;

@@ -56,6 +56,9 @@ permissions:
   craftbridge.recipes.admin:
     description: Create, edit and delete custom recipes with /recipe.
     default: op
+  craftbridge.page:
+    description: Turn the nearby-storage page at a Linked Workbench (/craftbridge page). Changes only your own view.
+    default: true
   craftbridge.sort:
     description: Sort containers and change your own sorting settings.
     default: true
