@@ -23,6 +23,10 @@ class StorageAccountingTest {
         final int[] slots;
         final int maxStack;
         int storage;
+        /** What the player is holding on the cursor: in limbo, but still theirs. */
+        int cursor;
+        /** What vanilla dropped at their feet when a session ended mid-hold. Still in the world. */
+        int dropped;
 
         Sim(int storage, int maxStack, int... slots) {
             this.storage = storage;
@@ -41,13 +45,39 @@ class StorageAccountingTest {
         }
 
         int total() {
-            int n = storage;
+            int n = storage + cursor + dropped;
             for (int s : slots) {
                 if (s > 0) {
                     n += s;
                 }
             }
             return n;
+        }
+
+        /**
+         * Left- or right-clicking a phantom: the stack goes straight onto the cursor, as if
+         * taken out of a chest. A click with something already on the cursor is a place, not
+         * a pull, so it moves nothing.
+         */
+        int pullToCursor(PullPlanner.Mode mode) {
+            if (cursor != 0) {
+                return 0;
+            }
+            int moved = Math.min(PullPlanner.amount(mode, storage, maxStack, 1), storage);
+            storage -= moved;
+            cursor += moved;
+            return moved;
+        }
+
+        /**
+         * The session ends while the player is holding something: closing, disconnecting,
+         * dying, teleporting or walking out of range. Paper drops the carried item at their
+         * feet rather than deleting it (its own "Drop carried item when player has
+         * disconnected" patch, and vanilla's container-close handling), so it stays counted.
+         */
+        void endSessionMidHold() {
+            dropped += cursor;
+            cursor = 0;
         }
 
         /** Where the next phantom sits: phantoms only ever occupy empty slots. */
@@ -138,6 +168,68 @@ class StorageAccountingTest {
         assertEquals(0, sim.pull(0, PullPlanner.Mode.ALL));
         assertEquals(before, sim.total());
         assertEquals(500, sim.storage);
+    }
+
+    @Test
+    void aLeftClickPullPutsAStackOnTheCursorAndBalances() {
+        Sim sim = new Sim(500, 64, 0, 0);
+        int before = sim.total();
+        assertEquals(64, sim.pullToCursor(PullPlanner.Mode.ONE));
+        assertEquals(before, sim.total());
+        assertEquals(64, sim.cursor);
+        assertEquals(436, sim.storage);
+        for (int slot : sim.slots) {
+            assertEquals(0, slot, "a cursor pull must not touch the inventory slots");
+        }
+    }
+
+    @Test
+    void aRightClickPullPutsHalfAStackOnTheCursor() {
+        Sim sim = new Sim(500, 64, 0);
+        int before = sim.total();
+        assertEquals(32, sim.pullToCursor(PullPlanner.Mode.HALF));
+        assertEquals(before, sim.total());
+        assertEquals(32, sim.cursor);
+    }
+
+    @Test
+    void aPullWithSomethingAlreadyOnTheCursorMovesNothing() {
+        // That click is a place, which vanilla handles; it must never also pull.
+        Sim sim = new Sim(500, 64, 0);
+        sim.cursor = 7;
+        int before = sim.total();
+        assertEquals(0, sim.pullToCursor(PullPlanner.Mode.ONE));
+        assertEquals(before, sim.total());
+        assertEquals(7, sim.cursor);
+        assertEquals(500, sim.storage);
+    }
+
+    @Test
+    void closingWhileHoldingAPulledStackLosesNothing() {
+        Sim sim = new Sim(100, 64, 0, 0);
+        int before = sim.total();
+        sim.pullToCursor(PullPlanner.Mode.ONE);
+        sim.endSessionMidHold();
+        assertEquals(before, sim.total());
+        assertEquals(0, sim.cursor);
+        assertEquals(64, sim.dropped);
+    }
+
+    @Test
+    void repeatedPullAndInterruptCyclesAlwaysBalance() {
+        for (PullPlanner.Mode mode : new PullPlanner.Mode[]{PullPlanner.Mode.ONE, PullPlanner.Mode.HALF}) {
+            for (int maxStack : new int[]{1, 16, 64}) {
+                Sim sim = new Sim(137, maxStack, 0, 0, -1, 0);
+                int before = sim.total();
+                for (int round = 0; round < 12; round++) {
+                    sim.pullToCursor(mode);
+                    assertTrue(sim.cursor <= maxStack, "cursor over the stack size for " + mode);
+                    sim.endSessionMidHold();
+                    assertEquals(before, sim.total(), mode + " maxStack=" + maxStack + " round " + round);
+                    assertTrue(sim.storage >= 0, "storage went negative for " + mode);
+                }
+            }
+        }
     }
 
     @Test

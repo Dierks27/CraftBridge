@@ -201,20 +201,26 @@ public final class WorkbenchListener implements Listener {
             return;
         }
         event.setCancelled(true);
-        PhantomManager.Button button = phantoms.buttonAt(player, slot);
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            switch (action) {
-                case PAGE -> {
-                    if (button != null) {
-                        phantoms.turnPage(player, button);
-                    }
+        phantoms.markResendAll(player);
+        // Pulls run right here, in this tick, so one click is one click: the items move, the
+        // cursor is set and the slot's real contents go out before the cancelled click's own
+        // re-sync. Deferring this to the next tick is what made the client keep drawing a
+        // phantom the player had already taken, costing a second and third click.
+        switch (action) {
+            case PULL_ONE -> phantoms.pull(player, slot, PullPlanner.Mode.ONE);
+            case PULL_HALF -> phantoms.pull(player, slot, PullPlanner.Mode.HALF);
+            case PULL_ALL -> phantoms.pull(player, slot, PullPlanner.Mode.ALL);
+            case PAGE -> {
+                PhantomManager.Button button = phantoms.buttonAt(player, slot);
+                if (button != null) {
+                    Bukkit.getScheduler().runTask(plugin, () -> phantoms.turnPage(player, button));
                 }
-                case PULL_ONE -> phantoms.pull(player, slot, PullPlanner.Mode.ONE);
-                case PULL_HALF -> phantoms.pull(player, slot, PullPlanner.Mode.HALF);
-                case PULL_ALL -> phantoms.pull(player, slot, PullPlanner.Mode.ALL);
-                default -> phantoms.resend(player, slot);
             }
-        });
+            default -> {
+                phantoms.resend(player, slot);
+                phantoms.rebuildLater(player, true);
+            }
+        }
     }
 
     /**

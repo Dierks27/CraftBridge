@@ -34,7 +34,9 @@ import java.util.UUID;
  *   <li><b>The snapshot itself never changes the inventory.</b> Phantoms are packet-only:
  *       the server keeps those slots empty, so they are always free to receive something.</li>
  *   <li><b>Clicking one takes items for real</b>, bounded by {@link PullPlanner}: left-click
- *       a stack, right-click half, shift-click as much as fits. Everything else on a phantom
+ *       puts a stack straight on the cursor, right-click half a stack, and shift-click fills
+ *       the player's empty slots (shift-click has no cursor semantics). One click, with the
+ *       slot's true contents and the cursor sent in the same tick. Everything else on a phantom
  *       (number keys, drops, double-click collect, offhand swaps) is cancelled and the slot
  *       re-sent. Putting an item <em>into</em> a phantom slot is ordinary vanilla behaviour
  *       and is always allowed — the slot really is empty.</li>
@@ -79,6 +81,8 @@ public final class PhantomManager {
         int pages = 1;
         int types;
         String lastStatus = "";
+        /** Set when the client's view was wiped (a cancelled click resyncs it) so the next rebuild re-sends everything. */
+        boolean resendAll;
     }
 
     private final CraftBridgePlugin plugin;
@@ -165,17 +169,23 @@ public final class PhantomManager {
             return 0;
         }
         InventoryView view = linked.view();
-        if (!Items.isEmpty(view.getItem(rawSlot))) {
-            rebuild(player); // something real landed there in the meantime
+        boolean toCursor = mode != PullPlanner.Mode.ALL;
+        if (!Items.isEmpty(view.getItem(rawSlot))
+                || (toCursor && !Items.isEmpty(player.getItemOnCursor()))) {
+            // Something real landed in the slot, or the player picked something up in the
+            // meantime — in which case this click was a place, not a pull.
+            rebuildNow(player, rawSlot);
             return 0;
         }
         session.sources = feature.scanner().scan(player, linked.record().location(), plugin.config().workbenchRadius());
         ItemStack key = phantom.key();
         int maxStack = Math.max(1, key.getMaxStackSize());
         int available = StorageScanner.count(session.sources, key);
-        int want = PullPlanner.amount(mode, available, maxStack, freeInventorySlots(view));
+        // To the cursor, one stack is the whole bound; into the inventory, the free slots are.
+        int room = toCursor ? 1 : freeInventorySlots(view);
+        int want = PullPlanner.amount(mode, available, maxStack, room);
         if (want <= 0) {
-            rebuild(player);
+            rebuildNow(player, rawSlot);
             return 0;
         }
 
@@ -184,19 +194,42 @@ public final class PhantomManager {
             got += pulled.stack().getAmount();
         }
         if (got <= 0) {
-            rebuild(player);
+            rebuildNow(player, rawSlot);
             return 0;
         }
-        int intoClicked = Math.min(got, maxStack);
-        view.setItem(rawSlot, key.asQuantity(intoClicked));
-        int rest = got - intoClicked;
-        if (rest > 0) {
-            for (ItemStack over : player.getInventory().addItem(key.asQuantity(rest)).values()) {
+
+        if (toCursor) {
+            // Straight onto the cursor, like taking a stack out of a chest: one click, no
+            // intermediate state. setItemOnCursor sends the cursor packet itself.
+            player.setItemOnCursor(key.asQuantity(Math.min(got, maxStack)));
+            int rest = got - Math.min(got, maxStack);
+            if (rest > 0) {
+                for (ItemStack over : player.getInventory().addItem(key.asQuantity(rest)).values()) {
+                    putBack(player, session, over);
+                }
+            }
+        } else {
+            for (ItemStack over : player.getInventory().addItem(key.asQuantity(got)).values()) {
                 putBack(player, session, over);
             }
         }
-        rebuild(player);
+        rebuildNow(player, rawSlot);
         return got;
+    }
+
+    /**
+     * Tell the client the truth about the slot it just pulled from, in this tick, before any
+     * scheduled rebuild. Without this the client keeps drawing the phantom it already took,
+     * and the next click is spent re-syncing the slot instead of doing what the player meant.
+     */
+    private void rebuildNow(Player player, int rawSlot) {
+        Session session = sessions.get(player.getUniqueId());
+        if (session != null) {
+            session.byRaw.remove(rawSlot);
+            session.resendAll = true;
+        }
+        packets.sendRealSlot(player, rawSlot);
+        rebuildLater(player, true);
     }
 
     /** Anything that would not fit goes back where it came from, never on the floor. */
@@ -236,8 +269,24 @@ public final class PhantomManager {
 
     /** Schedule a rebuild for next tick (after the current click/craft has been applied). */
     public void rebuildLater(Player player) {
+        rebuildLater(player, false);
+    }
+
+    /**
+     * @param force re-send every phantom rather than only the changed ones. Needed after any
+     *              cancelled click, because CraftBridge cancelling a click makes CraftBukkit
+     *              re-sync the whole container from the server's truth — which has no phantoms
+     *              in it at all, so the client's copy of them is gone.
+     */
+    public void rebuildLater(Player player, boolean force) {
         if (!has(player)) {
             return;
+        }
+        if (force) {
+            Session session = sessions.get(player.getUniqueId());
+            if (session != null) {
+                session.resendAll = true;
+            }
         }
         Bukkit.getScheduler().runTask(plugin, () -> rebuild(player));
     }
@@ -255,6 +304,18 @@ public final class PhantomManager {
 
     public boolean turnPage(Player player, Button button) {
         return turnPage(player, button.delta);
+    }
+
+    /**
+     * Note that the client's copy of the phantoms is about to be wiped — cancelling a click
+     * makes CraftBukkit re-sync the container from the server's truth, which has none in it —
+     * so the next rebuild sends them all again rather than only the changed ones.
+     */
+    public void markResendAll(Player player) {
+        Session session = sessions.get(player.getUniqueId());
+        if (session != null) {
+            session.resendAll = true;
+        }
     }
 
     /** Re-send one phantom slot exactly as it was: the answer to any click on it. */
@@ -357,7 +418,9 @@ public final class PhantomManager {
             }
         }
         boolean pageChanged = !session.buttons.equals(nextButtons);
-        Map<Integer, Phantom> previous = new LinkedHashMap<>(session.byRaw);
+        boolean resendAll = session.resendAll;
+        session.resendAll = false;
+        Map<Integer, Phantom> previous = resendAll ? new LinkedHashMap<>() : new LinkedHashMap<>(session.byRaw);
         session.byRaw.clear();
         session.byRaw.putAll(nextPhantoms);
         session.buttons.clear();
@@ -371,7 +434,7 @@ public final class PhantomManager {
             packets.sendSlot(player, e.getKey(), display(now));
         }
         for (Map.Entry<Integer, Button> e : nextButtons.entrySet()) {
-            if (pageChanged || !previous.isEmpty()) {
+            if (resendAll || pageChanged || !previous.isEmpty()) {
                 packets.sendSlot(player, e.getKey(), buttonItem(e.getValue(), session));
             }
         }
