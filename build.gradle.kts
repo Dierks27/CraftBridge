@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.dierks.craftbridge"
-version = "0.3"
+version = "0.4"
 description = "CraftBridge — chest sorting, admin recipes, Linked Workbench and JEI recipe transfer for Paper 26.2"
 
 // Target server: Paper 26.2 on Java 25. The toolchain pins the bytecode level to the
