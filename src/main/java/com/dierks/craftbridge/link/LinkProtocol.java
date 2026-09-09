@@ -30,11 +30,12 @@ import java.util.List;
 public final class LinkProtocol {
 
     /** Bumped whenever any payload's layout changes. Both sides must agree exactly. */
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
 
     public static final String CHANNEL_HELLO = "craftbridge:hello";
     public static final String CHANNEL_STORAGE = "craftbridge:storage";
     public static final String CHANNEL_RESYNC = "craftbridge:resync";
+    public static final String CHANNEL_STORAGE_ACK = "craftbridge:storage_ack";
     public static final String CHANNEL_TRANSFER_REQUEST = "craftbridge:transfer_request";
     public static final String CHANNEL_TRANSFER_RESULT = "craftbridge:transfer_result";
     public static final String CHANNEL_SESSION_END = "craftbridge:session_end";
@@ -73,6 +74,15 @@ public final class LinkProtocol {
 
     /** "I am at this sequence and I have fallen behind; send me everything." */
     public record Resync(int lastSequence) {
+    }
+
+    /**
+     * "I have this snapshot and I am showing it." The server waits for this before taking a
+     * player's phantom slots away: a handshake only proves the mod is loaded, and a mod that
+     * cannot display what it was sent must leave the player with the server's own view rather
+     * than with nothing at all.
+     */
+    public record StorageAck(int sequence, boolean displaying) {
     }
 
     /** One crafting-grid slot's acceptable items, for a recipe with no id of its own. */
@@ -130,6 +140,10 @@ public final class LinkProtocol {
 
     public static byte[] encode(Resync resync) {
         return header().writeVarInt(resync.lastSequence()).toByteArray();
+    }
+
+    public static byte[] encode(StorageAck ack) {
+        return header().writeVarInt(ack.sequence()).writeBoolean(ack.displaying()).toByteArray();
     }
 
     public static byte[] encode(TransferRequest request) {
@@ -202,6 +216,11 @@ public final class LinkProtocol {
 
     public static Resync decodeResync(byte[] payload) {
         return new Resync(open(payload).readVarInt());
+    }
+
+    public static StorageAck decodeStorageAck(byte[] payload) {
+        VarInts.Reader r = open(payload);
+        return new StorageAck(r.readVarInt(), r.readBoolean());
     }
 
     public static TransferRequest decodeTransferRequest(byte[] payload) {

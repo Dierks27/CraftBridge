@@ -587,14 +587,23 @@ table's inventory (Feature 2's phantom slots). A real base has hundreds. The opt
 by being told what is in range directly.
 
 **Nobody has to install it.** A player without the mod never says hello, is never sent
-anything, and keeps phantom slots and the `jei:recipe_transfer` path exactly as before. A
-player with it gets their phantom slots turned off — the two mechanisms answer the same
-question, and running both would show every item twice.
+anything, and keeps phantom slots and the `jei:recipe_transfer` path exactly as before.
+
+**Phantom slots are only taken away once the mod proves it can replace them.** The handshake
+is not enough: the client must acknowledge a storage snapshot *and* say it is drawing it
+(`craftbridge:storage_ack`) before the server stops faking items into that player's inventory.
+This rule exists because the first release did not have it — the mod said hello, the phantoms
+went away, and the mod had nothing to show, which left the player with less than they had
+without it. A mod that cannot display what it is sent now degrades to the server's own view,
+never to nothing.
 
 * **The wire contract** is `link.LinkProtocol` (channels, payloads, sizing) and
   `docs/link-protocol.md`. Both halves keep the same copy of it and every payload starts with
   a protocol version, so a mismatched pair says so in chat and stays dormant rather than
   misreading each other.
+* **Every snapshot is logged** at INFO with the player, sequence, type count and byte size,
+  and so is the acknowledgement that comes back. "The client sees no storage" is then a
+  question the console answers rather than one that needs a special build.
 * **Storage** is sent as a full snapshot when the workbench opens and as deltas afterwards,
   each with a sequence number; a client that sees a gap asks for a fresh snapshot rather than
   acting on a view that lies about counts. Changes are found by re-reading the containers once
