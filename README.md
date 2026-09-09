@@ -315,7 +315,13 @@ later in the alphabet. So the snapshot is rebuilt:
 — if a plugin's namespace is missing or short, its recipes are not in the payload, and
 CraftBridge cross-checks against `Bukkit.recipeIterator()` and logs a WARN naming the
 namespace. `/craftbridge jei` prints the same line plus how many clients have it, and
-`/craftbridge jei resync` re-encodes and re-sends to everyone on demand. On the client
+`/craftbridge jei resync` re-encodes and re-sends to everyone on demand. Every successful
+send also logs one INFO line naming the player and the channel
+(`JEI recipe sync: sent to Dierks on fabric:recipe_sync (1605 recipe(s), 115 KiB [...])`),
+and a client that registered JEI's own channels but not ours gets one WARN five seconds
+after joining listing the channels it *did* register — that is what a JEI build whose
+recipe sync is not `fabric:recipe_sync` (a NeoForge client) looks like, and recipe sync
+needs a Fabric client. On the client
 side, JEI itself says which set it is using: if it fell back to the client's own recipe
 JSONs it prints a recipe-sync warning in chat and in `latest.log`
 (`jei.message.server.recipe.sync.*`); no warning means it accepted the payload.
@@ -403,11 +409,18 @@ makes the client *see* nearby storage as inventory:
   leftovers) is shown — packet-only, via `ClientboundContainerSetSlotPacket` on the open
   crafting menu — holding one type, capped at the stack size, with the lore line
   *"From nearby storage (N available)"*. The real inventory is never touched.
-* **Display only.** Any click, shift-click, drag, number-key swap, offhand swap or drop
-  involving a phantom slot is cancelled and the slot is re-sent exactly as it was. Nothing
-  ever moves from storage into the inventory this way; the only path storage items take is
-  the JEI transfer packet, straight into the crafting grid. Taking items out by hand is the
-  Combo Chest's job.
+* **Display only, and only the phantom slots.** Any click, shift-click, drag, number-key
+  swap, offhand swap or drop *on a phantom slot* is cancelled and the slot is re-sent exactly
+  as it was. Nothing ever moves from storage into the inventory this way; the only path
+  storage items take is the JEI transfer packet, straight into the crafting grid. Taking
+  items out by hand is the Combo Chest's job.
+* **Everything else is a vanilla crafting table.** The player's own slots, the grid and the
+  result behave exactly as they always did: items can be placed by hand and crafted normally,
+  and a number-key swap whose *destination* is a phantom slot is allowed, because that slot is
+  genuinely empty server-side and the phantom just moves elsewhere. Phantoms are also not
+  re-sent while the player is holding something on the cursor, and only slots whose contents
+  actually changed are re-sent at all — a burst of slot packets mid-interaction is what made
+  hand-placing feel broken in v0.3.
 * `[+]` / shift-`[+]`: when JEI's transfer draws from a phantom slot, the server pulls the
   real items out of the recorded containers (nearest first) straight into the grid and
   records the origin per grid slot. Items the engine "stows" into a phantom slot go back

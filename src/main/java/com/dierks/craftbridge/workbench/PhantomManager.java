@@ -40,7 +40,10 @@ import java.util.UUID;
  *       reads those, so at most that many types can be visible at once (fewer, because
  *       occupied slots and the reserve do not count). The rest live on further pages,
  *       ordered so page one is almost always the right one.</li>
- *   <li>Only genuinely empty slots are ever used; with no free slot at all nothing is shown.</li>
+ *   <li>Only genuinely <b>empty</b> slots are ever used, and only those slots are locked. The
+ *       player's real items, the crafting grid and the result behave exactly as at a vanilla
+ *       table — items can be placed by hand and crafted normally. With no free slot at all
+ *       nothing is shown and the workbench is a vanilla crafting table.</li>
  * </ul>
  */
 public final class PhantomManager {
@@ -196,6 +199,12 @@ public final class PhantomManager {
         if (view != linked.view() || view.getType() != InventoryType.WORKBENCH) {
             return;
         }
+        if (!Items.isEmpty(view.getCursor())) {
+            // The player is holding an item: sending slot packets now would fight the client's
+            // own prediction and make hand-placing items into the grid look like it failed.
+            // The next click rebuilds anyway, so there is nothing to schedule.
+            return;
+        }
         session.sources = feature.scanner().scan(player, linked.record().location(), plugin.config().workbenchRadius());
         List<Map.Entry<ItemStack, Integer>> types = sortedTypes(session);
         session.types = types.size();
@@ -246,6 +255,8 @@ public final class PhantomManager {
                     + "<gray>/<white>" + session.pages + " <gray>(" + types.size() + " types)");
         }
 
+        // Send only what actually changed. Re-sending every phantom on every click floods the
+        // client with slot packets, which is what made hand-placing items feel broken.
         for (int raw : session.byRaw.keySet()) {
             if (!nextPhantoms.containsKey(raw) && !nextButtons.containsKey(raw)) {
                 packets.sendRealSlot(player, raw);
@@ -256,15 +267,24 @@ public final class PhantomManager {
                 packets.sendRealSlot(player, raw);
             }
         }
+        boolean pageChanged = !session.buttons.equals(nextButtons);
+        Map<Integer, Phantom> previous = new LinkedHashMap<>(session.byRaw);
         session.byRaw.clear();
         session.byRaw.putAll(nextPhantoms);
         session.buttons.clear();
         session.buttons.putAll(nextButtons);
         for (Map.Entry<Integer, Phantom> e : nextPhantoms.entrySet()) {
-            packets.sendSlot(player, e.getKey(), display(e.getValue()));
+            Phantom before = previous.get(e.getKey());
+            Phantom now = e.getValue();
+            if (before != null && before.available() == now.available() && before.key().isSimilar(now.key())) {
+                continue; // unchanged: the client already shows exactly this
+            }
+            packets.sendSlot(player, e.getKey(), display(now));
         }
         for (Map.Entry<Integer, Button> e : nextButtons.entrySet()) {
-            packets.sendSlot(player, e.getKey(), buttonItem(e.getValue(), session));
+            if (pageChanged || !previous.isEmpty()) {
+                packets.sendSlot(player, e.getKey(), buttonItem(e.getValue(), session));
+            }
         }
     }
 
