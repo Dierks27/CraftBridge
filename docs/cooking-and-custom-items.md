@@ -156,11 +156,14 @@ the PDC id alone survives every kind of component drift.
 It is resolved **reflectively**: the pinned dev bundle (`26.2.build.107-stable`) may predate
 the 26.2 static factories, and compiling against the method directly would tie the plugin to a
 newer build than it pins. When absent, matching falls back to `ExactChoice` and startup logs
-which mode is live:
+which mode is live.
 
-```
-Loaded 1 custom item(s); custom-item recipes match on the cb_item tag (RecipeChoice.predicateChoice).
-```
+> **On build 107 the fallback is what runs.** Tested: `predicateChoice` is *not* present on
+> that build, so custom items are matched with `ExactChoice`. The reflection is what keeps the
+> plugin loading at all there — a direct call would fail to link. Bumping the
+> `paperweightDevBundle` pin to a build that has `predicateChoice` is the way to get the
+> drift-proof matching; until then, treat a custom item that has been renamed, damaged or
+> repaired as no longer matching its own recipe.
 
 ### Player heads
 
@@ -202,44 +205,48 @@ items away.
 
 ---
 
-## Bedrock / Geyser
+## Bedrock / Geyser — tested, not assumed
 
-Read `/craftbridge spike` first — it settles this empirically in about two minutes. What the
-source says to expect:
+Verified in-game on a Bedrock client through Geyser against Paper 26.2 (build 107), using a
+throwaway `/craftbridge spike` command that registered two PDC-discriminated recipes (one
+crafting, one furnace) and handed out stamped tokens alongside deliberately unstamped
+look-alikes with an identical display name. The command has since been removed; it is in the
+history of the PR that added this feature if it is ever needed again.
+
+**The security property holds. A forged item never produces output, on either path.**
+
+| What was tried | Result |
+|---|---|
+| Craft with a stamped item | Works — the real output |
+| Craft with an unstamped look-alike | A result is *displayed*, but taking it yields nothing |
+| Smelt a stamped item | Works — the real output |
+| Smelt an unstamped look-alike | Nothing happens; it just sits in the input slot |
+| Bedrock recipe book | Lists the recipe as craftable from unstamped items |
 
 **Cooking is clean.** `AbstractFurnaceInventoryTranslator` contains no recipe logic; it is a
 slot mapper. Placing the input is an ordinary transfer replayed as a Java click, and
 `AbstractFurnaceBlockEntity.serverTick` does the real matching against the genuine
-PDC-carrying stack. A stamped input smelts, a plain one just sits there. No phantom output, no
-ghost recipes, no grid flicker.
+PDC-carrying stack. Confirmed in play: no phantom output, no ghost recipes, no flicker — an
+unstamped item simply never starts cooking. **Prefer cooking for custom-item steps wherever
+the design allows it.**
 
-**Crafting works but looks wrong.** The security property holds: Geyser replays the Bedrock
-crafting request as ordinary Java container clicks, so the choice is tested server-side and a
-plain item never completes the craft. But Bedrock's item-descriptor union has no member that
-can express NBT, so the client is told "plain dried kelp → leather" and renders a phantom
-output for unstamped items. Clicking that phantom visibly decrements the player's ingredients
-before the server resyncs, and each successful craft teaches that client another NBT-blind
-ghost recipe for the session.
+**Crafting works, but the Bedrock client lies about it.** Bedrock's item-descriptor union
+(`DEFAULT`, `MOLANG`, `ITEM_TAG`, `DEFERRED`, `COMPLEX_ALIAS`) has no member that can carry
+NBT, and `RecipeUtil.translateToInput` reduces every ingredient to
+`DefaultDescriptor(id, aux)`. So the client is told "plain rotten flesh → diamond" and:
 
-Prefer cooking for the custom-item steps where the design allows it.
+* it renders a **phantom output** for unstamped items, which cannot be taken; and
+* it **inflates the craftable count** — a player holding 4 real and 8 forged items is told
+  they can make 12, because the client counts every item of the base material.
 
-### `/craftbridge spike`
+Neither is fixable from the plugin side; the information the client would need is not
+expressible in the protocol. Both are cosmetic — no item is created, and (contrary to what a
+reading of `ClickPlan.simulateAction` suggests) clicking the phantom did **not** consume the
+player's ingredients in testing.
 
-Throwaway diagnostic — **delete it once the question is answered.** Registers two disposable
-PDC-discriminated recipes (one crafting, one furnace) under `craftbridge:spike_*` and hands
-the admin 8 stamped tokens plus 8 deliberately unstamped look-alikes with an identical name
-and lore. It routes through the same `CustomItemChoice` helper as production, so it tests the
-real path rather than a parallel one.
-
-On a Bedrock client, check:
-
-1. Craft with a **stamped** token → diamond.
-2. Craft with an **unstamped** one → a result may be *shown*; taking it should fail.
-3. Smelt a stamped token → emerald, no ghost output.
-4. Smelt an unstamped one → nothing happens.
-5. Whether either appears in the Bedrock recipe book.
-
-`/craftbridge spike off`, a reload or a restart removes them.
+The practical consequence is a support-ticket risk, not a correctness one: a Bedrock player
+who renames an item and sees a craftable-looking result will believe the recipe is broken.
+Choosing a base material that is rarely a crafting ingredient keeps the collision rare.
 
 ---
 

@@ -31,6 +31,12 @@ import java.util.function.Predicate;
  * plugin to a build newer than the one it pins. When it is missing we fall back to
  * {@code ExactChoice}, which is correct but brittle in the way described above; the fallback
  * is logged once so the drift is diagnosable rather than mysterious.
+ *
+ * <p><b>Measured, not assumed:</b> on {@code 26.2.build.107-stable} the lookup finds nothing
+ * and the {@code ExactChoice} fallback is what runs. The reflection is therefore load-bearing
+ * on the current pin, not a precaution — a direct call would fail to link and take the whole
+ * plugin down with it. Bump the dev bundle to a build carrying {@code predicateChoice} to get
+ * the drift-proof matching.
  */
 public final class CustomItemChoice {
 
@@ -75,8 +81,7 @@ public final class CustomItemChoice {
 
     /**
      * The general form: match on an arbitrary predicate where Paper supports it, else fall
-     * back to exact-matching {@code example}. Used by {@link #forCustomItem} and by the
-     * throwaway Bedrock spike, so the spike exercises the production path.
+     * back to exact-matching {@code example}.
      */
     public static RecipeChoice forCustomItemPredicate(Predicate<ItemStack> test, ItemStack example) {
         if (PREDICATE_CHOICE != null) {
