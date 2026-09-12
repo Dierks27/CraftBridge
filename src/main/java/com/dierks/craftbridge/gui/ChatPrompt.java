@@ -57,7 +57,10 @@ public final class ChatPrompt implements Listener {
         waiting.put(player.getUniqueId(), new Pending(
                 text -> plugin.getServer().getScheduler().runTask(plugin, () -> onText.accept(text)),
                 () -> plugin.getServer().getScheduler().runTask(plugin, onCancel)));
-        plugin.getServer().getScheduler().runTask(plugin, player::closeInventory);
+        // An explicit lambda, not player::closeInventory — a method reference is not pertinent
+        // to applicability, so it is ambiguous between runTask(Plugin, Runnable) and
+        // runTask(Plugin, Consumer<? super BukkitTask>). A zero-arg lambda can only be Runnable.
+        plugin.getServer().getScheduler().runTask(plugin, () -> player.closeInventory());
         player.sendMessage(Text.msg(question));
         player.sendMessage(Text.msg("<dark_gray>Type <white>" + CANCEL_WORD + "<dark_gray> to go back."));
     }
