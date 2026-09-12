@@ -22,11 +22,15 @@ import java.util.List;
  *
  * <pre>
  *  row 0:  .  .  [B]  .  .  [f][P][f]  .
- *  row 1:  .  .  [N]  .  .  [f][f][f] [save]
- *  row 2:  .  .  [L]  .  .  [T]  .  .  [cancel]
+ *  row 1:  .  .  .  .  .  .  .  .  [save]
+ *  row 2:  .  .  [N]  .  .  [f][f][f] [cancel]
+ *  row 3:  .  .  .  .  .  .  .  .  [info]
+ *  row 4:  .  .  [L]  .  .  .  .  .  .
+ *  (row 4 also holds [T] when the base is a player head)
  * </pre>
  * {@code B} = base material, {@code N} = display name, {@code L} = lore, {@code T} = head
- * texture, {@code P} = the live preview.
+ * texture, {@code P} = the live preview, {@code f} = the orange preview frame.
+ * Every slot here is a button or decoration — none is editable, so nothing can be taken out.
  *
  * <p>Name and lore are typed in chat rather than an anvil field: the plugin is deliberately
  * chest-GUI-only so Bedrock players get identical screens, and chat is the one text input
@@ -185,14 +189,20 @@ public final class CustomItemEditorMenu extends Menu {
         fill(Icons.filler());
     }
 
+    /**
+     * Open the item picker on the next tick. Opening an inventory from inside an
+     * {@code InventoryClickEvent} handler is not safe — the click is still being processed —
+     * which is why {@link RecipeEditorMenu#openPicker} schedules it too.
+     */
     private void openBasePicker() {
-        new ItemPickerMenu(feature, player, "the base item",
-                picked -> {
-                    base = picked.getType();
-                    reopen();
-                },
-                this::reopen,
-                null).openFor();
+        org.bukkit.Bukkit.getScheduler().runTask(feature.plugin(), () ->
+                new ItemPickerMenu(feature, player, "the base item",
+                        picked -> {
+                            base = picked.getType();
+                            reopen();
+                        },
+                        this::reopen,
+                        null).openFor());
     }
 
     private void reopen() {

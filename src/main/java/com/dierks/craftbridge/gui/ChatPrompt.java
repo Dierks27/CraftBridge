@@ -51,12 +51,15 @@ public final class ChatPrompt implements Listener {
      */
     public void ask(CraftBridgePlugin plugin, Player player, String question,
                     Consumer<String> onText, Runnable onCancel) {
-        player.closeInventory();
-        player.sendMessage(Text.msg(question));
-        player.sendMessage(Text.msg("<dark_gray>Type <white>" + CANCEL_WORD + "<dark_gray> to go back."));
+        // Register the wait first, then close on the next tick: ask() is called from an
+        // InventoryClickEvent handler, and closing the inventory while the click is still
+        // being processed is not safe.
         waiting.put(player.getUniqueId(), new Pending(
                 text -> plugin.getServer().getScheduler().runTask(plugin, () -> onText.accept(text)),
                 () -> plugin.getServer().getScheduler().runTask(plugin, onCancel)));
+        plugin.getServer().getScheduler().runTask(plugin, player::closeInventory);
+        player.sendMessage(Text.msg(question));
+        player.sendMessage(Text.msg("<dark_gray>Type <white>" + CANCEL_WORD + "<dark_gray> to go back."));
     }
 
     public void forget(Player player) {

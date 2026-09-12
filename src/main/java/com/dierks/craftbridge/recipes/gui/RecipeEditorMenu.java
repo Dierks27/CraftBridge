@@ -270,16 +270,29 @@ public final class RecipeEditorMenu extends Menu {
                 refresh();
             });
         }
-        set(INFO, Items.icon(Material.BOOK, "<aqua>How this works",
-                "<aqua>Blue frame<gray>: the 3x3 crafting grid.",
+        List<String> info = new ArrayList<>(List.of(
+                "<aqua>Blue frame<gray>: the crafting grid.",
                 "<gold>Orange frame<gray>: the result.",
                 "Put real items in, or click an empty slot",
                 "with an empty hand to pick from a list -",
                 "you do not need to own the item.",
                 "Each filled grid slot gets a match toggle below.",
-                "The result has +/- buttons for its count.",
-                "Save checks whether the layout already crafts",
-                "something; if so it asks you to click Save again."), null);
+                "The result has +/- buttons for its count."));
+        if (kind.isCooking()) {
+            info.add("");
+            info.add("A " + kind.label().toLowerCase(Locale.ROOT) + " recipe takes one input.");
+            info.add("Cook time and XP are set on the right.");
+            info.add("Each cooker is its own recipe - make a");
+            info.add("second one to cover another cooker.");
+        }
+        info.add("");
+        info.add(kind.isCooking()
+                ? "Save warns if a vanilla recipe already"
+                : "Save checks whether the layout already crafts");
+        info.add(kind.isCooking()
+                ? "cooks that input; click Save again to add it."
+                : "something; if so it asks you to click Save again.");
+        set(INFO, Items.icon(Material.BOOK, "<aqua>How this works", Text.lore(info)), null);
         if (conflictText != null) {
             set(WARNING, Items.icon(Material.YELLOW_STAINED_GLASS_PANE, "<gold>⚠ Layout already crafts something",
                     conflictText, "The older recipe may win at the table.",
