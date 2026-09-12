@@ -16,9 +16,12 @@ import java.util.List;
 public final class CraftBridgeCommand implements TabExecutor {
 
     private final CraftBridgePlugin plugin;
+    /** Throwaway Bedrock/Geyser diagnostic; remove with the spike itself. */
+    private final BedrockSpike spike;
 
     public CraftBridgeCommand(CraftBridgePlugin plugin) {
         this.plugin = plugin;
+        this.spike = new BedrockSpike(plugin);
     }
 
     private static final String ADMIN = "craftbridge.admin";
@@ -42,6 +45,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest [amount] <dark_gray>- hand out CraftBridge blocks"));
             sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
             sender.sendMessage(Text.msg("<gray>/craftbridge jei [resync|dump <recipe>] <dark_gray>- recipe sync state, re-send, or inspect one recipe on the wire"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge spike [off] <dark_gray>- throwaway Bedrock/Geyser NBT-recipe test"));
             return true;
         }
         String sub = args[0].toLowerCase(java.util.Locale.ROOT);
@@ -59,6 +63,13 @@ public final class CraftBridgeCommand implements TabExecutor {
             return true;
         }
         switch (sub) {
+            case "spike" -> {
+                if (args.length > 1 && args[1].equalsIgnoreCase("off")) {
+                    spike.off(sender, false);
+                } else {
+                    spike.on(sender);
+                }
+            }
             case "reload" -> {
                 plugin.reloadEverything();
                 sender.sendMessage(Text.msg("<green>Reloaded. <gray>Enabled: " + plugin.enabledFeatureNames()));
@@ -160,7 +171,7 @@ public final class CraftBridgeCommand implements TabExecutor {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             if (sender.hasPermission(ADMIN)) {
-                return List.of("page", "reload", "version", "give", "workbench", "combochest", "jei");
+                return List.of("page", "reload", "version", "give", "workbench", "combochest", "jei", "spike");
             }
             return sender.hasPermission(PAGE) ? List.of("page") : List.of();
         }
@@ -169,6 +180,9 @@ public final class CraftBridgeCommand implements TabExecutor {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("jei")) {
             return List.of("status", "resync", "dump");
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("spike")) {
+            return List.of("off");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             return null; // player names

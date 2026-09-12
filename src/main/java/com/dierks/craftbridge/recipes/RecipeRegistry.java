@@ -1,18 +1,27 @@
 package com.dierks.craftbridge.recipes;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
+import com.dierks.craftbridge.items.CustomItemRegistry;
 import org.bukkit.Bukkit;
 import org.bukkit.Keyed;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.BlastingRecipe;
+import org.bukkit.inventory.CampfireRecipe;
+import org.bukkit.inventory.CookingRecipe;
+import org.bukkit.inventory.FurnaceRecipe;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
+import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
+import org.bukkit.inventory.SmokingRecipe;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,11 +38,13 @@ import java.util.Set;
 public final class RecipeRegistry {
 
     private final CraftBridgePlugin plugin;
+    private final CustomItemRegistry customItems;
     private final Set<NamespacedKey> registered = new HashSet<>();
     private final List<Runnable> changeListeners = new ArrayList<>();
 
-    public RecipeRegistry(CraftBridgePlugin plugin) {
+    public RecipeRegistry(CraftBridgePlugin plugin, CustomItemRegistry customItems) {
         this.plugin = plugin;
+        this.customItems = customItems;
     }
 
     /** Called after the registered recipe set changes (used by the JEI recipe sync). */
@@ -103,12 +114,15 @@ public final class RecipeRegistry {
     }
 
     private Recipe toBukkit(CustomRecipe recipe) {
+        if (recipe.isCooking()) {
+            return toCooking(recipe);
+        }
         if (recipe.shaped()) {
             ShapedRecipe shaped = new ShapedRecipe(recipe.key(), recipe.result());
             shaped.shape(recipe.shape().toArray(new String[0]));
             for (Map.Entry<Character, Ingredient> e : recipe.legend().entrySet()) {
                 if (usesLetter(recipe.shape(), e.getKey())) {
-                    shaped.setIngredient(e.getKey(), e.getValue().toChoice());
+                    shaped.setIngredient(e.getKey(), e.getValue().toChoice(customItems));
                 }
             }
             if (!recipe.group().isEmpty()) {
@@ -118,12 +132,41 @@ public final class RecipeRegistry {
         }
         ShapelessRecipe shapeless = new ShapelessRecipe(recipe.key(), recipe.result());
         for (Ingredient ing : recipe.ingredients()) {
-            shapeless.addIngredient(ing.toChoice());
+            shapeless.addIngredient(ing.toChoice(customItems));
         }
         if (!recipe.group().isEmpty()) {
             shapeless.setGroup(recipe.group());
         }
         return shapeless;
+    }
+
+    /**
+     * One {@link CookingRecipe} for the cooker the recipe's kind names. Each cooking kind is
+     * its own recipe: vanilla datapacks model smelting, smoking, blasting and campfire
+     * cooking separately, and registering one entry into several cookers would hide which
+     * one the admin meant.
+     */
+    private Recipe toCooking(CustomRecipe recipe) {
+        Ingredient input = recipe.input();
+        if (input == null) {
+            throw new IllegalArgumentException("cooking recipe has no ingredient");
+        }
+        RecipeChoice choice = input.toChoice(customItems);
+        NamespacedKey key = recipe.key();
+        ItemStack result = recipe.result();
+        int time = recipe.cookingTime();
+        float xp = recipe.experience();
+        CookingRecipe<?> cooking = switch (recipe.kind()) {
+            case FURNACE -> new FurnaceRecipe(key, result, choice, xp, time);
+            case SMOKER -> new SmokingRecipe(key, result, choice, xp, time);
+            case BLAST_FURNACE -> new BlastingRecipe(key, result, choice, xp, time);
+            case CAMPFIRE -> new CampfireRecipe(key, result, choice, xp, time);
+            default -> throw new IllegalStateException("not a cooking kind: " + recipe.kind());
+        };
+        if (!recipe.group().isEmpty()) {
+            cooking.setGroup(recipe.group());
+        }
+        return cooking;
     }
 
     private static boolean usesLetter(List<String> shape, char letter) {
@@ -143,7 +186,7 @@ public final class RecipeRegistry {
         ItemStack[] matrix = new ItemStack[9];
         for (int i = 0; i < 9; i++) {
             Ingredient ing = grid.get(i);
-            matrix[i] = ing == null ? null : ing.display();
+            matrix[i] = ing == null ? null : ing.display(customItems);
         }
         Recipe existing;
         try {
@@ -159,6 +202,77 @@ public final class RecipeRegistry {
             return null;
         }
         return existing;
+    }
+
+    /**
+     * The vanilla cooking recipe this one would be shadowed by, or null when there is none.
+     *
+     * <p>This is not the same warning as {@link #conflictFor}, and it matters more than it
+     * looks. Furnaces, smokers and blast furnaces do not resolve their recipe through the
+     * lookup CraftBukkit patches to give plugin recipes priority — they go through
+     * {@code RecipeManager.CachedCheck}, which returns the block entity's remembered last
+     * recipe as soon as it still matches. Vanilla cooking ingredients match on item type, so
+     * a furnace that last smelted the plain base item will keep using the <em>vanilla</em>
+     * recipe when a stamped custom item is put in: vanilla output, vanilla experience,
+     * vanilla cook time, and this recipe's choice never consulted. The cache is per block and
+     * in memory only, so it clears on chunk unload — which makes the failure intermittent and
+     * very hard to diagnose from a bug report.
+     *
+     * <p>Campfires have a matching split: placement uses the patched lookup (so this recipe
+     * gates what may be placed) but {@code cookTick} resolves the output through the cache.
+     *
+     * <p>There is nothing the plugin can do about it from the API side, so the editor warns
+     * instead. A recipe whose input material has no vanilla recipe for that cooker — rotten
+     * flesh in a furnace, for instance — is unaffected.
+     */
+    public Recipe vanillaCookingShadow(CustomRecipe recipe) {
+        if (!recipe.isCooking() || recipe.input() == null) {
+            return null;
+        }
+        ItemStack sample = recipe.input().display(customItems);
+        if (sample == null || sample.getType() == Material.AIR) {
+            return null;
+        }
+        // The plain, unstamped item is what a vanilla recipe would have matched and cached.
+        ItemStack plain = new ItemStack(sample.getType());
+        Class<?> wanted = cookingClassOf(recipe.kind());
+        NamespacedKey self = recipe.key();
+        Iterator<Recipe> it = Bukkit.recipeIterator();
+        while (it.hasNext()) {
+            Recipe other;
+            try {
+                other = it.next();
+            } catch (RuntimeException ex) {
+                continue;
+            }
+            if (!wanted.isInstance(other) || !(other instanceof CookingRecipe<?> cooking)) {
+                continue;
+            }
+            if (cooking.getKey().equals(self)) {
+                continue;
+            }
+            if (CustomRecipe.NAMESPACE.equals(cooking.getKey().getNamespace())) {
+                continue; // another CraftBridge recipe is a conflict, not a vanilla shadow
+            }
+            try {
+                if (cooking.getInputChoice().test(plain)) {
+                    return cooking;
+                }
+            } catch (RuntimeException ignored) {
+                // A choice that cannot be tested is not evidence of a shadow.
+            }
+        }
+        return null;
+    }
+
+    private static Class<?> cookingClassOf(RecipeKind kind) {
+        return switch (kind) {
+            case FURNACE -> FurnaceRecipe.class;
+            case SMOKER -> SmokingRecipe.class;
+            case BLAST_FURNACE -> BlastingRecipe.class;
+            case CAMPFIRE -> CampfireRecipe.class;
+            default -> CookingRecipe.class;
+        };
     }
 
     /** Push the current recipe set to connected clients and unlock ours in their recipe books. */

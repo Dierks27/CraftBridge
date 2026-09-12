@@ -1,6 +1,7 @@
 package com.dierks.craftbridge.link;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
+import com.dierks.craftbridge.items.CustomItemRegistry;
 import com.dierks.craftbridge.recipes.CustomRecipe;
 import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.util.Items;
@@ -13,6 +14,7 @@ import com.dierks.craftbridge.workbench.StorageScanner;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
 import org.bukkit.Bukkit;
 import org.bukkit.Keyed;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -504,7 +506,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             if (fill.fromStorage() > 0) {
                 for (StorageScanner.Pulled pulled : workbench.scanner().pull(sources, key, fill.fromStorage())) {
                     taken += pulled.stack().getAmount();
-                    session.addOrigin(fill.gridIndex(), pulled.source().location(), pulled.stack().getAmount());
+                    session.addOrigin(fill.gridIndex(), pulled.source().location(), pulled.stack().getAmount(), pulled.stack());
                 }
             }
             if (taken > 0 && fill.gridIndex() >= 0 && fill.gridIndex() < matrix.length) {
@@ -651,7 +653,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 for (int col = 0; col < line.length(); col++) {
                     RecipeChoice choice = choices.get(line.charAt(col));
                     if (choice != null) {
-                        slots.add(new GridPlanner.Slot(row * 3 + col, matching(keys, choice::test)));
+                        slots.add(new GridPlanner.Slot(row * 3 + col, matching(keys, accepts(choice))));
                     }
                 }
             }
@@ -662,12 +664,50 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             for (int i = 0; i < choices.size() && i < 9; i++) {
                 RecipeChoice choice = choices.get(i);
                 if (choice != null) {
-                    slots.add(new GridPlanner.Slot(i, matching(keys, choice::test)));
+                    slots.add(new GridPlanner.Slot(i, matching(keys, accepts(choice))));
                 }
             }
             return slots;
         }
         return null;
+    }
+
+    /**
+     * Whether a stored item may be pulled to satisfy this ingredient.
+     *
+     * <p>{@code choice.test} alone is not enough. A vanilla or datapack recipe hands back a
+     * material-only choice, which happily accepts a CraftBridge custom item that merely
+     * shares its base material — so pressing [+] on "8 dried kelp -> dried kelp block" would
+     * quietly consume the player's Burned Zombie Flesh out of a chest. The item is gone and
+     * nothing says why.
+     *
+     * <p>So a stamped item is only ever offered to a slot whose choice is actually
+     * discriminating: one that rejects the plain, unstamped version of the same material. An
+     * exact or predicate choice built for that custom item passes this; a plain material
+     * choice does not. Unstamped items are unaffected, so ordinary transfers behave exactly
+     * as before.
+     */
+    private static java.util.function.Predicate<ItemStack> accepts(RecipeChoice choice) {
+        return key -> {
+            if (!choice.test(key)) {
+                return false;
+            }
+            if (!CustomItemRegistry.isStamped(key)) {
+                return true;
+            }
+            return discriminates(choice, key.getType());
+        };
+    }
+
+    /** True when the choice rejects a plain item of this material, i.e. it wants more than a type. */
+    private static boolean discriminates(RecipeChoice choice, Material material) {
+        try {
+            return !choice.test(new ItemStack(material));
+        } catch (RuntimeException ex) {
+            // A choice that cannot be probed is treated as undiscriminating: refusing to pull
+            // a stamped item is always the safe direction, because nothing is destroyed.
+            return false;
+        }
     }
 
     /** The indices of every item type the test accepts, in table order. */

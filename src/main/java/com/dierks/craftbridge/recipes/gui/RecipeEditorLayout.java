@@ -10,14 +10,23 @@ package com.dierks.craftbridge.recipes.gui;
  *  row 0:  [c][g][g][g][c] [f][R][f] [type]
  *  row 1:  [c][g][g][g][c] [→][ ][+] [save]
  *  row 2:  [c][g][g][g][c] [f][f][-] [cancel]
- *  row 3:  [M][m][m][m][s]  .  .  .  [enabled]
- *  row 4:  [s][m][m][m][s]  .  .  .  [info]
+ *  row 3:  [M][m][m][m][s] [T][t][t] [enabled]
+ *  row 4:  [s][m][m][m][s] [X][x][x] [info]
  *  row 5:  [s][m][m][m][s]  .  .  .  [warning]
  * </pre>
  * {@code g} = editable grid slot, {@code [ ]} = the editable result slot, {@code c} = the
  * cyan frame around the grid, {@code f} = the orange frame around the result, {@code R} =
  * the "Result" label, {@code m} = the per-slot match-mode indicator, {@code M} = its label,
  * {@code s} = the indicator block's frame.
+ *
+ * <p>{@code T}/{@code t} and {@code X}/{@code x} are the cook-time and experience controls.
+ * They occupy space that is background in a crafting recipe and only appear for the four
+ * cooking kinds, so the crafting layout is byte-for-byte what it always was.
+ *
+ * <p>A cooking recipe uses only the first grid cell ({@code GRID[0]}) and its indicator; the
+ * other eight are covered by a non-editable "not used" pane. That keeps the one rule this
+ * class exists to enforce intact — a slot the admin can fill is never given a decorative
+ * item, and a slot holding a decorative item is never editable.
  */
 public final class RecipeEditorLayout {
 
@@ -35,6 +44,15 @@ public final class RecipeEditorLayout {
     public static final int COUNT_UP = 16;
     public static final int COUNT_DOWN = 25;
     public static final int MATCH_LABEL = 27;
+
+    /** Cooking only: cook-time label and its two adjust buttons. Background otherwise. */
+    public static final int COOK_TIME_LABEL = 32;
+    public static final int COOK_TIME_DOWN = 33;
+    public static final int COOK_TIME_UP = 34;
+    /** Cooking only: experience label and its two adjust buttons. Background otherwise. */
+    public static final int COOK_XP_LABEL = 41;
+    public static final int COOK_XP_DOWN = 42;
+    public static final int COOK_XP_UP = 43;
 
     public static final int TOGGLE_TYPE = 8;
     public static final int SAVE = 17;
@@ -55,15 +73,30 @@ public final class RecipeEditorLayout {
 
     /** True for a slot the admin puts items into: never give one of these a filler item. */
     public static boolean isEditable(int slot) {
+        return isEditable(slot, 9);
+    }
+
+    /**
+     * True for a slot the admin puts items into, given how many input slots the current
+     * recipe kind uses (9 for crafting, 1 for cooking). Grid cells beyond {@code inputSlots}
+     * are decorative for that kind and must not be editable.
+     */
+    public static boolean isEditable(int slot, int inputSlots) {
         if (slot == RESULT) {
             return true;
         }
-        for (int g : GRID) {
-            if (g == slot) {
+        for (int i = 0; i < GRID.length && i < inputSlots; i++) {
+            if (GRID[i] == slot) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** The cooking controls, which are decorative background for a crafting recipe. */
+    public static boolean isCookingControl(int slot) {
+        return slot == COOK_TIME_LABEL || slot == COOK_TIME_DOWN || slot == COOK_TIME_UP
+                || slot == COOK_XP_LABEL || slot == COOK_XP_DOWN || slot == COOK_XP_UP;
     }
 
     /** True for a slot this layout draws something decorative or clickable into. */
@@ -85,6 +118,7 @@ public final class RecipeEditorLayout {
         }
         return slot == ARROW || slot == RESULT_LABEL || slot == COUNT_UP || slot == COUNT_DOWN
                 || slot == MATCH_LABEL || slot == TOGGLE_TYPE || slot == SAVE || slot == CANCEL
-                || slot == TOGGLE_ENABLED || slot == INFO || slot == WARNING;
+                || slot == TOGGLE_ENABLED || slot == INFO || slot == WARNING
+                || isCookingControl(slot);
     }
 }

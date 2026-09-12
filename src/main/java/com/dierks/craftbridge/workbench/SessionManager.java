@@ -121,6 +121,13 @@ public final class SessionManager {
                     continue;
                 }
                 ItemStack present = matrix[index];
+                // Only repay what was actually borrowed. If the slot now holds something else
+                // (the player swapped it, or a [+] refilled it with a different ingredient),
+                // the debt is void — pushing the new item into the lender's chest would be
+                // taking one of the player's items and giving it away.
+                if (!e.getValue().matches(present)) {
+                    continue;
+                }
                 int owed = Math.min(e.getValue().count(), present.getAmount());
                 if (owed <= 0) {
                     continue;

@@ -14,7 +14,7 @@ import java.util.Locale;
 /**
  * {@code /recipe} opens the GUI. The subcommands are console-friendly fallbacks and are
  * deliberately not advertised in-game: {@code reload}, {@code remove <id>},
- * {@code import starter}, {@code list}.
+ * {@code import starter}, {@code list}, {@code items}.
  */
 public final class RecipeCommand implements TabExecutor {
 
@@ -34,7 +34,7 @@ public final class RecipeCommand implements TabExecutor {
             if (sender instanceof Player player) {
                 new RecipeMainMenu(feature, player).open(player);
             } else {
-                sender.sendMessage(Text.msg("<gray>Console: /recipe list | reload | remove <id> | import starter"));
+                sender.sendMessage(Text.msg("<gray>Console: /recipe list | items | reload | remove <id> | import starter"));
             }
             return true;
         }
@@ -66,8 +66,21 @@ public final class RecipeCommand implements TabExecutor {
                 }
                 for (CustomRecipe r : feature.store().all().values()) {
                     sender.sendMessage(Text.msg((r.enabled() ? "<green>● " : "<red>○ ") + "<white>" + r.id()
-                            + " <dark_gray>(" + (r.shaped() ? "shaped" : "shapeless") + ") <gray>→ "
+                            + " <dark_gray>(" + r.kind().token() + ") <gray>→ "
                             + com.dierks.craftbridge.util.Items.describe(r.result()) + " x" + r.result().getAmount()));
+                }
+            }
+            case "items" -> {
+                if (sender instanceof Player player) {
+                    new com.dierks.craftbridge.recipes.gui.CustomItemBrowseMenu(feature, player, 0).open(player);
+                    return true;
+                }
+                if (feature.customItems().isEmpty()) {
+                    sender.sendMessage(Text.msg("<gray>No custom items defined."));
+                }
+                for (com.dierks.craftbridge.items.CustomItemDef def : feature.customItems().all()) {
+                    sender.sendMessage(Text.msg("<white>" + def.id() + " <dark_gray>("
+                            + def.base().name().toLowerCase(Locale.ROOT) + ") <gray>" + def.name()));
                 }
             }
             default -> sender.sendMessage(Text.msg("<gray>/recipe opens the recipe menu."));
@@ -78,7 +91,7 @@ public final class RecipeCommand implements TabExecutor {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of();
+            return List.of("items");
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("remove") || args[0].equalsIgnoreCase("delete"))) {
             return new ArrayList<>(feature.store().all().keySet());
