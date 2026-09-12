@@ -208,6 +208,18 @@ it unlocks the recipe book on join and answers a legacy `jei:network` handshake,
 of which carries recipe data. With `features.jei-recipe-sync: false` the console prints
 a rejoin reminder after each change instead.)
 
+### Cooking recipes and custom items
+
+`/recipe` also covers the four cooking types (furnace, smoker, blast furnace, campfire) and
+a custom-item registry that recipes reference by id. Selecting a cooking type collapses the
+3x3 grid to a single input and exposes cook time and XP; each cooking type is its own recipe,
+as vanilla datapacks model them. Custom items are vanilla items with a name, lore and a
+`craftbridge:cb_item` tag — no resource pack, so Bedrock players see and use them — and
+recipes match the tag rather than the display name, which an anvil can forge.
+
+Full write-up, including the Bedrock/Geyser findings, the furnace recipe-cache caveat and
+the `/craftbridge spike` diagnostic: **[docs/cooking-and-custom-items.md](docs/cooking-and-custom-items.md)**.
+
 ## Feature 1 — JEI `[+]` recipe transfer
 
 JEI only enables its `[+]` (move items) button when it believes JEI is running on the
