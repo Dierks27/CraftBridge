@@ -1,6 +1,8 @@
 package com.dierks.craftbridge.recipes;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
+import com.dierks.craftbridge.items.CustomItemIds;
+import com.dierks.craftbridge.items.CustomItemRegistry;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.ConfigurationSection;
@@ -25,7 +27,7 @@ import java.util.Map;
  * <pre>
  * recipes:
  *   ender_pearl:
- *     type: shaped              # or shapeless
+ *     type: shaped              # or shapeless, furnace, smoker, blast_furnace, campfire
  *     enabled: true
  *     group: ''                 # optional recipe-book group
  *     result: {material: ENDER_PEARL, amount: 2}          # or item: &lt;base64&gt; for full items
@@ -35,11 +37,22 @@ import java.util.Map;
  *       G: {material: GLOWSTONE_DUST}
  *       D: {item: &lt;base64&gt;, exact: true}   # exact-item match
  *       W: {tag: 'minecraft:wool'}          # any item in a tag (hand-edited only)
+ *       C: {custom: burned_zombie_flesh}    # a CraftBridge custom item, by id
  *   string:
  *     type: shapeless
  *     result: {material: STRING, amount: 4}
  *     ingredients: [{tag: 'minecraft:wool'}, {material: BAMBOO}]
+ *   burned_zombie_flesh:
+ *     type: furnace             # one entry per cooker, exactly like a vanilla datapack
+ *     cook-time: 200            # ticks; defaults per type (furnace 200, smoker/blast 100, campfire 600)
+ *     experience: 0.1
+ *     result: {custom: burned_zombie_flesh}
+ *     ingredients: [{material: ROTTEN_FLESH}]
  * </pre>
+ *
+ * A cooking recipe takes a single ingredient — the first entry of {@code ingredients} — and
+ * is registered only for the cooker its {@code type} names. There is deliberately no
+ * "any cooker" type: vanilla models these as four separate recipes and so does this.
  *
  * Results and exact ingredients written by the GUI carry the full item as base64 (Paper's
  * version-upgradeable {@code serializeAsBytes}) plus a human-readable {@code material}
@@ -50,9 +63,12 @@ public final class RecipeStore {
     private final CraftBridgePlugin plugin;
     private final File file;
     private final Map<String, CustomRecipe> recipes = new LinkedHashMap<>();
+    /** Resolves {@code custom:} references. Custom items are always loaded before recipes. */
+    private final CustomItemRegistry customItems;
 
-    public RecipeStore(CraftBridgePlugin plugin) {
+    public RecipeStore(CraftBridgePlugin plugin, CustomItemRegistry customItems) {
         this.plugin = plugin;
+        this.customItems = customItems;
         this.file = new File(plugin.getDataFolder(), "recipes.yml");
     }
 
@@ -132,14 +148,30 @@ public final class RecipeStore {
         if (!id.matches("[a-z0-9/._-]+")) {
             throw new IllegalArgumentException("id must be lowercase letters, digits, _ - . /");
         }
-        boolean shaped = !"shapeless".equalsIgnoreCase(s.getString("type", "shaped"));
+        RecipeKind kind = RecipeKind.fromToken(s.getString("type", "shaped"));
         boolean enabled = s.getBoolean("enabled", true);
         String group = s.getString("group", "");
         ItemStack result = readItem(s.getConfigurationSection("result"), true);
         if (result == null) {
             throw new IllegalArgumentException("missing result");
         }
-        if (shaped) {
+        if (kind.isCooking()) {
+            List<Ingredient> inputs = new ArrayList<>();
+            for (Map<?, ?> m : s.getMapList("ingredients")) {
+                inputs.add(readIngredient(m));
+            }
+            // Tolerate the singular form a hand-editing admin is likely to write.
+            if (inputs.isEmpty() && s.getConfigurationSection("ingredient") != null) {
+                inputs.add(readIngredient(s.getConfigurationSection("ingredient")));
+            }
+            if (inputs.size() != 1) {
+                throw new IllegalArgumentException(kind.token() + " recipes need exactly one ingredient");
+            }
+            int cookTime = s.getInt("cook-time", kind.defaultCookingTime());
+            double xp = s.getDouble("experience", RecipeKind.DEFAULT_EXPERIENCE);
+            return CustomRecipe.cooking(id, kind, enabled, group, result, inputs.get(0), cookTime, (float) xp);
+        }
+        if (kind == RecipeKind.SHAPED) {
             List<String> shape = s.getStringList("shape");
             if (shape.isEmpty() || shape.size() > 3) {
                 throw new IllegalArgumentException("shape must have 1-3 rows");
@@ -161,7 +193,7 @@ public final class RecipeStore {
                     }
                 }
             }
-            return new CustomRecipe(id, true, enabled, group, result, shape, legend, List.of());
+            return new CustomRecipe(id, RecipeKind.SHAPED, enabled, group, result, shape, legend, List.of());
         }
         List<Ingredient> ingredients = new ArrayList<>();
         List<Map<?, ?>> list = s.getMapList("ingredients");
@@ -171,7 +203,7 @@ public final class RecipeStore {
         if (ingredients.isEmpty() || ingredients.size() > 9) {
             throw new IllegalArgumentException("shapeless recipes need 1-9 ingredients");
         }
-        return new CustomRecipe(id, false, enabled, group, result, List.of(), Map.of(), ingredients);
+        return new CustomRecipe(id, RecipeKind.SHAPELESS, enabled, group, result, List.of(), Map.of(), ingredients);
     }
 
     private Ingredient readIngredient(ConfigurationSection s) {
@@ -182,6 +214,14 @@ public final class RecipeStore {
     }
 
     private Ingredient readIngredient(Map<?, ?> m) {
+        Object custom = m.get("custom");
+        if (custom != null) {
+            String id = custom.toString().toLowerCase(Locale.ROOT);
+            if (!CustomItemIds.isValid(id)) {
+                throw new IllegalArgumentException("bad custom item id '" + custom + "'");
+            }
+            return Ingredient.ofCustom(id);
+        }
         Object tag = m.get("tag");
         if (tag != null) {
             NamespacedKey key = NamespacedKey.fromString(tag.toString().toLowerCase(Locale.ROOT));
@@ -211,6 +251,18 @@ public final class RecipeStore {
     private ItemStack readItem(ConfigurationSection s, boolean withAmount) {
         if (s == null) {
             return null;
+        }
+        String custom = s.getString("custom");
+        if (custom != null && !custom.isBlank()) {
+            String id = custom.toLowerCase(Locale.ROOT);
+            ItemStack built = customItems == null ? null : customItems.create(id);
+            if (built == null) {
+                throw new IllegalArgumentException("unknown custom item '" + custom + "'");
+            }
+            if (withAmount) {
+                built.setAmount(Math.max(1, Math.min(99, s.getInt("amount", 1))));
+            }
+            return built;
         }
         String encoded = s.getString("item");
         ItemStack stack;
@@ -245,10 +297,14 @@ public final class RecipeStore {
                 "(see README for the format). Reload with /recipe reload or /craftbridge reload."));
         for (CustomRecipe r : recipes.values()) {
             String base = "recipes." + r.id();
-            yaml.set(base + ".type", r.shaped() ? "shaped" : "shapeless");
+            yaml.set(base + ".type", r.kind().token());
             yaml.set(base + ".enabled", r.enabled());
             if (!r.group().isEmpty()) {
                 yaml.set(base + ".group", r.group());
+            }
+            if (r.isCooking()) {
+                yaml.set(base + ".cook-time", r.cookingTime());
+                yaml.set(base + ".experience", (double) r.experience());
             }
             writeItem(yaml, base + ".result", r.result(), true);
             if (r.shaped()) {
@@ -271,7 +327,20 @@ public final class RecipeStore {
         }
     }
 
+    /**
+     * A result built from a custom item is written as {@code custom: <id>} rather than a
+     * base64 blob, so editing the definition updates every recipe that produces it instead
+     * of leaving them minting a stale copy.
+     */
     private void writeItem(YamlConfiguration yaml, String path, ItemStack stack, boolean withAmount) {
+        String customId = CustomItemRegistry.idOf(stack);
+        if (customId != null && customItems != null && customItems.contains(customId)) {
+            yaml.set(path + ".custom", customId);
+            if (withAmount) {
+                yaml.set(path + ".amount", stack.getAmount());
+            }
+            return;
+        }
         yaml.set(path + ".material", stack.getType().name());
         if (withAmount) {
             yaml.set(path + ".amount", stack.getAmount());
@@ -289,7 +358,9 @@ public final class RecipeStore {
 
     private Map<String, Object> ingredientMap(Ingredient ing) {
         Map<String, Object> m = new LinkedHashMap<>();
-        if (ing.isTag()) {
+        if (ing.isCustom()) {
+            m.put("custom", ing.customId());
+        } else if (ing.isTag()) {
             m.put("tag", ing.tag().asString());
         } else if (ing.isExact()) {
             m.put("material", ing.material().name());

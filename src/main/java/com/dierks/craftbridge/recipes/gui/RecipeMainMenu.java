@@ -56,6 +56,12 @@ public final class RecipeMainMenu extends Menu {
             player.sendMessage(Text.msg("<green>Reloaded: <white>" + active + "<green> active recipe(s)."));
             refresh();
         });
+        set(22, Items.icon(Material.NETHER_STAR, "<light_purple>Custom items",
+                feature.customItems().all().size() + " defined.",
+                "Vanilla items with a name, lore and a",
+                "CraftBridge tag recipes can match on.",
+                "No resource pack, so Bedrock players",
+                "see and use them too."), e -> new CustomItemBrowseMenu(feature, player, 0).open(player));
         set(26, Icons.close(), e -> player.closeInventory());
         fill(Icons.filler());
     }

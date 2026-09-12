@@ -4,6 +4,7 @@ import com.dierks.craftbridge.util.Items;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.RecipeChoice;
+import org.bukkit.inventory.CookingRecipe;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
 
@@ -41,6 +42,9 @@ public final class RecipeDump {
             for (RecipeChoice c : shapeless.getChoiceList()) {
                 out.add("  #" + (i++) + " -> " + choice(c));
             }
+        } else if (recipe instanceof CookingRecipe<?> cooking) {
+            out.add("  cooks: " + choice(cooking.getInputChoice()));
+            out.add("  time: " + cooking.getCookingTime() + " ticks, xp: " + cooking.getExperience());
         }
         return out;
     }

@@ -527,7 +527,7 @@ public final class PhantomManager {
         int i = 0;
         for (StorageScanner.Pulled p : pulled) {
             int raw = gridRaws.get(i % gridRaws.size());
-            linked.addOrigin(layout.gridIndex(raw), p.source().location(), p.stack().getAmount());
+            linked.addOrigin(layout.gridIndex(raw), p.source().location(), p.stack().getAmount(), p.stack());
             i++;
         }
     }

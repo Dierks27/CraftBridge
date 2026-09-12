@@ -2,6 +2,7 @@ package com.dierks.craftbridge.recipes.gui;
 
 import com.dierks.craftbridge.gui.Icons;
 import com.dierks.craftbridge.gui.Menu;
+import com.dierks.craftbridge.items.CustomItemRegistry;
 import com.dierks.craftbridge.recipes.CustomRecipe;
 import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.sort.SortCategoryRules;
@@ -83,9 +84,14 @@ public final class ItemPickerMenu extends Menu {
         };
     }
 
-    /** Custom items this server defines: CraftBridge's blocks and every custom recipe's result. */
+    /**
+     * Custom items this server defines: every CraftBridge custom-item definition first (those
+     * are the ones an admin building a recipe is usually reaching for), then the Linked
+     * Workbench blocks, then every custom recipe's result. Results already covered by a
+     * definition are skipped so the same item does not appear twice.
+     */
     private List<ItemStack> customItems() {
-        List<ItemStack> out = new ArrayList<>();
+        List<ItemStack> out = new ArrayList<>(feature.customItems().allStacks());
         WorkbenchFeature workbench = feature.plugin().feature(WorkbenchFeature.class);
         if (workbench != null) {
             for (BlockKind kind : BlockKind.values()) {
@@ -94,11 +100,16 @@ public final class ItemPickerMenu extends Menu {
         }
         for (CustomRecipe recipe : feature.store().all().values()) {
             ItemStack result = recipe.result();
-            if (!Items.isEmpty(result)) {
-                ItemStack copy = result.clone();
-                copy.setAmount(1);
-                out.add(copy);
+            if (Items.isEmpty(result)) {
+                continue;
             }
+            String customId = CustomItemRegistry.idOf(result);
+            if (customId != null && feature.customItems().contains(customId)) {
+                continue;
+            }
+            ItemStack copy = result.clone();
+            copy.setAmount(1);
+            out.add(copy);
         }
         return out;
     }

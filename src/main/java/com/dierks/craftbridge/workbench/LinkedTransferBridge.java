@@ -82,11 +82,19 @@ public final class LinkedTransferBridge implements TransferListener {
         }
     }
 
-    /** Drop origins whose slot no longer holds the item they described (JEI moved it out). */
+    /**
+     * Drop origins whose slot no longer holds the item they described (JEI moved it out).
+     *
+     * <p>"The item they described" is checked properly: an origin records which stack it lent,
+     * so a slot that now holds a <em>different</em> item drops its origin instead of being
+     * capped. Without that check a [+] that swapped one ingredient for another would leave the
+     * debt attached to the new item, and the close path would post it to the wrong chest.
+     */
     private void reconcileOrigins(LinkedSession session, ItemStack[] matrix) {
         for (Map.Entry<Integer, LinkedSession.Origin> e : new HashMap<>(session.origins()).entrySet()) {
             int index = e.getKey();
-            if (index < 0 || index >= matrix.length || Items.isEmpty(matrix[index])) {
+            if (index < 0 || index >= matrix.length || Items.isEmpty(matrix[index])
+                    || !e.getValue().matches(matrix[index])) {
                 session.clearOrigin(index);
                 continue;
             }
@@ -149,7 +157,7 @@ public final class LinkedTransferBridge implements TransferListener {
             int pulled = 0;
             for (StorageScanner.Pulled p : feature.scanner().pull(sources, key, wanted)) {
                 pulled += p.stack().getAmount();
-                session.addOrigin(i, p.source().location(), p.stack().getAmount());
+                session.addOrigin(i, p.source().location(), p.stack().getAmount(), p.stack());
             }
             if (pulled > 0) {
                 stack.setAmount(stack.getAmount() + pulled);

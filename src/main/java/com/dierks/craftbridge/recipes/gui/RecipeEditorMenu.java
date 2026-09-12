@@ -5,6 +5,7 @@ import com.dierks.craftbridge.gui.Menu;
 import com.dierks.craftbridge.recipes.CustomRecipe;
 import com.dierks.craftbridge.recipes.Ingredient;
 import com.dierks.craftbridge.recipes.RecipeFeature;
+import com.dierks.craftbridge.recipes.RecipeKind;
 import com.dierks.craftbridge.recipes.RecipeShape;
 import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
@@ -19,6 +20,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -58,6 +60,12 @@ public final class RecipeEditorMenu extends Menu {
     static final int RESULT = RecipeEditorLayout.RESULT;
     static final int ARROW = RecipeEditorLayout.ARROW;
     static final int TOGGLE_TYPE = RecipeEditorLayout.TOGGLE_TYPE;
+    static final int COOK_TIME_LABEL = RecipeEditorLayout.COOK_TIME_LABEL;
+    static final int COOK_TIME_UP = RecipeEditorLayout.COOK_TIME_UP;
+    static final int COOK_TIME_DOWN = RecipeEditorLayout.COOK_TIME_DOWN;
+    static final int COOK_XP_LABEL = RecipeEditorLayout.COOK_XP_LABEL;
+    static final int COOK_XP_UP = RecipeEditorLayout.COOK_XP_UP;
+    static final int COOK_XP_DOWN = RecipeEditorLayout.COOK_XP_DOWN;
     static final int SAVE = RecipeEditorLayout.SAVE;
     static final int CANCEL = RecipeEditorLayout.CANCEL;
     static final int TOGGLE_ENABLED = RecipeEditorLayout.TOGGLE_ENABLED;
@@ -67,7 +75,9 @@ public final class RecipeEditorMenu extends Menu {
     private final RecipeFeature feature;
     private final Player player;
     private final String existingId;
-    private boolean shaped = true;
+    private RecipeKind kind = RecipeKind.SHAPED;
+    private int cookingTime = RecipeKind.SHAPED.defaultCookingTime();
+    private float experience = RecipeKind.DEFAULT_EXPERIENCE;
     private boolean enabled = true;
     private final boolean[] exact = new boolean[9];
     /**
@@ -99,17 +109,26 @@ public final class RecipeEditorMenu extends Menu {
     }
 
     private void seed(CustomRecipe recipe) {
-        shaped = recipe.shaped();
+        kind = recipe.kind();
         enabled = recipe.enabled();
+        cookingTime = recipe.cookingTime();
+        experience = recipe.experience();
         List<Ingredient> grid = recipe.asGrid();
         for (int i = 0; i < 9; i++) {
             Ingredient ing = grid.get(i);
             if (ing != null) {
+                // A custom ingredient is neither "any material" nor a frozen exact copy: it is
+                // its own mode, so the exact toggle stays off and the ghost carries the stamp.
                 exact[i] = ing.isExact();
-                ghosts.put(GRID[i], ing.display());
+                ghosts.put(GRID[i], ing.display(feature.customItems()));
             }
         }
         ghosts.put(RESULT, recipe.result().clone());
+    }
+
+    /** Grid cells this kind actually uses: all nine for crafting, only the first for cooking. */
+    private int inputSlots() {
+        return kind.inputSlots();
     }
 
     /** What is in a slot for recipe purposes: the ghost if there is one, else the real item. */
@@ -170,14 +189,32 @@ public final class RecipeEditorMenu extends Menu {
     @Override
     protected void build() {
         frame();
+        int inputs = inputSlots();
         for (int i = 0; i < 9; i++) {
-            drawInput(GRID[i], "grid slot " + (i + 1));
+            if (i >= inputs) {
+                // Unused by this kind: locked shut so it can never hold (or mint) an item.
+                hideInput(GRID[i]);
+                set(INDICATOR[i], Items.icon(Material.BLACK_STAINED_GLASS_PANE, " "), null);
+                continue;
+            }
+            drawInput(GRID[i], inputs == 1 ? "the input" : "grid slot " + (i + 1));
             ItemStack cell = contentOf(GRID[i]);
             final int idx = i;
             if (Items.isEmpty(cell)) {
                 set(INDICATOR[i], Items.icon(Material.BLACK_STAINED_GLASS_PANE, "<dark_gray>empty slot",
                         "<gray>Put an item in the slot above,",
                         "<gray>or click it with an empty hand to", "<gray>pick one from the item list."), null);
+                continue;
+            }
+            String customId = com.dierks.craftbridge.items.CustomItemRegistry.idOf(cell);
+            if (customId != null && feature.customItems().contains(customId)) {
+                // A custom item is matched by its cb_item id, which no anvil can forge, so
+                // there is no "any material" alternative to offer here.
+                set(INDICATOR[i], Items.icon(Material.NETHER_STAR, "<light_purple>Match: custom item",
+                        "<white>" + customId,
+                        "Matched by its CraftBridge tag, so a",
+                        "renamed vanilla item cannot stand in for it.",
+                        "", "<dark_gray>Replace the item above to change this"), null);
                 continue;
             }
             String matName = Items.prettyMaterial(cell.getType());
@@ -194,6 +231,9 @@ public final class RecipeEditorMenu extends Menu {
                 refresh();
             });
         }
+        if (kind.isCooking()) {
+            drawCookingControls();
+        }
         set(ARROW, Items.icon(Material.SPECTRAL_ARROW, "<gray>Result →", "Put the crafted item (with its count)",
                 "in the framed slot to the right, or click", "the empty slot to pick one from a list."), null);
         drawInput(RESULT, "the result");
@@ -207,14 +247,8 @@ public final class RecipeEditorMenu extends Menu {
                     "<yellow>Click <gray>-1", "<yellow>Right-click <gray>-8"),
                     e -> changeCount(e.isRightClick() ? -8 : -1));
         }
-        set(TOGGLE_TYPE, Items.icon(shaped ? Material.CRAFTING_TABLE : Material.CAULDRON,
-                shaped ? "<white>Type: <aqua>Shaped" : "<white>Type: <gold>Shapeless",
-                shaped ? "Positions matter (empty rows/columns" : "Any arrangement of these items works.",
-                shaped ? "around the items are trimmed)." : "",
-                "", "<yellow>Click <gray>to switch"), e -> {
-            shaped = !shaped;
-            overrideArmed = false;
-            refresh();
+        set(TOGGLE_TYPE, typeIcon(), e -> {
+            switchKind(e.isRightClick() ? previousKind() : kind.next());
         });
         List<String> saveLore = new ArrayList<>();
         saveLore.add("Id: <white>" + previewId());
@@ -236,22 +270,141 @@ public final class RecipeEditorMenu extends Menu {
                 refresh();
             });
         }
-        set(INFO, Items.icon(Material.BOOK, "<aqua>How this works",
-                "<aqua>Blue frame<gray>: the 3x3 crafting grid.",
+        List<String> info = new ArrayList<>(List.of(
+                "<aqua>Blue frame<gray>: the crafting grid.",
                 "<gold>Orange frame<gray>: the result.",
                 "Put real items in, or click an empty slot",
                 "with an empty hand to pick from a list -",
                 "you do not need to own the item.",
                 "Each filled grid slot gets a match toggle below.",
-                "The result has +/- buttons for its count.",
-                "Save checks whether the layout already crafts",
-                "something; if so it asks you to click Save again."), null);
+                "The result has +/- buttons for its count."));
+        if (kind.isCooking()) {
+            info.add("");
+            info.add("A " + kind.label().toLowerCase(Locale.ROOT) + " recipe takes one input.");
+            info.add("Cook time and XP are set on the right.");
+            info.add("Each cooker is its own recipe - make a");
+            info.add("second one to cover another cooker.");
+        }
+        info.add("");
+        info.add(kind.isCooking()
+                ? "Save warns if a vanilla recipe already"
+                : "Save checks whether the layout already crafts");
+        info.add(kind.isCooking()
+                ? "cooks that input; click Save again to add it."
+                : "something; if so it asks you to click Save again.");
+        set(INFO, Items.icon(Material.BOOK, "<aqua>How this works", Text.lore(info)), null);
         if (conflictText != null) {
             set(WARNING, Items.icon(Material.YELLOW_STAINED_GLASS_PANE, "<gold>⚠ Layout already crafts something",
                     conflictText, "The older recipe may win at the table.",
                     "Change the layout, or click Save again."), null);
         }
         fill(Items.icon(Material.BLACK_STAINED_GLASS_PANE, " "));
+    }
+
+    private ItemStack typeIcon() {
+        Material icon = switch (kind) {
+            case SHAPED -> Material.CRAFTING_TABLE;
+            case SHAPELESS -> Material.CAULDRON;
+            case FURNACE -> Material.FURNACE;
+            case SMOKER -> Material.SMOKER;
+            case BLAST_FURNACE -> Material.BLAST_FURNACE;
+            case CAMPFIRE -> Material.CAMPFIRE;
+        };
+        List<String> lore = new ArrayList<>();
+        switch (kind) {
+            case SHAPED -> {
+                lore.add("Positions matter (empty rows/columns");
+                lore.add("around the items are trimmed).");
+            }
+            case SHAPELESS -> lore.add("Any arrangement of these items works.");
+            default -> {
+                lore.add("One input, cooked in a " + kind.label().toLowerCase(Locale.ROOT) + ".");
+                lore.add("Cook time and XP are set below.");
+            }
+        }
+        lore.add("");
+        lore.add("<yellow>Click <gray>next  <yellow>Right-click <gray>previous");
+        return Items.icon(icon, "<white>Type: <aqua>" + kind.label(), Text.lore(lore));
+    }
+
+    private RecipeKind previousKind() {
+        RecipeKind[] all = RecipeKind.values();
+        return all[(kind.ordinal() - 1 + all.length) % all.length];
+    }
+
+    /**
+     * Switch recipe kind. Moving from a 9-slot kind to a 1-slot one would strand whatever the
+     * admin put in cells 2-9, so those are handed back (real items) or dropped (ghosts) first
+     * — the same contract {@link #finish()} honours, just for part of the grid.
+     */
+    private void switchKind(RecipeKind next) {
+        int before = inputSlots();
+        kind = next;
+        int after = inputSlots();
+        if (after < before) {
+            for (int i = after; i < before; i++) {
+                if (ghosts.remove(GRID[i]) == null) {
+                    giveBackReal(GRID[i]);
+                }
+                exact[i] = false;
+            }
+        }
+        // Adopt the new kind's default timings unless the admin already tuned them.
+        if (next.isCooking() && cookingTime <= 0) {
+            cookingTime = next.defaultCookingTime();
+        }
+        overrideArmed = false;
+        conflictText = null;
+        refresh();
+    }
+
+    /** Lock a grid cell this kind does not use, having first returned anything in it. */
+    private void hideInput(int slot) {
+        if (ghosts.remove(slot) == null) {
+            giveBackReal(slot);
+        }
+        editable(slot, false);
+        set(slot, Items.icon(Material.GRAY_STAINED_GLASS_PANE, "<dark_gray>Not used",
+                "A " + kind.label().toLowerCase(Locale.ROOT) + " recipe takes a single input."), null);
+    }
+
+    /**
+     * Cook time and experience. Both are shown in the units an admin thinks in — seconds
+     * alongside ticks, and XP to one decimal — because ticks and floats are exactly the two
+     * things that get typo'd.
+     */
+    private void drawCookingControls() {
+        set(COOK_TIME_LABEL, Items.icon(Material.CLOCK, "<gold>Cook time: <white>" + cookingTime + " ticks",
+                "<gray>" + String.format(Locale.ROOT, "%.1f", cookingTime / 20.0) + " seconds",
+                "<dark_gray>vanilla: furnace 200, smoker/blast 100,",
+                "<dark_gray>campfire 600"), null);
+        set(COOK_TIME_DOWN, Items.icon(Material.RED_DYE, "<red>Less time",
+                "<yellow>Click <gray>-20 ticks (1s)", "<yellow>Right-click <gray>-100 ticks (5s)"),
+                e -> changeCookTime(e.isRightClick() ? -100 : -20));
+        set(COOK_TIME_UP, Items.icon(Material.LIME_DYE, "<green>More time",
+                "<yellow>Click <gray>+20 ticks (1s)", "<yellow>Right-click <gray>+100 ticks (5s)"),
+                e -> changeCookTime(e.isRightClick() ? 100 : 20));
+        set(COOK_XP_LABEL, Items.icon(Material.EXPERIENCE_BOTTLE,
+                "<gold>Experience: <white>" + String.format(Locale.ROOT, "%.2f", experience),
+                "<gray>Dropped when the output is collected.",
+                "<dark_gray>vanilla ranges from 0.0 to about 1.0"), null);
+        set(COOK_XP_DOWN, Items.icon(Material.RED_DYE, "<red>Less XP",
+                "<yellow>Click <gray>-0.1", "<yellow>Right-click <gray>-0.5"),
+                e -> changeExperience(e.isRightClick() ? -0.5f : -0.1f));
+        set(COOK_XP_UP, Items.icon(Material.LIME_DYE, "<green>More XP",
+                "<yellow>Click <gray>+0.1", "<yellow>Right-click <gray>+0.5"),
+                e -> changeExperience(e.isRightClick() ? 0.5f : 0.1f));
+    }
+
+    private void changeCookTime(int delta) {
+        cookingTime = RecipeKind.clampCookingTime(cookingTime + delta);
+        refresh();
+    }
+
+    private void changeExperience(float delta) {
+        // Round to two places: repeated float addition otherwise shows 0.30000001 in the lore.
+        experience = RecipeKind.clampExperience(Math.round((experience + delta) * 100f) / 100f);
+        refresh();
     }
 
     /**
@@ -377,43 +530,63 @@ public final class RecipeEditorMenu extends Menu {
             player.sendMessage(Text.msg("<red>Put the result item in the slot next to the arrow first."));
             return;
         }
+        int inputs = inputSlots();
         List<Ingredient> grid = new ArrayList<>(9);
         boolean any = false;
         for (int i = 0; i < 9; i++) {
-            ItemStack cell = contentOf(GRID[i]);
+            ItemStack cell = i < inputs ? contentOf(GRID[i]) : null;
             if (Items.isEmpty(cell)) {
                 grid.add(null);
             } else {
                 any = true;
-                grid.add(exact[i] ? Ingredient.ofExact(cell.clone()) : Ingredient.ofMaterial(cell.getType()));
+                grid.add(ingredientFor(cell, exact[i]));
             }
         }
         if (!any) {
-            player.sendMessage(Text.msg("<red>The crafting grid is empty."));
+            player.sendMessage(Text.msg(kind.isCooking()
+                    ? "<red>Put the item to cook in the input slot first."
+                    : "<red>The crafting grid is empty."));
             return;
         }
         String id = existingId != null ? existingId : feature.store().freeId(result.getType());
-        Recipe conflict = feature.registry().conflictFor(grid, player.getWorld(), id);
-        if (conflict != null && !overrideArmed) {
-            overrideArmed = true;
-            conflictText = describe(conflict);
-            refresh();
-            player.sendMessage(Text.msg("<gold>That layout already crafts <white>" + conflictText
-                    + "<gold>. Click Save again to add the recipe anyway."));
-            return;
-        }
         CustomRecipe recipe;
-        if (shaped) {
-            RecipeShape.Shape<Ingredient> shape = RecipeShape.of(grid, Ingredient::sameAs);
-            recipe = new CustomRecipe(id, true, enabled, groupOf(id), result.clone(), shape.rows(), shape.legend(), List.of());
-        } else {
-            List<Ingredient> ingredients = new ArrayList<>();
-            for (Ingredient ing : grid) {
-                if (ing != null) {
-                    ingredients.add(ing);
-                }
+        if (kind.isCooking()) {
+            recipe = CustomRecipe.cooking(id, kind, enabled, groupOf(id), result.clone(),
+                    grid.get(0), cookingTime, experience);
+            Recipe shadow = feature.registry().vanillaCookingShadow(recipe);
+            if (shadow != null && !overrideArmed) {
+                overrideArmed = true;
+                conflictText = describe(shadow);
+                refresh();
+                player.sendMessage(Text.msg("<gold>A vanilla " + kind.label().toLowerCase(Locale.ROOT)
+                        + " recipe already accepts that input (<white>" + conflictText + "<gold>). Because "
+                        + "cookers reuse their last recipe, yours may be ignored. Click Save again to add it anyway."));
+                return;
             }
-            recipe = new CustomRecipe(id, false, enabled, groupOf(id), result.clone(), List.of(), java.util.Map.of(), ingredients);
+        } else {
+            Recipe conflict = feature.registry().conflictFor(grid, player.getWorld(), id);
+            if (conflict != null && !overrideArmed) {
+                overrideArmed = true;
+                conflictText = describe(conflict);
+                refresh();
+                player.sendMessage(Text.msg("<gold>That layout already crafts <white>" + conflictText
+                        + "<gold>. Click Save again to add the recipe anyway."));
+                return;
+            }
+            if (kind == RecipeKind.SHAPED) {
+                RecipeShape.Shape<Ingredient> shape = RecipeShape.of(grid, Ingredient::sameAs);
+                recipe = new CustomRecipe(id, RecipeKind.SHAPED, enabled, groupOf(id), result.clone(),
+                        shape.rows(), shape.legend(), List.of());
+            } else {
+                List<Ingredient> ingredients = new ArrayList<>();
+                for (Ingredient ing : grid) {
+                    if (ing != null) {
+                        ingredients.add(ing);
+                    }
+                }
+                recipe = new CustomRecipe(id, RecipeKind.SHAPELESS, enabled, groupOf(id), result.clone(),
+                        List.of(), java.util.Map.of(), ingredients);
+            }
         }
         boolean ok = feature.save(recipe);
         finish();
@@ -421,6 +594,19 @@ public final class RecipeEditorMenu extends Menu {
                 ? "<green>Saved recipe <white>" + id + "<green>: " + result.getAmount() + "x " + Items.describe(result) + "."
                 : "<red>Saved to recipes.yml but the server rejected the recipe; check the console."));
         new RecipeBrowseMenu(feature, player, 0).open(player);
+    }
+
+    /**
+     * The ingredient a slot's contents mean. A stack carrying a known {@code cb_item} stamp
+     * becomes a by-id reference rather than a frozen copy, so editing the definition later
+     * updates this recipe too — and so the match is on the tag, which an anvil cannot forge.
+     */
+    private Ingredient ingredientFor(ItemStack cell, boolean exactFlag) {
+        String customId = com.dierks.craftbridge.items.CustomItemRegistry.idOf(cell);
+        if (customId != null && feature.customItems().contains(customId)) {
+            return Ingredient.ofCustom(customId);
+        }
+        return exactFlag ? Ingredient.ofExact(cell.clone()) : Ingredient.ofMaterial(cell.getType());
     }
 
     private String groupOf(String id) {

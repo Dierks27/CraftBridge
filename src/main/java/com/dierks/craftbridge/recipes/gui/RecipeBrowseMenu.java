@@ -105,7 +105,7 @@ public final class RecipeBrowseMenu extends Menu {
         }
         List<Component> lore = new ArrayList<>();
         lore.add(Text.item("<dark_gray>id: <gray>" + recipe.id()
-                + "  <dark_gray>|<gray> " + (recipe.shaped() ? "shaped" : "shapeless")
+                + "  <dark_gray>|<gray> " + recipe.kind().label().toLowerCase(java.util.Locale.ROOT)
                 + "  <dark_gray>|" + (recipe.enabled() ? " <green>enabled" : " <red>disabled")));
         lore.add(Text.item("<gray>Makes <white>" + recipe.result().getAmount() + "x " + Items.describe(recipe.result())));
         lore.add(Component.empty());
@@ -126,6 +126,14 @@ public final class RecipeBrowseMenu extends Menu {
     /** Shape rows in monospace-ish letters plus a legend, e.g. "A G A" / "A = Amethyst Shard". */
     static List<String> describeLayout(CustomRecipe recipe) {
         List<String> lines = new ArrayList<>();
+        if (recipe.isCooking()) {
+            Ingredient input = recipe.input();
+            lines.add("<gray>cooks <white>" + (input == null ? "?" : input.label()));
+            lines.add("<gray>time <white>" + recipe.cookingTime() + " ticks"
+                    + " <dark_gray>(" + String.format(java.util.Locale.ROOT, "%.1f", recipe.cookingTime() / 20.0)
+                    + "s)<gray>  xp <white>" + String.format(java.util.Locale.ROOT, "%.2f", recipe.experience()));
+            return lines;
+        }
         RecipeShape.Shape<Ingredient> shape = recipe.shapeForDisplay();
         if (recipe.shaped()) {
             for (String row : shape.rows()) {
