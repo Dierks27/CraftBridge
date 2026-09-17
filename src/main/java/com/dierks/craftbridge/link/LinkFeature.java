@@ -739,7 +739,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     }
 
     private void send(Player player, String channel, byte[] payload) {
-        if (player.isOnline()) {
+        // isEnabled() as well as isOnline(): sessionEnded() is reached during shutdown from
+        // WorkbenchFeature's teardown, which runs before this feature's own disable(), and
+        // sendPluginMessage refuses once Paper has disabled the plugin.
+        if (player.isOnline() && plugin.isEnabled()) {
             player.sendPluginMessage(plugin, channel, payload);
         }
     }

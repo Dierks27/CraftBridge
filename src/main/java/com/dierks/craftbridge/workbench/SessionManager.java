@@ -89,11 +89,16 @@ public final class SessionManager {
         if (phantoms != null) {
             // The menu is closing: re-sync next tick so the inventory screen shows real contents only.
             phantoms.end(player, false);
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
-                if (player.isOnline()) {
-                    player.updateInventory();
-                }
-            });
+            // endAll() runs from onDisable, where isEnabled() is already false and scheduling
+            // throws -- taking drainGrid below with it, so borrowed items would never reach the
+            // chest they came from. There is no next tick at shutdown to re-sync for anyway.
+            if (plugin.isEnabled()) {
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline()) {
+                        player.updateInventory();
+                    }
+                });
+            }
         }
         drainGrid(player, session, returnToOrigins);
     }
