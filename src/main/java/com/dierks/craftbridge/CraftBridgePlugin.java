@@ -91,12 +91,15 @@ public final class CraftBridgePlugin extends JavaPlugin {
         }
         features.clear();
         HandlerList.unregisterAll(this);
-        getServer().getPluginManager().registerEvents(new MenuListener(this), this);
     }
 
     /** {@code /craftbridge reload}: re-read config.yml and rebuild every feature. */
     public void reloadEverything() {
         disableFeatures();
+        // disableFeatures() drops every listener this plugin owns, the menu listener included.
+        // Only a reload has a plugin to put it back on: at shutdown Paper has already flipped
+        // isEnabled() to false and registering here would throw.
+        getServer().getPluginManager().registerEvents(new MenuListener(this), this);
         reloadConfig();
         this.config = new CraftBridgeConfig(this);
         this.containerAccess = new ContainerAccess(this);

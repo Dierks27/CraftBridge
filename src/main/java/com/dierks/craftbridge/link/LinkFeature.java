@@ -137,11 +137,16 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             task = -1;
         }
         HandlerList.unregisterAll(this);
-        for (UUID id : List.copyOf(linked.keySet())) {
-            Player player = plugin.getServer().getPlayer(id);
-            if (player != null && player.isOnline()) {
-                send(player, LinkProtocol.CHANNEL_SESSION_END,
-                        LinkProtocol.encode(new LinkProtocol.SessionEnd("the server plugin is reloading")));
+        // A reload owes every linked client a goodbye, but at shutdown Paper has already
+        // flipped isEnabled() to false and sending would throw. The client reads the
+        // disconnect as the end of its session anyway, so there is nothing to say.
+        if (plugin.isEnabled()) {
+            for (UUID id : List.copyOf(linked.keySet())) {
+                Player player = plugin.getServer().getPlayer(id);
+                if (player != null && player.isOnline()) {
+                    send(player, LinkProtocol.CHANNEL_SESSION_END,
+                            LinkProtocol.encode(new LinkProtocol.SessionEnd("the server plugin is reloading")));
+                }
             }
         }
         linked.clear();
@@ -734,7 +739,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     }
 
     private void send(Player player, String channel, byte[] payload) {
-        if (player.isOnline()) {
+        // isEnabled() as well as isOnline(): sessionEnded() is reached during shutdown from
+        // WorkbenchFeature's teardown, which runs before this feature's own disable(), and
+        // sendPluginMessage refuses once Paper has disabled the plugin.
+        if (player.isOnline() && plugin.isEnabled()) {
             player.sendPluginMessage(plugin, channel, payload);
         }
     }
