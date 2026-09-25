@@ -153,6 +153,14 @@ public final class SessionManager {
 
         // Whatever is still in the grid is the player's: hand it over, and drop what they
         // cannot hold rather than letting a later close path decide.
+        //
+        // Except when they are dead. Paper spawns the death drops first and closes the menu
+        // afterwards, so on a death this runs against an inventory that has already been
+        // dropped and is about to be wiped: addItem would "succeed" and the items would be
+        // deleted with it. Drop them where the player died instead, next to their other drops.
+        // (With keepInventory on they land on the ground rather than in the kept inventory --
+        // a small inconvenience, but never a loss.)
+        boolean dead = player.isDead();
         for (int i = 0; i < matrix.length; i++) {
             ItemStack rest = matrix[i];
             if (Items.isEmpty(rest)) {
@@ -160,6 +168,10 @@ public final class SessionManager {
             }
             matrix[i] = null;
             changed = true;
+            if (dead) {
+                player.getWorld().dropItemNaturally(player.getLocation(), rest);
+                continue;
+            }
             for (ItemStack over : player.getInventory().addItem(rest).values()) {
                 player.getWorld().dropItemNaturally(dropSpot(player, session), over);
             }
