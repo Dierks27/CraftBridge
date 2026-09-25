@@ -71,6 +71,10 @@ linked-workbench:
   # Skip containers the player may not use (vanilla lock is always honoured; this adds
   # Towny/WorldGuard-style checks via a synthetic interact event).
   respect-protection: true
+  # While a linked table is open, the player's EMPTY inventory slots are shown (packets
+  # only, the real inventory is untouched) holding one nearby-storage item type each, so
+  # JEI's [+] believes the ingredients are in the inventory and sends the transfer; the
+  # real items are then pulled out of the chests. Turn off if it misbehaves.
   # Show nearby storage in the player's empty inventory slots while the table is open,
   # so JEI's client-side check passes and [+] can fill the grid from chests. Display
   # only: no click can take an item out of a phantom slot. A crafting menu has 36
@@ -152,10 +156,6 @@ jei:
     # Fabric servers). If it does not, types are dropped from the END of this list until
     # it fits, with a console warning. The full vanilla set is ~100-300 KB, so this only
     # matters with thousands of plugin recipes.
-    # minecraft:brewing: Minecraft 26.3 made brewing a recipe type, and JEI 26.3 reads its
-    # Brewing category from the server's recipes instead of from the client. On 26.2 the id
-    # matches nothing and is skipped. (Comments inside this list would not survive a save,
-    # which is why this one lives up here.)
     types:
       - minecraft:crafting
       - minecraft:smelting
@@ -164,11 +164,3 @@ jei:
       - minecraft:campfire_cooking
       - minecraft:stonecutting
       - minecraft:smithing
-      - minecraft:brewing
-
-# -----------------------------------------------------------------------------
-# Which layout this file has. On startup CraftBridge upgrades an older config.yml to
-# the current one: settings added since are filled in with their defaults, entries new
-# in a release are added to lists once, and nothing you have set is changed. The file
-# as it was is kept beside it as config.yml.bak-v<old version>. Leave this number alone.
-config-version: 2

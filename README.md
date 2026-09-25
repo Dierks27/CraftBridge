@@ -654,10 +654,16 @@ never to nothing.
 See the comments in `src/main/resources/config.yml`. Everything reloads with
 `/craftbridge reload`.
 
-**A config from an older version keeps working.** Every setting falls back to a built-in
-default, and any top-level section your `config.yml` does not have is named once at boot
-with a line saying the defaults are in use — nothing throws, and nothing silently stops
-working. In particular a recipe block that cannot be parsed (missing, empty, or left over
+**Updating is drop-in-the-jar.** A `config.yml` from an older version is upgraded on startup
+(`config.ConfigMigrator`): the old file is kept as `config.yml.bak-v<old version>`, settings
+added since are filled in with their defaults and comments, entries new in a release are
+added to lists once, and nothing you have set is changed. One log line says what was done,
+and `config-version` at the end of the file records it, so a second boot changes nothing.
+See `CHANGELOG.md` for the details.
+
+Beyond that, every setting falls back to a built-in default, and a top-level section your
+`config.yml` does not have is named once at boot with a line saying the defaults are in use —
+nothing throws, and nothing silently stops working. In particular a recipe block that cannot be parsed (missing, empty, or left over
 from a version with a different shape) is reported by *key* with what was wrong —
 "`combo-chest.recipe.shape` is unusable — no rows: expected 1 to 3 rows like
 ['HEH', 'CBC', 'HRH']" — and the built-in recipe is registered instead, so the block is
