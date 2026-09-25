@@ -51,7 +51,9 @@ generate `plugins/CraftBridge/config.yml`).
 | `/craftbridge reload` / `/craftbridge version` (alias `/cb`) | `craftbridge.admin` | op |
 | `/craftbridge page next\|prev` — turn the nearby-storage page at a Linked Workbench | none | everyone |
 | `/craftbridge give <player> workbench|combochest|golemmarker [amount]` | `craftbridge.admin` | op |
-| `/craftbridge workbench|combochest list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
+| `/craftbridge workbench|combochest list` / `refresh` / `display <mode|modelscale|scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
+| `/craftbridge pack` — how the block models' resource pack is sent, and who loaded it | `craftbridge.admin` | op |
+| `/craftbridge geyser export` — write the Bedrock pack and Geyser mappings, and copy them into Geyser | `craftbridge.admin` | op |
 | `/craftbridge jei` / `/craftbridge jei resync` — recipe-sync state, or re-encode and re-send it now | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
 | `/sort settings` — pick your trigger and toggles | `craftbridge.sort` | everyone |
@@ -405,8 +407,9 @@ A crafting table that can pull ingredients from the chests around it.
 
 **The block.** Physically a normal `CRAFTING_TABLE`, so vanilla interaction, breaking,
 Towny/WorldGuard checks and the vanilla crafting menu (which JEI knows how to fill) all
-keep working. It is placed from a special item — a player head wearing the configured
-texture, named *Linked Workbench*, PDC-tagged `craftbridge:linked_workbench` — and
+keep working. It is placed from a special item — a crafting table carrying the model (see
+[Custom block models](#custom-block-models)), or in `display.mode: head` a player head wearing
+the configured texture, named *Linked Workbench*, PDC-tagged `craftbridge:linked_workbench` — and
 tracked in `plugins/CraftBridge/linked-workbenches.yml` (`type` + world + xyz + display UUID +
 owner + yaw; the same file holds Combo Chests). Breaking it drops the head item back; burning or exploding it does too;
 pistons cannot move it. Craftable (`craftbridge:linked_workbench`, shape and
@@ -414,7 +417,10 @@ ingredients in `linked-workbench.recipe`; default: crafting table in the middle,
 chests in the corners, 3 copper ingots, 1 ender pearl at the bottom).
 Admins: `/craftbridge workbench give`.
 
-**The look.** On placement an `ItemDisplay` holding the head is spawned at the block,
+**The look.** By default (`display.mode: model`) the display shows the block's model from
+CraftBridge's resource pack, to players who loaded it; see
+[Custom block models](#custom-block-models). The rest of this paragraph is `display.mode: head`.
+On placement an `ItemDisplay` holding the head is spawned at the block,
 scaled ≈ 2.02 so the half-block head model covers the table with a hair of overlap,
 rotated to face the player who placed it (yaw snapped to 90°), persistent, tagged
 `craftbridge:linked_display` = the table key, with its UUID stored on the record. It
@@ -429,11 +435,12 @@ half-size and rotated 180°, so it needs scale ≈ 4.04 and `yaw-offset: 180`.
 
 A startup sweep (and a sweep whenever a chunk's entities load) removes any tagged
 display whose table is gone (WorldEdit / Towny regen) and respawns missing displays for
-tables that still exist. A record whose block is no longer a crafting table is
-forgotten — the head item is not refunded in that case. Bedrock/Geyser players may see
-the display as a generic head or not at all; the block still works for them because it
-is a real crafting table. *(Observed Geyser behaviour: to be filled in after the first
-live test.)*
+tables that still exist, or whose look (mode, item, geometry) no longer matches `config.yml`.
+A record whose block is no longer a crafting table is
+forgotten — the place-item is not refunded in that case. Bedrock/Geyser players may see
+a head display as a generic head or not at all; model displays are hidden from them unless
+`bedrock.show-displays` is on. The block still works for them because it is a real crafting
+table.
 
 **Nearby storage** = every chest, trapped chest, double chest (counted once), barrel and
 placed shulker box within `linked-workbench.radius` (8) blocks that the player may use:
@@ -551,12 +558,14 @@ out, and takes deposits — no activation, no modes, and no sneak-clicking.
 **The block.** Physically a `BARREL` (so Towny/WorldGuard/vanilla break-and-drop rules
 apply unchanged) placed from a PDC-tagged item (`craftbridge:combo_chest`) and tracked
 in the same `linked-workbenches.yml` as the workbench, with `type: combo_chest`. An
-`ItemDisplay` sits on the barrel: the head from `combo-chest.head-texture` (blank uses
-the built-in Combo Chest head, `none` falls back to `display-item` — a plain `CHEST`).
+`ItemDisplay` sits on the barrel: the Combo Chest model from the resource pack (see
+[Custom block models](#custom-block-models)), or in `display.mode: head` the head from
+`combo-chest.head-texture` (blank uses the built-in Combo Chest head, `none` falls back to
+`display-item` — a plain `CHEST`).
 A head model is half a block, so both kinds default to scale 2.02 with the entity at the
 top of the block; the chest item model wants scale 1.16 at the block centre instead.
 Tune it live with
-`/craftbridge combochest display <scale|x|y|z|yaw|transform> <value>`. Breaking it drops
+`/craftbridge combochest display <mode|modelscale|scale|x|y|z|yaw|transform> <value>`. Breaking it drops
 the Combo Chest item back; burning/exploding do too; pistons cannot move it; the sweep
 that fixes stray workbench displays covers Combo Chests as well. Craftable
 (`craftbridge:combo_chest`; default shape `HEH / CBC / HRH`: barrel in the middle, 4
@@ -649,6 +658,98 @@ chest or barrel that CraftBridge never takes the last item of any slot from.
   take everything as usual).
 * `golem-chests.enabled: false` turns the whole thing off: no marker, no recipe, and marks
   already placed are ignored until it is turned back on.
+
+## Custom block models
+
+The Linked Workbench and the Combo Chest look like themselves, not like a crafting table and
+a barrel, for every player whose client loads CraftBridge's resource pack. Everyone else sees
+the plain vanilla block, and the blocks work the same for everyone: underneath the model the
+real crafting table and barrel are still there.
+
+**How it works.** In `display.mode: model` (the default, per block under
+`linked-workbench.display` and `combo-chest.display`) the display over each block holds a
+vanilla `crafting_table` / `barrel` item whose `custom_model_data` string is
+`craftbridge:linked_workbench` / `craftbridge:combo_chest`. The pack's
+`assets/minecraft/items/crafting_table.json` and `barrel.json` draw that string as CraftBridge's
+model and every other crafting table and barrel as vanilla. The display is hidden by default
+and shown to one player at a time, once their client reports the pack loaded; declining the
+pack, a failed download, or the pack being removed hides it again. The place-item (recipe,
+`/craftbridge give`) is the same tagged block item, so it shows the model in hands and
+inventories too; place-items handed out before the update (heads) keep working.
+`display.mode: head` brings back the textured-head look for everyone, no pack needed;
+`/craftbridge workbench display mode head` switches live.
+
+**The pack.** On every start (and `/craftbridge reload`) CraftBridge builds the pack from the
+files in its jar (`src/main/resources/resourcepack/java/`), plus any files in
+`plugins/CraftBridge/pack/overrides/java/`, writes it to
+`plugins/CraftBridge/pack/craftbridge-java.zip` and logs its SHA-1. It covers Minecraft 26.2
+and 26.3 (pack formats 88.0 to 97.1). The zip is byte-for-byte the same until its files
+change, so the hash (and every client's cached copy) only changes when the pack really does.
+
+**Getting it to players.** Players are offered the pack as they connect, before they enter the
+world (`resource-pack.prompt` is the text on the download screen; `required: false`, so
+declining is fine). Choose one:
+
+* **Your own website (`resource-pack.url`, the usual choice).** Upload
+  `plugins/CraftBridge/pack/craftbridge-java.zip` and set the address, e.g.
+  `url: "https://www.lilahcraft.com/craftbridge/craftbridge-java.zip"`. Players download it
+  straight from the web server, so this works behind a Velocity proxy or WireGuard tunnel where
+  the game server has no reachable web port. CraftBridge always sends the SHA-1 of the pack it
+  built itself: a client refuses a file that differs (for example an upload from an older
+  CraftBridge) and keeps the plain blocks. At startup CraftBridge also downloads the file at the
+  URL once and logs whether it is current; a mismatch logs *"the uploaded pack is out of date:
+  upload plugins/CraftBridge/pack/craftbridge-java.zip"*. **After every CraftBridge update,
+  upload the new zip.**
+* **The built-in web server (`resource-pack.host`).** Off by default. `host.enabled: true`
+  serves the zip on `host.port` (8765) at `http://<public-address>:<port>/craftbridge-java.zip`.
+  The port must be reachable by players: on HomeCraft, 8080 (HomeCraftManagement) and 8100
+  (BlueMap) are taken, and players come in through the proxy, so the port has to be relayed
+  from the proxy. `public-address` may include a port (`play.example.com:25580`) when the relay
+  uses a different one. The server only runs while `url` is blank.
+
+With neither (or `resource-pack.enabled: false`) the pack is not sent, one console line says so,
+and every model display stays hidden: everyone sees the vanilla blocks. `/craftbridge pack`
+shows the hash, the address players download from and how many online players loaded it.
+
+**Bedrock (Geyser/Floodgate).** Bedrock clients cannot load a Java pack, and Geyser answers
+"declined" for them, so they see the plain blocks. With Floodgate (or Geyser) installed on this
+server CraftBridge recognises Bedrock players and never offers them the pack. To show them the
+models too:
+
+1. `/craftbridge geyser export` writes `CraftBridge.mcpack` (the Bedrock pack),
+   `craftbridge_mappings.json` (a Geyser v2 custom item mapping: `crafting_table` / `barrel` with
+   our `custom_model_data` string become the Bedrock items `craftbridge:linked_workbench` /
+   `craftbridge:combo_chest`) and `geyserdisplayentity_craftbridge.yml` to
+   `plugins/CraftBridge/geyser/`. When `plugins/Geyser-Spigot` exists it also copies them into its
+   `packs/` and `custom_mappings/` folders (and the display mapping into
+   `extensions/geyserdisplayentity/Mappings/` when that extension is installed). If Geyser runs
+   on the proxy, copy the files into the proxy's Geyser folders yourself.
+2. Geyser's `config.yml` needs `enable-custom-content: true`. Restart. Bedrock players now see
+   the place-items with their own icons and 3D models in hand.
+3. Geyser does not draw item display entities; the
+   [GeyserDisplayEntity](https://github.com/GeyserExtensionists/GeyserDisplayEntity) extension
+   does. Install it, keep the display mapping in its `Mappings/` folder, set
+   `bedrock.show-displays: true` in CraftBridge's config and reload. Bedrock players are then
+   shown the displays. Recognising them needs Floodgate or Geyser on this server; without either,
+   they count as Java players who declined the pack.
+
+**Editing the models (Blockbench).** Open
+`src/main/resources/resourcepack/java/assets/craftbridge/models/block/linked_workbench.json`
+(or `combo_chest.json`) in Blockbench, edit, export over the same file and save the textures.
+To try a change without rebuilding, copy the changed files into
+`plugins/CraftBridge/pack/overrides/java/` (same folders as below `java/`), run
+`/craftbridge reload` and, with `url`, upload the new zip. The front of each model is its north
+face; the display turns it toward the player who placed the block. The Bedrock pack is
+`src/main/resources/resourcepack/bedrock/` (overrides in `plugins/CraftBridge/pack/overrides/bedrock/`,
+applied by `/craftbridge geyser export`). `src/main/resources/resourcepack/README.md` has the
+details, and `tools/generate_pack_textures.py` regenerates the starter textures.
+
+**What was not tested in game.** The pack is checked by unit tests (every model, texture,
+geometry and identifier one file names exists in another; the `custom_model_data` strings match
+between plugin, pack and mappings) and against Mojang's 26.2 formats, but the look in game, the
+Bedrock hand positions and the GeyserDisplayEntity placement are untested starters that may need
+tuning (`model-scale`, the Bedrock `animations/craftbridge.animation.json`, the extension's
+`y-offset`).
 
 ## Feature 1b — the client link
 
