@@ -1,6 +1,7 @@
 package com.dierks.craftbridge;
 
 import com.dierks.craftbridge.command.CraftBridgeCommand;
+import com.dierks.craftbridge.config.ConfigMigrator;
 import com.dierks.craftbridge.config.CraftBridgeConfig;
 import com.dierks.craftbridge.gui.MenuListener;
 import com.dierks.craftbridge.integration.ContainerAccess;
@@ -14,8 +15,12 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 
 /**
  * CraftBridge entry point. Each feature is an independent {@link Feature} that is only
@@ -31,6 +36,7 @@ public final class CraftBridgePlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        migrateConfig();
         this.config = new CraftBridgeConfig(this);
         this.containerAccess = new ContainerAccess(this);
 
@@ -100,11 +106,31 @@ public final class CraftBridgePlugin extends JavaPlugin {
         // Only a reload has a plugin to put it back on: at shutdown Paper has already flipped
         // isEnabled() to false and registering here would throw.
         getServer().getPluginManager().registerEvents(new MenuListener(this), this);
-        reloadConfig();
+        migrateConfig(); // re-reads config.yml afterwards
         this.config = new CraftBridgeConfig(this);
         this.containerAccess = new ContainerAccess(this);
         enableFeatures();
         getLogger().info("CraftBridge reloaded with: " + enabledFeatureNames());
+    }
+
+    /**
+     * Bring an older config.yml up to this jar's shape before anything reads it: new settings
+     * added, the admin's values untouched, the old file kept beside it. See {@link ConfigMigrator}.
+     * A failure here is logged and the plugin runs on the file as it is, as it always has.
+     */
+    private void migrateConfig() {
+        try (Reader bundled = getTextResource("config.yml")) {
+            if (bundled == null) {
+                getLogger().warning("The jar has no config.yml to migrate against; config.yml was left as it is.");
+            } else {
+                ConfigMigrator.migrate(new File(getDataFolder(), "config.yml").toPath(), bundled, getLogger());
+            }
+        } catch (IOException | RuntimeException ex) {
+            getLogger().log(Level.WARNING, "config.yml could not be migrated; running on it as it is", ex);
+        } finally {
+            // getConfig() may already hold the file as it was before the migration.
+            reloadConfig();
+        }
     }
 
     public String enabledFeatureNames() {

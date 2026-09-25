@@ -42,7 +42,9 @@ public final class CraftBridgeConfig {
     private void reportMissingSections() {
         List<String> missing = new ArrayList<>();
         for (String section : SECTIONS) {
-            if (!raw.isConfigurationSection(section)) {
+            // get(path, null) reads the file alone. isConfigurationSection(path) would fall back
+            // to the jar's defaults and call every section present, so this never fired.
+            if (!(raw.get(section, null) instanceof ConfigurationSection)) {
                 missing.add(section);
             }
         }
@@ -253,8 +255,10 @@ public final class CraftBridgeConfig {
 
     public Map<Character, Material> recipeIngredients(com.dierks.craftbridge.workbench.BlockKind kind) {
         Map<Character, Material> out = new LinkedHashMap<>();
-        ConfigurationSection section = raw.getConfigurationSection(kind.configSection() + ".recipe.ingredients");
-        if (section == null) {
+        // Not getConfigurationSection: when the file lacks the map it creates a new, empty one
+        // in the live config instead of returning null, and the next saveConfig() (any
+        // "/craftbridge ... display" tweak) wrote that "ingredients: {}" to disk.
+        if (!(raw.get(kind.configSection() + ".recipe.ingredients", null) instanceof ConfigurationSection section)) {
             return kind.defaultRecipeIngredients();
         }
         for (String key : section.getKeys(false)) {

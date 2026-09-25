@@ -10,10 +10,6 @@ features:
   # Send the server's recipe list to Fabric/JEI clients (Fabric's recipe-sync protocol) so
   # JEI shows custom recipes instead of the vanilla ones bundled with the client.
   jei-recipe-sync: true
-  # Talk to the optional CraftBridge-Client mod. A player who has it sees every item in range
-  # in JEI instead of the 36 a server can fake, and their phantom slots are turned off. Players
-  # without the mod are unaffected either way; turn this off to put everyone on phantom slots.
-  client-link: true
 
 # Promote CraftBridge's DEBUG logging (packet decode failures, trigger detection) to
 # INFO so it shows in the console without touching log4j config.
@@ -71,14 +67,6 @@ linked-workbench:
   # Skip containers the player may not use (vanilla lock is always honoured; this adds
   # Towny/WorldGuard-style checks via a synthetic interact event).
   respect-protection: true
-  # Show nearby storage in the player's empty inventory slots while the table is open,
-  # so JEI's client-side check passes and [+] can fill the grid from chests. Display
-  # only: no click can take an item out of a phantom slot. A crafting menu has 36
-  # inventory slots and JEI reads only those, so more item types than free slots are
-  # split into pages (buttons in the last two free slots, or /craftbridge page).
-  phantom-slots: true
-  # Empty slots kept free of phantoms so JEI can still move leftovers out of the grid.
-  phantom-reserve-empty-slots: 2
   # Base64 "textures" value of the head the block should look like.
   head-texture: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDkzZDExMmRjZTc0NGNjOWY3OTc5OTZmMTJjZTNhMmQ4MjJkY2E5ZDA5YzllOWVkZTZjNmIxMzIwODA5OWMxIn19fQ=="
   # The ItemDisplay that draws the head at full block size over the real crafting
@@ -110,39 +98,6 @@ linked-workbench:
       E: ENDER_PEARL
 
 # -----------------------------------------------------------------------------
-# Combo Chest — a storage terminal for everything within range (pull and deposit).
-# Physically a barrel (never used as storage itself); the display dresses it up.
-# -----------------------------------------------------------------------------
-combo-chest:
-  radius: 8
-  # Base64 "textures" value for the head the block should look like.
-  # Blank = the built-in Combo Chest head; "none" = show display-item instead.
-  head-texture: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNmJiMGUzYzE4YzczZTNhMmNhYmNjZjQ0ZWY1M2Q2MTdjYTA5NWUwZjIzNDdlZmE5M2Y2N2JkNDgwOGU3MGE3In19fQ=="
-  # Item the display shows (and the place-item is) when head-texture is "none".
-  display-item: CHEST
-  # Geometry of the ItemDisplay over the barrel. A head model is a half block, so it
-  # needs scale ~2.02 with the entity at the top of the block (like the workbench);
-  # the chest item model is 14/16 of a block and wants scale ~1.16 at the centre.
-  # Tune live with /craftbridge combochest display <scale|x|y|z|yaw|transform> <value>.
-  display:
-    transform: NONE
-    scale: 2.02
-    offset-x: 0.5
-    offset-y: 1.005
-    offset-z: 0.5
-    yaw-offset: 0
-  # H = chest, E = ender pearl, C = copper ingot, B = barrel, R = comparator.
-  recipe:
-    enabled: true
-    shape: ['HEH', 'CBC', 'HRH']
-    ingredients:
-      H: CHEST
-      E: ENDER_PEARL
-      C: COPPER_INGOT
-      B: BARREL
-      R: COMPARATOR
-
-# -----------------------------------------------------------------------------
 # JEI (Feature 1 lives under features.jei-transfer; this is the recipe sync)
 # -----------------------------------------------------------------------------
 jei:
@@ -152,10 +107,6 @@ jei:
     # Fabric servers). If it does not, types are dropped from the END of this list until
     # it fits, with a console warning. The full vanilla set is ~100-300 KB, so this only
     # matters with thousands of plugin recipes.
-    # minecraft:brewing: Minecraft 26.3 made brewing a recipe type, and JEI 26.3 reads its
-    # Brewing category from the server's recipes instead of from the client. On 26.2 the id
-    # matches nothing and is skipped. (Comments inside this list would not survive a save,
-    # which is why this one lives up here.)
     types:
       - minecraft:crafting
       - minecraft:smelting
@@ -164,11 +115,3 @@ jei:
       - minecraft:campfire_cooking
       - minecraft:stonecutting
       - minecraft:smithing
-      - minecraft:brewing
-
-# -----------------------------------------------------------------------------
-# Which layout this file has. On startup CraftBridge upgrades an older config.yml to
-# the current one: settings added since are filled in with their defaults, entries new
-# in a release are added to lists once, and nothing you have set is changed. The file
-# as it was is kept beside it as config.yml.bak-v<old version>. Leave this number alone.
-config-version: 2
