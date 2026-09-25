@@ -22,10 +22,12 @@ public final class CraftBridgeConfig {
 
     private final JavaPlugin plugin;
     private final FileConfiguration raw;
+    /** Settings already warned about, so a bad value read often is reported once. */
+    private final java.util.Set<String> warned = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Top-level sections the plugin expects; a config from an older version may lack some. */
     private static final List<String> SECTIONS = List.of("features", "sorting", "linked-workbench",
-            "combo-chest", "golem-chests", "jei");
+            "combo-chest", "golem-chests", "resource-pack", "bedrock", "jei");
 
     public CraftBridgeConfig(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -226,6 +228,34 @@ public final class CraftBridgeConfig {
                 (float) raw.getDouble(base + "yaw-offset", 0));
     }
 
+    /** What the display over a Linked Workbench or Combo Chest shows. */
+    public enum DisplayMode {
+        /** The block's model from CraftBridge's resource pack, shown only to players who loaded it. */
+        MODEL,
+        /** The textured head (or display-item), shown to everyone. */
+        HEAD
+    }
+
+    /** {@code <kind>.display.mode}; anything but "head" is the model. */
+    public DisplayMode displayMode(com.dierks.craftbridge.workbench.BlockKind kind) {
+        String path = kind.configSection() + ".display.mode";
+        String mode = raw.getString(path, "model");
+        if (mode != null && mode.trim().equalsIgnoreCase("head")) {
+            return DisplayMode.HEAD;
+        }
+        if (mode != null && !mode.trim().equalsIgnoreCase("model") && warned.add(path)) {
+            // Read on every chunk load (the display sweep), so said once per load of the config.
+            plugin.getLogger().warning(path + " '" + mode + "' is not model or head; using model.");
+        }
+        return DisplayMode.MODEL;
+    }
+
+    /** {@code <kind>.display.model-scale}: the model's size over the real block (mode: model). */
+    public float modelScale(com.dierks.craftbridge.workbench.BlockKind kind) {
+        double scale = raw.getDouble(kind.configSection() + ".display.model-scale", 1.002);
+        return (float) Math.max(0.5, Math.min(2.0, scale));
+    }
+
     public boolean workbenchRespectProtection() {
         return raw.getBoolean("linked-workbench.respect-protection", true);
     }
@@ -315,6 +345,50 @@ public final class CraftBridgeConfig {
     /** How far (in blocks) from a player holding the marker marked containers show their particles. */
     public int golemRadius() {
         return Math.max(1, Math.min(32, raw.getInt("golem-chests.radius", 16)));
+    }
+
+    // ---- resource pack ---------------------------------------------------------------
+
+    /** {@code resource-pack.enabled}: offer the pack to Java players at all. */
+    public boolean resourcePackEnabled() {
+        return raw.getBoolean("resource-pack.enabled", true);
+    }
+
+    /** {@code resource-pack.required}: kick players who decline. */
+    public boolean resourcePackRequired() {
+        return raw.getBoolean("resource-pack.required", false);
+    }
+
+    /** The MiniMessage text on the client's download prompt; blank for none. */
+    public String resourcePackPrompt() {
+        return raw.getString("resource-pack.prompt", "");
+    }
+
+    /** {@code resource-pack.url}, trimmed; blank when the pack is not hosted elsewhere. */
+    public String resourcePackUrl() {
+        String url = raw.getString("resource-pack.url", "");
+        return url == null ? "" : url.trim();
+    }
+
+    /** {@code resource-pack.host.enabled}: run the built-in web server (only while url is blank). */
+    public boolean resourcePackHostEnabled() {
+        return raw.getBoolean("resource-pack.host.enabled", false);
+    }
+
+    public int resourcePackHostPort() {
+        int port = raw.getInt("resource-pack.host.port", 8765);
+        return port < 1 || port > 65535 ? 8765 : port;
+    }
+
+    /** {@code resource-pack.host.public-address}, trimmed; blank when unset. */
+    public String resourcePackPublicAddress() {
+        String address = raw.getString("resource-pack.host.public-address", "");
+        return address == null ? "" : address.trim();
+    }
+
+    /** {@code bedrock.show-displays}: show model displays to Bedrock players (GeyserDisplayEntity). */
+    public boolean bedrockShowDisplays() {
+        return raw.getBoolean("bedrock.show-displays", false);
     }
 
     // ---- middle-click sorting --------------------------------------------------------

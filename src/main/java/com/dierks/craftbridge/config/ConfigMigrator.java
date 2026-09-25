@@ -78,7 +78,7 @@ public final class ConfigMigrator {
      * bump would never reach existing servers. ConfigMigratorTest holds the bundled keys for
      * this version and fails until the number is bumped.
      */
-    public static final int CURRENT_VERSION = 3;
+    public static final int CURRENT_VERSION = 4;
 
     /** Values the admin owns as a whole: added when missing, never merged entry by entry. */
     private static final Set<String> WHOLE_VALUES = Set.of(

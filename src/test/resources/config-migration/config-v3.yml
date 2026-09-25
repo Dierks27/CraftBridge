@@ -87,11 +87,10 @@ linked-workbench:
   phantom-slots: true
   # Empty slots kept free of phantoms so JEI can still move leftovers out of the grid.
   phantom-reserve-empty-slots: 2
-  # Base64 "textures" value of the head the block looks like in display.mode: head.
+  # Base64 "textures" value of the head the block should look like.
   head-texture: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDkzZDExMmRjZTc0NGNjOWY3OTc5OTZmMTJjZTNhMmQ4MjJkY2E5ZDA5YzllOWVkZTZjNmIxMzIwODA5OWMxIn19fQ=="
-  # The ItemDisplay that draws the block's look over the real crafting table. Tune live
-  # with /craftbridge workbench display <mode|modelscale|scale|x|y|z|yaw|transform>.
-  # The head (mode: head) is shaped by:
+  # The ItemDisplay that draws the head at full block size over the real crafting
+  # table. Tune live with /craftbridge workbench display <scale|x|y|z|yaw|transform>.
   #   transform: NONE renders the raw head model (a half-block cube whose top sits at
   #              the entity position); HEAD/FIXED apply the item model's display
   #              transforms instead (FIXED is half-size and rotated 180°, so it needs
@@ -101,21 +100,13 @@ linked-workbench:
   #   offset-*:  entity position relative to the block's origin corner; with NONE the
   #              model hangs down from the entity, so y = 1.005 puts it over the block.
   display:
-    # model: a CraftBridge model from the resource pack (resource-pack below), shown only to
-    #        players whose client loaded that pack; everyone else sees the plain crafting
-    #        table. The place-item is then a crafting table carrying the model too.
-    # head:  the textured head above (head-texture), shown to everyone, no pack needed.
-    mode: model
-    # Size of the model over the table; a hair over 1 so the real block never shows through.
-    model-scale: 1.002
-    # The settings below shape the head (mode: head) only.
     transform: NONE
     scale: 2.02
     offset-x: 0.5
     offset-y: 1.005
     offset-z: 0.5
     yaw-offset: 0
-  # Crafting recipe for the place-item. H = chest, C = copper ingot,
+  # Crafting recipe for the place-item (the head). H = chest, C = copper ingot,
   # T = crafting table, E = ender pearl.
   recipe:
     enabled: true
@@ -132,20 +123,16 @@ linked-workbench:
 # -----------------------------------------------------------------------------
 combo-chest:
   radius: 8
-  # Base64 "textures" value for the head the block looks like in display.mode: head.
+  # Base64 "textures" value for the head the block should look like.
   # Blank = the built-in Combo Chest head; "none" = show display-item instead.
   head-texture: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNmJiMGUzYzE4YzczZTNhMmNhYmNjZjQ0ZWY1M2Q2MTdjYTA5NWUwZjIzNDdlZmE5M2Y2N2JkNDgwOGU3MGE3In19fQ=="
   # Item the display shows (and the place-item is) when head-texture is "none".
   display-item: CHEST
-  # The ItemDisplay over the barrel. In mode: head, a head model is a half block, so it
+  # Geometry of the ItemDisplay over the barrel. A head model is a half block, so it
   # needs scale ~2.02 with the entity at the top of the block (like the workbench);
   # the chest item model is 14/16 of a block and wants scale ~1.16 at the centre.
-  # Tune live with /craftbridge combochest display <mode|modelscale|scale|x|y|z|yaw|transform> <value>.
+  # Tune live with /craftbridge combochest display <scale|x|y|z|yaw|transform> <value>.
   display:
-    # model or head, as for the Linked Workbench. Without the pack a player sees the barrel.
-    mode: model
-    model-scale: 1.002
-    # The settings below shape the head (mode: head) only.
     transform: NONE
     scale: 2.02
     offset-x: 0.5
@@ -188,46 +175,6 @@ golem-chests:
       S: STICK
 
 # -----------------------------------------------------------------------------
-# Resource pack — the models behind display.mode: model. On every start CraftBridge builds
-# the pack from the files in its jar (plus any in plugins/CraftBridge/pack/overrides/java/),
-# writes it to plugins/CraftBridge/pack/craftbridge-java.zip and logs its SHA-1, then offers
-# it to every Java player as they join. A player who declines it, or whose download fails,
-# keeps seeing the plain crafting table and barrel. See "Custom block models" in the README.
-# -----------------------------------------------------------------------------
-resource-pack:
-  enabled: true
-  # true kicks a player who declines the pack. Leave it false: the blocks work without it.
-  required: false
-  # Shown on the client's "download this pack?" screen (MiniMessage).
-  prompt: "<gray>CraftBridge adds 3D models for the Linked Workbench and Combo Chest."
-  # Where players download the pack: upload plugins/CraftBridge/pack/craftbridge-java.zip to
-  # your website and put its address here, for example
-  #   url: "https://www.lilahcraft.com/craftbridge/craftbridge-java.zip"
-  # Clients check the download against the SHA-1 of CraftBridge's own pack, so an upload
-  # from an older CraftBridge is rejected; the console warns at startup when the file at
-  # this address differs. Upload the new zip after every CraftBridge update.
-  url: ""
-  # The built-in web server, for when players can reach a port on this machine. Only used
-  # while url is blank.
-  host:
-    enabled: false
-    # Already in use on HomeCraft: 8080 (HomeCraftManagement), 8100 (BlueMap). Players reach
-    # the server through a proxy, so this port must be relayed from the proxy to be reachable.
-    port: 8765
-    # The address players download from: the public IP or domain name that reaches this
-    # port. Blank uses server-ip from server.properties (usually blank too, so set this).
-    public-address: ""
-
-# -----------------------------------------------------------------------------
-# Bedrock players (Geyser / Floodgate). They cannot load a Java pack, so model displays are
-# hidden from them and they see the plain block. Set this to true only when Geyser has the
-# GeyserDisplayEntity extension and CraftBridge's Bedrock pack and mappings (see
-# /craftbridge geyser export and the README).
-# -----------------------------------------------------------------------------
-bedrock:
-  show-displays: false
-
-# -----------------------------------------------------------------------------
 # JEI (Feature 1 lives under features.jei-transfer; this is the recipe sync)
 # -----------------------------------------------------------------------------
 jei:
@@ -256,4 +203,4 @@ jei:
 # the current one: settings added since are filled in with their defaults, entries new
 # in a release are added to lists once, and nothing you have set is changed. The file
 # as it was is kept beside it as config.yml.bak-v<old version>. Leave this number alone.
-config-version: 4
+config-version: 3
