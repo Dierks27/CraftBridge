@@ -59,18 +59,20 @@ class LinkProtocolTest {
     @Test
     void aTransferRequestWithARecipeIdCarriesNothingElse() {
         LinkProtocol.TransferRequest got = LinkProtocol.decodeTransferRequest(LinkProtocol.encode(
-                new LinkProtocol.TransferRequest(3, 8, true, false, "minecraft:torch", List.of())));
+                new LinkProtocol.TransferRequest(3, 8, true, false, 0, false, "minecraft:torch", List.of())));
         assertEquals(3, got.requestId());
         assertEquals(8, got.basedOnSequence());
         assertTrue(got.maxTransfer());
         assertFalse(got.requireCompleteSets());
+        assertEquals(0, got.craftCount());
+        assertFalse(got.leaveOne());
         assertEquals("minecraft:torch", got.recipeId());
         assertTrue(got.slots().isEmpty());
     }
 
     @Test
     void aTransferRequestWithoutAnIdCarriesTheSlotChoices() {
-        LinkProtocol.TransferRequest sent = new LinkProtocol.TransferRequest(4, 9, false, true, "",
+        LinkProtocol.TransferRequest sent = new LinkProtocol.TransferRequest(4, 9, false, true, 0, false, "",
                 List.of(new LinkProtocol.SlotChoices(0, List.of(item(1), item(2))),
                         new LinkProtocol.SlotChoices(4, List.of(item(3)))));
         LinkProtocol.TransferRequest got = LinkProtocol.decodeTransferRequest(LinkProtocol.encode(sent));
@@ -78,6 +80,44 @@ class LinkProtocolTest {
         assertEquals(2, got.slots().size());
         assertEquals(4, got.slots().get(1).gridIndex());
         assertArrayEquals(item(2), got.slots().get(0).choices().get(1));
+    }
+
+    @Test
+    void aTransferRequestCarriesTheCraftCountAndLeaveOne() {
+        LinkProtocol.TransferRequest byId = LinkProtocol.decodeTransferRequest(LinkProtocol.encode(
+                new LinkProtocol.TransferRequest(5, 2, false, true, 16, true, "minecraft:stick", List.of())));
+        assertEquals(16, byId.craftCount());
+        assertTrue(byId.leaveOne());
+        assertEquals("minecraft:stick", byId.recipeId());
+        LinkProtocol.TransferRequest bySlots = LinkProtocol.decodeTransferRequest(LinkProtocol.encode(
+                new LinkProtocol.TransferRequest(6, 2, true, true, 300, false, "",
+                        List.of(new LinkProtocol.SlotChoices(1, List.of(item(9)))))));
+        assertEquals(300, bySlots.craftCount());
+        assertFalse(bySlots.leaveOne());
+        assertEquals(1, bySlots.slots().get(0).gridIndex());
+    }
+
+    @Test
+    void aNegativeCraftCountGoesOutAsZero() {
+        assertEquals(0, LinkProtocol.decodeTransferRequest(LinkProtocol.encode(
+                new LinkProtocol.TransferRequest(1, 0, false, true, -4, false, "a:b", List.of()))).craftCount());
+    }
+
+    @Test
+    void theV3TransferRequestLayoutIsPinned() {
+        // version, requestId, basedOnSequence, maxTransfer, requireCompleteSets, craftCount,
+        // leaveOne, hasRecipeId, recipeId
+        assertArrayEquals(new byte[]{3, 7, 1, 0, 1, 16, 1, 1, 3, 'a', ':', 'b'},
+                LinkProtocol.encode(new LinkProtocol.TransferRequest(7, 1, false, true, 16, true, "a:b", List.of())));
+    }
+
+    @Test
+    void aVersion2ClientsHelloIsAMismatchNotGarbage() {
+        byte[] v2Hello = {2, 5, '0', '.', '3', '.', '0'};
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> LinkProtocol.decodeClientHello(v2Hello));
+        assertTrue(ex.getMessage().contains("version 2") && ex.getMessage().contains("update"), ex.getMessage());
+        assertTrue(InboundGuard.isVersionMismatch(v2Hello));
     }
 
     @Test
@@ -99,6 +139,45 @@ class LinkProtocolTest {
         assertEquals(1, got.entries().size());
         assertEquals("PC", got.entries().get(0).displayName());
         assertEquals(List.of("homecraftmanagement:block_id"), got.entries().get(0).distinguishingKeys());
+    }
+
+    @Test
+    void aSortRequestRoundTrips() {
+        LinkProtocol.SortRequest got = LinkProtocol.decodeSortRequest(LinkProtocol.encode(
+                new LinkProtocol.SortRequest(12, 57, LinkProtocol.SORT_TARGET_PLAYER)));
+        assertEquals(12, got.requestId());
+        assertEquals(57, got.containerId());
+        assertEquals("PLAYER", got.target());
+        assertEquals(0, LinkProtocol.decodeSortRequest(LinkProtocol.encode(
+                new LinkProtocol.SortRequest(1, 0, LinkProtocol.SORT_TARGET_CONTAINER))).containerId());
+    }
+
+    @Test
+    void helloFlagsAreIndependentBits() {
+        assertEquals(0, LinkProtocol.FLAG_SORT & LinkProtocol.FLAG_PHANTOM_SLOTS_OFF);
+        LinkProtocol.ServerHello sortOnly = LinkProtocol.decodeServerHello(
+                LinkProtocol.encode(new LinkProtocol.ServerHello("0.14", LinkProtocol.FLAG_SORT)));
+        assertTrue(sortOnly.sortAllowed());
+        assertFalse(sortOnly.phantomSlotsOff(), "what an older client, which only reads bit 1, sees");
+        LinkProtocol.ServerHello both = new LinkProtocol.ServerHello("0.14",
+                LinkProtocol.FLAG_SORT | LinkProtocol.FLAG_PHANTOM_SLOTS_OFF);
+        assertTrue(both.sortAllowed() && both.phantomSlotsOff());
+        assertFalse(new LinkProtocol.ServerHello("0.14", 0).sortAllowed());
+    }
+
+    @Test
+    void theServerHelloLayoutIsUnchangedByTheSortFlag() {
+        assertArrayEquals(new byte[]{(byte) LinkProtocol.VERSION, 4, '0', '.', '1', '3', 2},
+                LinkProtocol.encode(new LinkProtocol.ServerHello("0.13", LinkProtocol.FLAG_SORT)));
+    }
+
+    @Test
+    void aTruncatedOrMismatchedSortRequestIsRejected() {
+        byte[] payload = LinkProtocol.encode(new LinkProtocol.SortRequest(3, 4, "CONTAINER"));
+        byte[] cut = java.util.Arrays.copyOf(payload, payload.length - 1);
+        assertThrows(IllegalArgumentException.class, () -> LinkProtocol.decodeSortRequest(cut));
+        payload[0] = (byte) (LinkProtocol.VERSION + 1);
+        assertThrows(IllegalArgumentException.class, () -> LinkProtocol.decodeSortRequest(payload));
     }
 
     @Test

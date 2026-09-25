@@ -11,6 +11,8 @@ import static com.dierks.craftbridge.link.GridPlanner.Supply;
 import static com.dierks.craftbridge.link.GridPlanner.plan;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -50,6 +52,47 @@ class GridPlannerTest {
         assertTrue(p.ok(), p.failure());
         assertEquals(12, p.sets());
         assertEquals(96, p.fills().stream().mapToInt(Fill::count).sum());
+    }
+
+    @Test
+    void aCraftCountFillsTheGridForExactlyThatMany() {
+        // Sticks: two planks stacked, 100 planks in range. Sixteen asked, sixteen per slot.
+        List<Slot> sticks = List.of(new Slot(1, new int[]{0}), new Slot(4, new int[]{0}));
+        Plan p = plan(sticks, List.of(new Supply(0, 100)), stacks(64), false, 16);
+        assertTrue(p.ok(), p.failure());
+        assertEquals(16, p.sets());
+        for (Fill fill : p.fills()) {
+            assertEquals(16, fill.count(), "slot " + fill.gridIndex());
+        }
+    }
+
+    @Test
+    void aCraftCountOverridesMaxTransferInBothDirections() {
+        List<Slot> sticks = List.of(new Slot(1, new int[]{0}), new Slot(4, new int[]{0}));
+        assertEquals(3, plan(sticks, List.of(new Supply(0, 100)), stacks(64), true, 3).sets());
+        assertEquals(50, plan(sticks, List.of(new Supply(0, 100)), stacks(64), true, 0).sets());
+        assertEquals(1, plan(sticks, List.of(new Supply(0, 100)), stacks(64), false, 0).sets());
+    }
+
+    @Test
+    void aCraftCountIsBoundedByWhatIsToHandAndByStackSizes() {
+        // Coal for 10 torches only.
+        List<Slot> torch = List.of(new Slot(1, new int[]{0}), new Slot(4, new int[]{1}));
+        Plan p = plan(torch, List.of(new Supply(3, 7), new Supply(0, 500)), stacks(64, 64), false, 64);
+        assertTrue(p.ok(), p.failure());
+        assertEquals(10, p.sets());
+        // Ender pearls stack to 16: a request for 64 eyes stops at a full slot.
+        List<Slot> eye = List.of(new Slot(0, new int[]{0}), new Slot(1, new int[]{1}));
+        assertEquals(16, plan(eye, List.of(new Supply(0, 500), new Supply(0, 500)), stacks(16, 64), false, 64).sets());
+    }
+
+    @Test
+    void aCraftCountStillSpendsThePlayersOwnItemsFirst() {
+        List<Slot> one = List.of(new Slot(4, new int[]{0}));
+        Plan p = plan(one, List.of(new Supply(5, 100)), stacks(64), false, 12);
+        assertEquals(12, p.sets());
+        assertEquals(5, p.fills().get(0).fromPlayer());
+        assertEquals(7, p.fills().get(0).fromStorage());
     }
 
     @Test
@@ -145,5 +188,37 @@ class GridPlannerTest {
         assertTrue(p.ok(), p.failure());
         assertEquals(1, p.sets());
         assertEquals(8, p.fills().stream().mapToInt(Fill::count).sum());
+    }
+    @Test
+    void aGridIndexOutsideTheGridIsRefusedBeforeAnythingIsPlanned() {
+        // Client-written indexes: a slot 9 or -1 would have its items taken and never placed.
+        for (int bad : new int[]{-1, 9, 42, Integer.MIN_VALUE}) {
+            List<Slot> slots = List.of(new Slot(0, new int[]{0}), new Slot(bad, new int[]{0}));
+            assertNotNull(GridPlanner.gridProblem(slots), "index " + bad);
+            Plan p = plan(slots, List.of(new Supply(64, 64)), stacks(64), true);
+            assertFalse(p.ok(), "index " + bad);
+            assertTrue(p.fills().isEmpty(), "nothing is taken for a request that cannot be placed");
+        }
+    }
+
+    @Test
+    void aGridSlotNamedTwiceIsRefused() {
+        // Two fills for one slot: the second would overwrite the first, deleting its items.
+        List<Slot> slots = List.of(new Slot(4, new int[]{0}), new Slot(4, new int[]{0}));
+        assertNotNull(GridPlanner.gridProblem(slots));
+        Plan p = plan(slots, List.of(new Supply(64, 64)), stacks(64), true);
+        assertFalse(p.ok());
+        assertTrue(p.fills().isEmpty());
+    }
+
+    @Test
+    void everyRealGridSlotIsAccepted() {
+        List<Slot> all = new java.util.ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            all.add(new Slot(i, new int[]{0}));
+        }
+        assertNull(GridPlanner.gridProblem(all));
+        assertNull(GridPlanner.gridProblem(chestShape()));
+        assertTrue(plan(all, List.of(new Supply(9, 0)), stacks(64), false).ok());
     }
 }

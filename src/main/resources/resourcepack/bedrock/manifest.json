@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "CraftBridge",
+    "description": "Linked Workbench and Combo Chest models for Geyser",
+    "uuid": "70602ce9-f83d-409b-a510-f3562e54b7dc",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      21,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "640c2b68-ed7c-4151-8de2-e106195e205d",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

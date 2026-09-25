@@ -22,10 +22,12 @@ public final class CraftBridgeConfig {
 
     private final JavaPlugin plugin;
     private final FileConfiguration raw;
+    /** Settings already warned about, so a bad value read often is reported once. */
+    private final java.util.Set<String> warned = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** Top-level sections the plugin expects; a config from an older version may lack some. */
     private static final List<String> SECTIONS = List.of("features", "sorting", "linked-workbench",
-            "combo-chest", "jei");
+            "combo-chest", "golem-chests", "resource-pack", "bedrock", "jei");
 
     public CraftBridgeConfig(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -226,6 +228,52 @@ public final class CraftBridgeConfig {
                 (float) raw.getDouble(base + "yaw-offset", 0));
     }
 
+    /** What the display over a Linked Workbench or Combo Chest shows. */
+    public enum DisplayMode {
+        /** The block's model from CraftBridge's resource pack, shown only to players who loaded it. */
+        MODEL,
+        /** The textured head (or display-item), shown to everyone. */
+        HEAD
+    }
+
+    /**
+     * The look actually used: {@link #configuredDisplayMode}, except that the model falls back to
+     * the head while no way to send the pack is set up (resource-pack off, or neither a url nor
+     * the built-in host), so a server upgraded without uploading the pack keeps its heads.
+     */
+    public DisplayMode displayMode(com.dierks.craftbridge.workbench.BlockKind kind) {
+        DisplayMode mode = configuredDisplayMode(kind);
+        if (mode == DisplayMode.MODEL && !resourcePackDeliverable()) {
+            return DisplayMode.HEAD;
+        }
+        return mode;
+    }
+
+    /** Whether the settings name a way to send the pack: enabled, with a url or the built-in host. */
+    public boolean resourcePackDeliverable() {
+        return resourcePackEnabled() && (!resourcePackUrl().isEmpty() || resourcePackHostEnabled());
+    }
+
+    /** {@code <kind>.display.mode} as written; anything but "head" is the model. */
+    public DisplayMode configuredDisplayMode(com.dierks.craftbridge.workbench.BlockKind kind) {
+        String path = kind.configSection() + ".display.mode";
+        String mode = raw.getString(path, "model");
+        if (mode != null && mode.trim().equalsIgnoreCase("head")) {
+            return DisplayMode.HEAD;
+        }
+        if (mode != null && !mode.trim().equalsIgnoreCase("model") && warned.add(path)) {
+            // Read on every chunk load (the display sweep), so said once per load of the config.
+            plugin.getLogger().warning(path + " '" + mode + "' is not model or head; using model.");
+        }
+        return DisplayMode.MODEL;
+    }
+
+    /** {@code <kind>.display.model-scale}: the model's size over the real block (mode: model). */
+    public float modelScale(com.dierks.craftbridge.workbench.BlockKind kind) {
+        double scale = raw.getDouble(kind.configSection() + ".display.model-scale", 1.002);
+        return (float) Math.max(0.5, Math.min(2.0, scale));
+    }
+
     public boolean workbenchRespectProtection() {
         return raw.getBoolean("linked-workbench.respect-protection", true);
     }
@@ -245,31 +293,131 @@ public final class CraftBridgeConfig {
     }
 
     public boolean recipeEnabled(com.dierks.craftbridge.workbench.BlockKind kind) {
-        return raw.getBoolean(kind.configSection() + ".recipe.enabled", true);
+        return recipeEnabled(kind.configSection());
     }
 
     public List<String> recipeShape(com.dierks.craftbridge.workbench.BlockKind kind) {
-        List<String> shape = raw.getStringList(kind.configSection() + ".recipe.shape");
-        return shape.isEmpty() ? kind.defaultRecipeShape() : shape;
+        return recipeShape(kind.configSection(), kind.defaultRecipeShape());
     }
 
     public Map<Character, Material> recipeIngredients(com.dierks.craftbridge.workbench.BlockKind kind) {
+        return recipeIngredients(kind.configSection(), kind.defaultRecipeIngredients());
+    }
+
+    /** {@code <section>.recipe.enabled}, for any block or item with a configurable recipe. */
+    public boolean recipeEnabled(String section) {
+        return raw.getBoolean(section + ".recipe.enabled", true);
+    }
+
+    public List<String> recipeShape(String section, List<String> defaults) {
+        List<String> shape = raw.getStringList(section + ".recipe.shape");
+        return shape.isEmpty() ? defaults : shape;
+    }
+
+    public Map<Character, Material> recipeIngredients(String section, Map<Character, Material> defaults) {
         Map<Character, Material> out = new LinkedHashMap<>();
         // Not getConfigurationSection: when the file lacks the map it creates a new, empty one
         // in the live config instead of returning null, and the next saveConfig() (any
         // "/craftbridge ... display" tweak) wrote that "ingredients: {}" to disk.
-        if (!(raw.get(kind.configSection() + ".recipe.ingredients", null) instanceof ConfigurationSection section)) {
-            return kind.defaultRecipeIngredients();
+        if (!(raw.get(section + ".recipe.ingredients", null) instanceof ConfigurationSection map)) {
+            return defaults;
         }
-        for (String key : section.getKeys(false)) {
-            String name = section.getString(key, "");
+        for (String key : map.getKeys(false)) {
+            String name = map.getString(key, "");
             Material material = Material.matchMaterial(name);
             if (key.length() != 1 || material == null) {
-                plugin.getLogger().warning(kind.configSection() + ".recipe.ingredients." + key + " = '" + name + "' is not valid; ignored.");
+                plugin.getLogger().warning(section + ".recipe.ingredients." + key + " = '" + name + "' is not valid; ignored.");
                 continue;
             }
             out.put(key.charAt(0), material);
         }
         return out;
+    }
+
+    // ---- golem chests ----------------------------------------------------------------
+
+    /** Golem chests: the marker item, its recipe, and the keep-one-per-slot rule on marked containers. */
+    public boolean golemChestsEnabled() {
+        return raw.getBoolean("golem-chests.enabled", true);
+    }
+
+    /** The particle a marked container shows to a player holding the marker; null turns them off. */
+    public org.bukkit.Particle golemParticle() {
+        String name = raw.getString("golem-chests.particle", "WAX_ON");
+        if (name == null || name.isBlank() || name.equalsIgnoreCase("none")) {
+            return null;
+        }
+        try {
+            org.bukkit.Particle particle = org.bukkit.Particle.valueOf(name.trim().toUpperCase(Locale.ROOT));
+            if (particle.getDataType() == Void.class) {
+                return particle;
+            }
+            plugin.getLogger().warning("golem-chests.particle " + particle + " needs extra data (a colour, a"
+                    + " block...); pick one that does not, such as WAX_ON or HAPPY_VILLAGER. Using WAX_ON.");
+        } catch (IllegalArgumentException ex) {
+            plugin.getLogger().warning("golem-chests.particle '" + name + "' is not a particle; using WAX_ON.");
+        }
+        return org.bukkit.Particle.WAX_ON;
+    }
+
+    /** How far (in blocks) from a player holding the marker marked containers show their particles. */
+    public int golemRadius() {
+        return Math.max(1, Math.min(32, raw.getInt("golem-chests.radius", 16)));
+    }
+
+    // ---- resource pack ---------------------------------------------------------------
+
+    /** {@code resource-pack.enabled}: offer the pack to Java players at all. */
+    public boolean resourcePackEnabled() {
+        return raw.getBoolean("resource-pack.enabled", true);
+    }
+
+    /** {@code resource-pack.required}: kick players who decline. */
+    public boolean resourcePackRequired() {
+        return raw.getBoolean("resource-pack.required", false);
+    }
+
+    /** The MiniMessage text on the client's download prompt; blank for none. */
+    public String resourcePackPrompt() {
+        return raw.getString("resource-pack.prompt", "");
+    }
+
+    /** {@code resource-pack.url}, trimmed; blank when the pack is not hosted elsewhere. */
+    public String resourcePackUrl() {
+        String url = raw.getString("resource-pack.url", "");
+        return url == null ? "" : url.trim();
+    }
+
+    /** {@code resource-pack.host.enabled}: run the built-in web server (only while url is blank). */
+    public boolean resourcePackHostEnabled() {
+        return raw.getBoolean("resource-pack.host.enabled", false);
+    }
+
+    public int resourcePackHostPort() {
+        int port = raw.getInt("resource-pack.host.port", 8765);
+        return port < 1 || port > 65535 ? 8765 : port;
+    }
+
+    /** {@code resource-pack.host.public-address}, trimmed; blank when unset. */
+    public String resourcePackPublicAddress() {
+        String address = raw.getString("resource-pack.host.public-address", "");
+        return address == null ? "" : address.trim();
+    }
+
+    /** {@code bedrock.show-displays}: show model displays to Bedrock players (GeyserDisplayEntity). */
+    public boolean bedrockShowDisplays() {
+        return raw.getBoolean("bedrock.show-displays", false);
+    }
+
+    // ---- middle-click sorting --------------------------------------------------------
+
+    /** Whether players may middle-click to sort at all (it needs the CraftBridge-Client mod). */
+    public boolean sortMiddleClickAllowed() {
+        return raw.getBoolean("sorting.middle-click.allowed", true);
+    }
+
+    /** The per-player default of the middle-click toggle in /sort settings. */
+    public boolean sortMiddleClickDefault() {
+        return raw.getBoolean("sorting.middle-click.default", true);
     }
 }

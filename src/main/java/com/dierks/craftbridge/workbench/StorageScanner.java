@@ -27,15 +27,32 @@ import java.util.Set;
  */
 public final class StorageScanner {
 
-    /** One usable container: its block (one half for double chests) and its full inventory. */
-    public record Source(Block block, Inventory inventory) {
+    /**
+     * One usable container: its block (one half for double chests) and its full inventory.
+     *
+     * @param keepOne true for a golem chest (or any container an "All but one" craft reads):
+     *                every read and every pull leaves the last item of each slot where it is,
+     *                by the rules in {@link TakePlanner}
+     */
+    public record Source(Block block, Inventory inventory, boolean keepOne) {
+        public Source(Block block, Inventory inventory) {
+            this(block, inventory, false);
+        }
+
         public Location location() {
             return block.getLocation();
+        }
+
+        /** This container, keeping one of every slot. */
+        public Source keepingOne() {
+            return keepOne ? this : new Source(block, inventory, true);
         }
     }
 
     private final CraftBridgePlugin plugin;
     private java.util.function.Supplier<Set<String>> terminals = Set::of;
+    /** "Is this container a golem chest?" (either half, for a double chest); none unless wired. */
+    private java.util.function.Predicate<List<Block>> golem = blocks -> false;
 
     public StorageScanner(CraftBridgePlugin plugin) {
         this.plugin = plugin;
@@ -44,6 +61,20 @@ public final class StorageScanner {
     /** Container blocks that are terminals (Combo Chest barrels) and therefore never storage, for any scan. */
     public void terminals(java.util.function.Supplier<Set<String>> terminals) {
         this.terminals = terminals;
+    }
+
+    /** How to tell a golem chest: given every block behind one inventory (both halves of a double chest). */
+    public void golemChests(java.util.function.Predicate<List<Block>> golem) {
+        this.golem = golem == null ? blocks -> false : golem;
+    }
+
+    /** Every source keeping one of every slot: what an "All but one" craft reads and pulls from. */
+    public static List<Source> keepingOne(List<Source> sources) {
+        List<Source> out = new ArrayList<>(sources.size());
+        for (Source source : sources) {
+            out.add(source.keepingOne());
+        }
+        return out;
     }
 
     public static boolean isStorageBlock(Material type) {
@@ -91,15 +122,30 @@ public final class StorageScanner {
             if (invKey != null && !seenInventories.add(invKey)) {
                 continue; // the other half of a double chest we already have
             }
-            if (!plugin.containerAccess().canUse(player, block, protection)) {
+            // Both halves of a double chest: the inventory is shared, so the lock or claim of
+            // whichever half the scan reached first must not decide for the other.
+            if (!plugin.containerAccess().canUseAll(player, block, inventory, protection)) {
                 continue;
             }
-            sources.add(new Source(block, inventory));
+            sources.add(new Source(block, inventory, isGolem(block, inventory)));
         }
         return sources;
     }
 
-    /** Totals per item (key = the item with amount 1), in first-seen order. */
+    /** Whether a golem-chest mark on any block behind this inventory makes it keep one per slot. */
+    private boolean isGolem(Block block, Inventory inventory) {
+        try {
+            return golem.test(com.dierks.craftbridge.integration.ContainerAccess.blocksBehind(block, inventory));
+        } catch (RuntimeException ex) {
+            return false; // a mark that cannot be read is no mark: never hide items over it
+        }
+    }
+
+    /**
+     * Totals per item (key = the item with amount 1), in first-seen order: what may be
+     * <em>taken</em>, so a golem chest counts one less per slot, and an item of which it only
+     * holds singles is not listed at all.
+     */
     public Map<ItemStack, Integer> aggregate(List<Source> sources) {
         Map<ItemStack, Integer> totals = new LinkedHashMap<>();
         for (Source source : sources) {
@@ -107,10 +153,25 @@ public final class StorageScanner {
                 if (Items.isEmpty(stack)) {
                     continue;
                 }
-                totals.merge(keyOf(stack), stack.getAmount(), Integer::sum);
+                int takeable = TakePlanner.takeable(stack.getAmount(), source.keepOne());
+                if (takeable > 0) {
+                    totals.merge(keyOf(stack), takeable, Integer::sum);
+                }
             }
         }
         return totals;
+    }
+
+    /** Per slot of {@code contents}, how many of {@code key} it holds (0 for anything else). */
+    private static int[] amountsOf(ItemStack[] contents, ItemStack key) {
+        int[] amounts = new int[contents.length];
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack stack = contents[slot];
+            if (!Items.isEmpty(stack) && stack.isSimilar(key)) {
+                amounts[slot] = stack.getAmount();
+            }
+        }
+        return amounts;
     }
 
     public static ItemStack keyOf(ItemStack stack) {
@@ -128,14 +189,19 @@ public final class StorageScanner {
         sources = standing(sources);
         int moved = 0;
         for (Source source : sources) {
+            if (wanted <= 0) {
+                break;
+            }
             Inventory inv = source.inventory();
             ItemStack[] contents = inv.getStorageContents();
-            for (int slot = 0; slot < contents.length && wanted > 0; slot++) {
-                ItemStack stack = contents[slot];
-                if (Items.isEmpty(stack) || !stack.isSimilar(key)) {
+            int[] amounts = amountsOf(contents, key);
+            int[] plan = TakePlanner.plan(amounts, source.keepOne(), wanted);
+            for (int slot : TakePlanner.order(amounts, source.keepOne())) {
+                if (plan[slot] <= 0) {
                     continue;
                 }
-                int take = Math.min(wanted, stack.getAmount());
+                ItemStack stack = contents[slot];
+                int take = plan[slot];
                 ItemStack taken = stack.clone();
                 taken.setAmount(take);
                 Map<Integer, ItemStack> leftover = player.getInventory().addItem(taken);
@@ -157,9 +223,6 @@ public final class StorageScanner {
                     return moved;
                 }
             }
-            if (wanted <= 0) {
-                break;
-            }
         }
         return moved;
     }
@@ -173,14 +236,21 @@ public final class StorageScanner {
         sources = standing(sources);
         List<Pulled> out = new ArrayList<>();
         for (Source source : sources) {
+            if (wanted <= 0) {
+                break;
+            }
             Inventory inv = source.inventory();
             ItemStack[] contents = inv.getStorageContents();
-            for (int slot = 0; slot < contents.length && wanted > 0; slot++) {
-                ItemStack stack = contents[slot];
-                if (Items.isEmpty(stack) || !stack.isSimilar(key)) {
+            int[] amounts = amountsOf(contents, key);
+            int[] plan = TakePlanner.plan(amounts, source.keepOne(), wanted);
+            // Visit the slots in the planner's own order (fullest first for a golem chest), so
+            // the Pulled list reads the way the items were actually taken.
+            for (int slot : TakePlanner.order(amounts, source.keepOne())) {
+                int take = plan[slot];
+                if (take <= 0) {
                     continue;
                 }
-                int take = Math.min(wanted, stack.getAmount());
+                ItemStack stack = contents[slot];
                 ItemStack taken = stack.clone();
                 taken.setAmount(take);
                 int remaining = stack.getAmount() - take;
@@ -192,9 +262,6 @@ public final class StorageScanner {
                 }
                 out.add(new Pulled(taken, source));
                 wanted -= take;
-            }
-            if (wanted <= 0) {
-                break;
             }
         }
         return out;
@@ -292,21 +359,20 @@ public final class StorageScanner {
                 || !(inventory.getHolder(false) instanceof org.bukkit.block.ShulkerBox);
     }
 
-    /** How many items matching {@code key} the sources hold in total. */
+    /**
+     * How many items matching {@code key} may be taken from the sources in total: everything,
+     * except that a golem chest keeps one per slot ({@link TakePlanner#takeable}).
+     */
     public static int count(List<Source> sources, ItemStack key) {
         sources = standing(sources);
-        int n = 0;
+        long n = 0;
         Map<Inventory, Boolean> seen = new HashMap<>();
         for (Source source : sources) {
             if (seen.put(source.inventory(), Boolean.TRUE) != null) {
                 continue;
             }
-            for (ItemStack stack : source.inventory().getStorageContents()) {
-                if (!Items.isEmpty(stack) && stack.isSimilar(key)) {
-                    n += stack.getAmount();
-                }
-            }
+            n += TakePlanner.takeable(amountsOf(source.inventory().getStorageContents(), key), source.keepOne());
         }
-        return n;
+        return n > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) n;
     }
 }

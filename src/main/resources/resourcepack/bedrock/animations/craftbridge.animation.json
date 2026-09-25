@@ -1,0 +1,54 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.craftbridge.block.third_person": {
+      "loop": true,
+      "bones": {
+        "craftbridge": {
+          "rotation": [
+            -20,
+            45,
+            0
+          ],
+          "position": [
+            0,
+            -1,
+            -2
+          ],
+          "scale": 0.375
+        }
+      }
+    },
+    "animation.craftbridge.block.first_person": {
+      "loop": true,
+      "bones": {
+        "craftbridge": {
+          "rotation": [
+            0,
+            45,
+            0
+          ],
+          "position": [
+            2,
+            -2,
+            0
+          ],
+          "scale": 0.4
+        }
+      }
+    },
+    "animation.craftbridge.block.display": {
+      "loop": true,
+      "bones": {
+        "craftbridge": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "scale": 1.0
+        }
+      }
+    }
+  }
+}

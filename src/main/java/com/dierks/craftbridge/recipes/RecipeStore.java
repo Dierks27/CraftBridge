@@ -3,6 +3,8 @@ package com.dierks.craftbridge.recipes;
 import com.dierks.craftbridge.CraftBridgePlugin;
 import com.dierks.craftbridge.items.CustomItemIds;
 import com.dierks.craftbridge.items.CustomItemRegistry;
+import com.dierks.craftbridge.util.KeptEntries;
+import com.dierks.craftbridge.util.SafeYaml;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.ConfigurationSection;
@@ -20,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.BiConsumer;
 
 /**
  * {@code plugins/CraftBridge/recipes.yml}: one entry per recipe under {@code recipes:}.
@@ -65,6 +68,13 @@ public final class RecipeStore {
     private final Map<String, CustomRecipe> recipes = new LinkedHashMap<>();
     /** Resolves {@code custom:} references. Custom items are always loaded before recipes. */
     private final CustomItemRegistry customItems;
+    /**
+     * Entries of recipes.yml that did not parse (a deleted custom item as the result, a renamed
+     * Material, a typo), written back verbatim by {@link #save()} so they are not erased.
+     */
+    private final KeptEntries unreadable = new KeptEntries();
+    /** recipes.yml exists but is not valid YAML: never save over it this session. */
+    private boolean loadFailed;
 
     public RecipeStore(CraftBridgePlugin plugin, CustomItemRegistry customItems) {
         this.plugin = plugin;
@@ -86,12 +96,25 @@ public final class RecipeStore {
 
     public void put(CustomRecipe recipe) {
         recipes.put(recipe.id(), recipe);
+        unreadable.forget(recipe.id());
         save();
+    }
+
+    /**
+     * Swap a recipe in memory without rewriting recipes.yml, for when only its in-memory form
+     * is stale and the file already says the right thing (a {@code custom:} result whose item
+     * definition was just edited).
+     */
+    public void replaceInMemory(CustomRecipe recipe) {
+        if (recipes.containsKey(recipe.id())) {
+            recipes.put(recipe.id(), recipe);
+        }
     }
 
     public CustomRecipe remove(String id) {
         CustomRecipe removed = recipes.remove(id);
         if (removed != null) {
+            unreadable.forget(id);
             save();
         }
         return removed;
@@ -100,30 +123,60 @@ public final class RecipeStore {
     /** {@code ender_pearl}, then {@code ender_pearl_2}, ... — never prompts the admin for an id. */
     public String freeId(Material material) {
         String base = material.name().toLowerCase(Locale.ROOT);
-        if (!recipes.containsKey(base)) {
+        if (!taken(base)) {
             return base;
         }
         for (int i = 2; ; i++) {
             String candidate = base + "_" + i;
-            if (!recipes.containsKey(candidate)) {
+            if (!taken(candidate)) {
                 return candidate;
             }
         }
+    }
+
+    /**
+     * An id a new recipe must not take: a live recipe, or an unreadable entry still kept in the
+     * file (saving over it would silently replace the admin's broken-but-fixable recipe).
+     */
+    private boolean taken(String id) {
+        return recipes.containsKey(id) || unreadable.keys().stream().anyMatch(k -> k.equalsIgnoreCase(id));
     }
 
     // ---- load / save --------------------------------------------------------
 
     public void load() {
         recipes.clear();
-        if (!file.exists()) {
+        unreadable.clear();
+        loadFailed = false;
+        YamlConfiguration yaml = SafeYaml.loadOrNull(file, plugin.getLogger());
+        if (yaml == null) {
+            loadFailed = true;
             return;
         }
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
-        recipes.putAll(parse(yaml, "recipes.yml"));
+        if (yaml.contains("recipes") && !yaml.isConfigurationSection("recipes")) {
+            plugin.getLogger().severe("recipes.yml: 'recipes' is not a map of recipes, so none were loaded and "
+                    + "CraftBridge will NOT save over the file this session. Fix it and run /craftbridge reload.");
+            loadFailed = true;
+            return;
+        }
+        recipes.putAll(parse(yaml, "recipes.yml", unreadable::keep));
+        if (!unreadable.isEmpty()) {
+            plugin.getLogger().warning("recipes.yml: " + unreadable.size() + " recipe(s) could not be loaded "
+                    + "(see above). They stay in the file untouched until fixed or replaced.");
+        }
     }
 
     /** Parse the entries of a recipes YAML (file or bundled resource). Bad entries are logged and skipped. */
     public Map<String, CustomRecipe> parse(YamlConfiguration yaml, String sourceName) {
+        return parse(yaml, sourceName, (id, raw) -> { });
+    }
+
+    /**
+     * As {@link #parse(YamlConfiguration, String)}, also handing every entry that did not parse,
+     * with its key exactly as written and its raw value, to {@code unparsed}.
+     */
+    private Map<String, CustomRecipe> parse(YamlConfiguration yaml, String sourceName,
+                                            BiConsumer<String, Object> unparsed) {
         Map<String, CustomRecipe> out = new LinkedHashMap<>();
         ConfigurationSection root = yaml.getConfigurationSection("recipes");
         if (root == null) {
@@ -132,6 +185,8 @@ public final class RecipeStore {
         for (String id : root.getKeys(false)) {
             ConfigurationSection s = root.getConfigurationSection(id);
             if (s == null) {
+                plugin.getLogger().warning(sourceName + ": recipe '" + id + "' skipped: not a section");
+                unparsed.accept(id, root.get(id));
                 continue;
             }
             try {
@@ -139,6 +194,7 @@ public final class RecipeStore {
                 out.put(recipe.id(), recipe);
             } catch (RuntimeException ex) {
                 plugin.getLogger().warning(sourceName + ": recipe '" + id + "' skipped: " + ex.getMessage());
+                unparsed.accept(id, s);
             }
         }
         return out;
@@ -291,6 +347,10 @@ public final class RecipeStore {
     }
 
     public void save() {
+        if (loadFailed) {
+            SafeYaml.refuseSave(file, plugin.getLogger());
+            return;
+        }
         YamlConfiguration yaml = new YamlConfiguration();
         yaml.options().setHeader(List.of(
                 "CraftBridge custom recipes. Edited by /recipe in-game; hand edits are fine too",
@@ -319,6 +379,10 @@ public final class RecipeStore {
                 }
                 yaml.set(base + ".ingredients", list);
             }
+        }
+        if (!unreadable.isEmpty()) {
+            ConfigurationSection root = yaml.getConfigurationSection("recipes");
+            unreadable.writeInto(root == null ? yaml.createSection("recipes") : root, recipes.keySet());
         }
         try {
             yaml.save(file);
@@ -400,7 +464,7 @@ public final class RecipeStore {
         }
         List<String> added = new ArrayList<>();
         for (CustomRecipe r : parse(yaml, "recipes-peaceful-starter.yml").values()) {
-            if (!recipes.containsKey(r.id())) {
+            if (!taken(r.id())) {
                 recipes.put(r.id(), r);
                 added.add(r.id());
             }

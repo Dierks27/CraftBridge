@@ -46,18 +46,60 @@ public final class GridPlanner {
         }
     }
 
+    /** Slots in a 3x3 crafting grid. */
+    public static final int GRID_SIZE = 9;
+
     private GridPlanner() {
     }
 
     /**
-     * @param slots       the recipe's non-empty slots, in grid order
-     * @param supply      per item type, how many are available
-     * @param maxStack    per item type, how many fit in one slot
-     * @param maxTransfer true for as many sets as the ingredients allow, false for exactly one
+     * Why these slots cannot be a crafting grid, or null when they can: every index in 0-8 and
+     * none twice.
+     *
+     * <p>For a client-described recipe the grid indexes come straight off the wire. An index the
+     * grid does not have, or a slot named twice, used to be caught only after its items had been
+     * taken from the player or a chest — and then quietly not placed, deleting them. Checked
+     * here, before any plan exists, nothing is ever taken for a slot that cannot receive it.
      */
+    public static String gridProblem(List<Slot> slots) {
+        boolean[] seen = new boolean[GRID_SIZE];
+        for (Slot slot : slots) {
+            int index = slot.gridIndex();
+            if (index < 0 || index >= GRID_SIZE) {
+                return "grid slot " + index + " does not exist";
+            }
+            if (seen[index]) {
+                return "grid slot " + index + " is named twice";
+            }
+            seen[index] = true;
+        }
+        return null;
+    }
+
+    /** JEI's own behaviour: one set, or as many as possible with {@code maxTransfer}. */
     public static Plan plan(List<Slot> slots, List<Supply> supply, int[] maxStack, boolean maxTransfer) {
+        return plan(slots, supply, maxStack, maxTransfer, 0);
+    }
+
+    /**
+     * @param slots         the recipe's non-empty slots, in grid order
+     * @param supply        per item type, how many are available
+     * @param maxStack      per item type, how many fit in one slot
+     * @param maxTransfer   true for as many sets as the ingredients allow, false for exactly one
+     * @param requestedSets how many sets the player asked for (the client's craft count), or 0
+     *                      for {@code maxTransfer}'s answer. A request is a ceiling, never a
+     *                      promise: it is bounded by the scarcest ingredient and by stack
+     *                      sizes exactly as a max transfer is, so asking for 64 torches with
+     *                      coal for 10 fills the grid for 10
+     */
+    public static Plan plan(List<Slot> slots, List<Supply> supply, int[] maxStack, boolean maxTransfer,
+                            int requestedSets) {
         if (slots.isEmpty()) {
             return new Plan(List.of(), 0, List.of(), "that recipe has no ingredients");
+        }
+        String bad = gridProblem(slots);
+        if (bad != null) {
+            return new Plan(List.of(), 0, List.of(), bad);
         }
 
         // One item type per slot, decided by a single pass: a slot takes the first type it
@@ -98,7 +140,9 @@ public final class GridPlanner {
         for (int i = 0; i < slots.size(); i++) {
             sets = Math.min(sets, Math.max(1, maxStack[chosen[i]]));
         }
-        if (!maxTransfer) {
+        if (requestedSets > 0) {
+            sets = Math.min(sets, requestedSets);
+        } else if (!maxTransfer) {
             sets = 1;
         }
         if (sets <= 0) {

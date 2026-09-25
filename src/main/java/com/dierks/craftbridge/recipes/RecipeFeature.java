@@ -13,6 +13,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -116,7 +117,16 @@ public final class RecipeFeature implements CraftBridgePlugin.Feature, Listener 
     public void saveItem(CustomItemDef def) {
         itemStore.put(def);
         customItems.put(def);
-        // Recipes hold the id, not a copy, so re-registering picks up the new name/lore/base.
+        // Ingredients hold the id and are resolved at registration, so re-registering picks up
+        // the new name/lore/base for them. A RESULT is different: it is a stack built from the
+        // definition when recipes.yml was loaded (the file only says "custom: <id>"), so without
+        // this every recipe making the item would keep minting the old version until a reload.
+        for (CustomRecipe recipe : List.copyOf(store.all().values())) {
+            ItemStack result = recipe.result();
+            if (def.id().equals(CustomItemRegistry.idOf(result))) {
+                store.replaceInMemory(recipe.withResult(customItems.create(def, result.getAmount())));
+            }
+        }
         registry.registerAll(store.all());
         plugin.getLogger().info("Custom item '" + def.id() + "' saved.");
     }

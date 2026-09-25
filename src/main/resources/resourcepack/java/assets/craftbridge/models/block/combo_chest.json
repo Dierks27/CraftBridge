@@ -1,0 +1,37 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "craftbridge:block/combo_chest_side",
+    "top": "craftbridge:block/combo_chest_top",
+    "bottom": "craftbridge:block/combo_chest_bottom",
+    "front": "craftbridge:block/combo_chest_front",
+    "side": "craftbridge:block/combo_chest_side",
+    "panel": "craftbridge:block/combo_chest_panel"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "down": {"uv": [0, 0, 16, 16], "texture": "#bottom"},
+        "up": {"uv": [0, 0, 16, 16], "texture": "#top"},
+        "north": {"uv": [0, 0, 16, 16], "texture": "#front"},
+        "south": {"uv": [0, 0, 16, 16], "texture": "#side"},
+        "west": {"uv": [0, 0, 16, 16], "texture": "#side"},
+        "east": {"uv": [0, 0, 16, 16], "texture": "#side"}
+      }
+    },
+    {
+      "name": "panel",
+      "from": [4, 5, -1],
+      "to": [12, 11, 0],
+      "faces": {
+        "north": {"uv": [0, 0, 8, 6], "texture": "#panel"},
+        "up": {"uv": [8, 0, 16, 1], "texture": "#panel"},
+        "down": {"uv": [8, 0, 16, 1], "texture": "#panel"},
+        "west": {"uv": [8, 0, 9, 6], "texture": "#panel"},
+        "east": {"uv": [8, 0, 9, 6], "texture": "#panel"}
+      }
+    }
+  ]
+}

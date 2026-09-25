@@ -1,0 +1,20 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "index": 0,
+    "cases": [
+      {
+        "when": "craftbridge:linked_workbench",
+        "model": {
+          "type": "minecraft:model",
+          "model": "craftbridge:block/linked_workbench"
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "minecraft:block/crafting_table"
+    }
+  }
+}

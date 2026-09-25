@@ -3,8 +3,11 @@ package com.dierks.craftbridge.workbench;
 import com.destroystokyo.paper.profile.PlayerProfile;
 import com.destroystokyo.paper.profile.ProfileProperty;
 import com.dierks.craftbridge.CraftBridgePlugin;
+import com.dierks.craftbridge.config.CraftBridgeConfig;
 import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import io.papermc.paper.datacomponent.item.CustomModelData;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
@@ -19,7 +22,9 @@ import java.util.UUID;
 /**
  * Place-items and display items for every {@link BlockKind}.
  *
- * <p>A kind with a configured head texture is a player head wearing it (built in two
+ * <p>In {@code display.mode: model} (the default) both are the real block's item carrying
+ * the model's custom model data, see {@link #modelItem(BlockKind)}. In {@code head} mode, a
+ * kind with a configured head texture is a player head wearing it (built in two
  * passes: profile first, then name/lore/PDC on a fresh meta — on the live 26.2 API
  * setting the profile on a meta that already carries a name and PDC can drop everything
  * but the name). A kind without a texture uses its {@code display-item} material (the
@@ -34,13 +39,32 @@ public final class WorkbenchItems {
         this.plugin = plugin;
     }
 
-    /** The undecorated item the ItemDisplay shows: textured head, or the configured display material. */
+    /**
+     * The undecorated item the ItemDisplay shows: in {@code display.mode: model} the block
+     * itself carrying the model's custom model data, else the textured head, or the configured
+     * display material.
+     */
     public ItemStack displayItem(BlockKind kind) {
+        if (plugin.config().displayMode(kind) == CraftBridgeConfig.DisplayMode.MODEL) {
+            return modelItem(kind);
+        }
         String texture = plugin.config().headTexture(kind);
         if (texture != null && !texture.isBlank()) {
             return texturedHead(kind, texture);
         }
         return new ItemStack(plugin.config().displayMaterial(kind));
+    }
+
+    /**
+     * A plain crafting table / barrel whose {@code custom_model_data} strings start with
+     * {@link BlockKind#modelData()}: CraftBridge's pack draws it as the block's model, a
+     * client without the pack draws the vanilla block, and Geyser maps it to the Bedrock item.
+     */
+    public static ItemStack modelItem(BlockKind kind) {
+        ItemStack item = new ItemStack(kind.block());
+        item.setData(DataComponentTypes.CUSTOM_MODEL_DATA,
+                CustomModelData.customModelData().addString(kind.modelData()).build());
+        return item;
     }
 
     private static ItemStack texturedHead(BlockKind kind, String texture) {

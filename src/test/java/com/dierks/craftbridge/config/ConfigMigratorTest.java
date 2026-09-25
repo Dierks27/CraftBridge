@@ -179,8 +179,8 @@ class ConfigMigratorTest {
 
         migrate();
 
-        String expected = original.replace("      - minecraft:smithing\n",
-                "      - minecraft:smithing\n      - minecraft:brewing\n")
+        String expected = withNewSettings(original.replace("      - minecraft:smithing\n",
+                "      - minecraft:smithing\n      - minecraft:brewing\n"))
                 + "\n" + versionBlock() + "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n";
         assertEquals(expected, Files.readString(config));
         assertTrue(Files.readString(config).contains("shape: ['HEH', 'CBC', 'HRH']"), "flow lists kept as written");
@@ -188,17 +188,44 @@ class ConfigMigratorTest {
     }
 
     @Test
-    void aV0131FileOnlyGainsTheVersionStamp() throws IOException {
+    void aV0131FileOnlyGainsTheNewSectionsAndTheVersionStamp() throws IOException {
         String original = fixture("config-v0.13.1.yml");
         Files.writeString(config, original);
 
         migrate();
 
         String after = Files.readString(config);
-        assertTrue(after.startsWith(original.stripTrailing()), "nothing before the stamp changed");
+        assertTrue(after.startsWith(withNewSettings(original).stripTrailing()), "nothing else before the stamp changed");
         assertTrue(after.contains("# Minecraft 26.3 made brewing a recipe type"), "a comment inside a list survives");
+        assertTrue(after.contains("# Golem chests"), "the new section keeps the jar's comments");
         assertEquals(1, reload().getStringList(TYPES).stream().filter("minecraft:brewing"::equals).count());
-        assertTrue(logged.get(0).contains("nothing to add"), logged.get(0));
+        assertTrue(logged.get(0).contains("added sorting.middle-click, "), logged.get(0));
+        assertTrue(logged.get(0).contains(", golem-chests, "), logged.get(0));
+    }
+
+    @Test
+    void aNewSectionLandsBeforeTheNextOneTheFileHas() throws IOException {
+        Files.writeString(config, fixture("config-v0.13.yml"));
+
+        migrate();
+
+        String after = Files.readString(config);
+        int golem = after.indexOf("golem-chests:");
+        assertTrue(golem > after.indexOf("combo-chest:") && golem < after.indexOf("\njei:"), after);
+        assertEquals(List.of("C", "H", "S"), reload().getStringList("golem-chests.recipe.shape"));
+        assertEquals("HONEYCOMB", reload().getString("golem-chests.recipe.ingredients.H"));
+    }
+
+    @Test
+    void aFileWithoutTheNextSectionStillGetsTheNewOneThroughTheYamlWriter() throws IOException {
+        String original = fixture("config-v0.13.yml");
+        Files.writeString(config, original.substring(0, original.indexOf("# ---------------------------------"
+                + "--------------------------------------------\n# JEI")));
+
+        migrate();
+
+        assertTrue(reload().getBoolean("golem-chests.enabled"));
+        assertEquals(ConfigMigrator.CURRENT_VERSION, reload().getInt(ConfigMigrator.VERSION_KEY));
     }
 
     @Test
@@ -218,8 +245,8 @@ class ConfigMigratorTest {
 
         migrate();
 
-        String expected = (fixture("config-v0.13.yml").replace("      - minecraft:smithing\n",
-                "      - minecraft:smithing\n      - minecraft:brewing\n")
+        String expected = (withNewSettings(fixture("config-v0.13.yml").replace("      - minecraft:smithing\n",
+                "      - minecraft:smithing\n      - minecraft:brewing\n"))
                 + "\n" + versionBlock() + "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n").replace("\n", "\r\n");
         assertEquals("\uFEFF" + expected, Files.readString(config));
     }
@@ -445,6 +472,69 @@ class ConfigMigratorTest {
                 bundled.getStringList(TYPES), "a new list entry needs a version bump and a Step");
     }
 
+    // ---- a v3 file (golem chests and middle-click sorting, before the model displays) ----
+
+    @Test
+    void aV3FileGainsTheModelSettingsAndThePackSectionsAndNothingElse() throws IOException {
+        String original = fixture("config-v3.yml");
+        Files.writeString(config, original);
+
+        ConfigMigrator.Result result = migrate();
+
+        assertEquals(3, result.from());
+        String expected = withV4Settings(original.replace("config-version: 3\n",
+                "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n"));
+        assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
+        assertEquals(List.of("added linked-workbench.display.mode, linked-workbench.display.model-scale,"
+                + " combo-chest.display.mode, combo-chest.display.model-scale, resource-pack, bedrock"), result.changes());
+
+        YamlConfiguration after = reload();
+        assertEquals("model", after.getString("linked-workbench.display.mode"));
+        assertEquals("model", after.getString("combo-chest.display.mode"));
+        assertEquals(1.002, after.getDouble("combo-chest.display.model-scale"), 1e-9);
+        assertTrue(after.getBoolean("resource-pack.enabled"));
+        assertFalse(after.getBoolean("resource-pack.required"));
+        assertEquals("", after.getString("resource-pack.url"));
+        assertFalse(after.getBoolean("resource-pack.host.enabled"), "the built-in web server stays off");
+        assertEquals(8765, after.getInt("resource-pack.host.port"));
+        assertEquals("", after.getString("resource-pack.host.public-address"));
+        assertFalse(after.getBoolean("bedrock.show-displays"));
+        String text = Files.readString(config);
+        assertTrue(text.contains("# Resource pack — the models behind display.mode: model."), "section comment kept");
+        assertTrue(text.contains("    # The address players download from"), "nested comment kept");
+        assertTrue(text.contains("  #   url: \"https://www.lilahcraft.com/craftbridge/craftbridge-java.zip\""), "the example url");
+        assertTrue(text.indexOf("\nbedrock:") > text.indexOf("\nresource-pack:")
+                && text.indexOf("\nbedrock:") < text.indexOf("\njei:"), "jar order kept");
+    }
+
+    @Test
+    void aV3FileKeepsTheAdminsHeadGeometryAndGetsTheNewKeysBesideIt() throws IOException {
+        String original = fixture("config-v3.yml").replaceFirst("    scale: 2.02\n", "    scale: 3.5\n");
+        Files.writeString(config, original);
+
+        migrate();
+
+        YamlConfiguration after = reload();
+        assertEquals(3.5, after.getDouble("linked-workbench.display.scale"), 1e-9, "admin value untouched");
+        assertEquals(2.02, after.getDouble("combo-chest.display.scale"), 1e-9);
+        assertEquals("model", after.getString("linked-workbench.display.mode"));
+        assertEquals(List.of("mode", "model-scale", "transform", "scale", "offset-x", "offset-y", "offset-z", "yaw-offset"),
+                new ArrayList<>(after.getConfigurationSection("linked-workbench.display").getKeys(false)));
+    }
+
+    @Test
+    void aV3FileThatAlreadyChoseHeadModeKeepsIt() throws IOException {
+        Files.writeString(config, fixture("config-v3.yml").replace(
+                "  display:\n    transform: NONE\n", "  display:\n    mode: head\n    transform: NONE\n"));
+
+        migrate();
+
+        YamlConfiguration after = reload();
+        assertEquals("head", after.getString("linked-workbench.display.mode"));
+        assertEquals("head", after.getString("combo-chest.display.mode"));
+        assertEquals(1.002, after.getDouble("linked-workbench.display.model-scale"), 1e-9);
+    }
+
     // ---- files that must not be touched ---------------------------------------------
 
     @Test
@@ -546,6 +636,52 @@ class ConfigMigratorTest {
         int key = bundled.indexOf("\n" + ConfigMigrator.VERSION_KEY + ":");
         int start = bundled.lastIndexOf("\n\n", key) + 2;
         return bundled.substring(start, key + 1);
+    }
+
+    /**
+     * A 0.13 file's text as an upgrade to the current version leaves it: the settings v3 and
+     * v4 added, copied from the jar with their comments, just before the next setting the
+     * file already has.
+     */
+    private static String withNewSettings(String text) throws IOException {
+        return withV4Settings(withV3Sections(text));
+    }
+
+    private static String withV3Sections(String text) throws IOException {
+        String header = "# -----------------------------------------------------------------------------\n";
+        String jar = bundledText();
+        String golem = jar.substring(jar.indexOf(header + "# Golem chests"), jar.indexOf(header + "# Resource pack"));
+        int at = text.indexOf(header + "# JEI");
+        text = text.substring(0, at) + golem + text.substring(at);
+        String feedback = "  # Default for the sound/particle feedback toggle.\n";
+        String middle = jar.substring(jar.indexOf("  # Middle-click to sort"), jar.indexOf(feedback));
+        at = text.indexOf(feedback);
+        return text.substring(0, at) + middle + text.substring(at);
+    }
+
+    /**
+     * A v3 file's text as the v4 upgrade leaves it: display.mode and display.model-scale in
+     * both block sections (just before transform), and the resource-pack and bedrock sections
+     * just before the JEI section, all as the jar writes them.
+     */
+    private static String withV4Settings(String text) throws IOException {
+        String jar = bundledText();
+        String display = "  display:\n";
+        String transform = "    transform: NONE\n";
+        int from = 0;
+        for (String block : List.of("linked-workbench:", "combo-chest:")) {
+            int jarBlock = jar.indexOf("\n" + block + "\n");
+            int jarDisplay = jar.indexOf(display, jarBlock) + display.length();
+            int jarHeadOnly = jar.indexOf("    # The settings below shape the head", jarDisplay);
+            String added = jar.substring(jarDisplay, jarHeadOnly);
+            int at = text.indexOf(display + transform, text.indexOf("\n" + block + "\n", from)) + display.length();
+            text = text.substring(0, at) + added + text.substring(at);
+            from = at;
+        }
+        String header = "# -----------------------------------------------------------------------------\n";
+        String sections = jar.substring(jar.indexOf(header + "# Resource pack"), jar.indexOf(header + "# JEI"));
+        int at = text.indexOf(header + "# JEI");
+        return text.substring(0, at) + sections + text.substring(at);
     }
 
     private static String bundledText() throws IOException {

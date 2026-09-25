@@ -1,0 +1,206 @@
+# CraftBridge configuration. Reload with /craftbridge reload.
+
+# Master switches. Each feature is independent; turn one off and its listeners,
+# commands and stores are simply never registered.
+features:
+  sorting: true
+  recipes: true
+  linked-workbench: true
+  jei-transfer: true
+  # Send the server's recipe list to Fabric/JEI clients (Fabric's recipe-sync protocol) so
+  # JEI shows custom recipes instead of the vanilla ones bundled with the client.
+  jei-recipe-sync: true
+  # Talk to the optional CraftBridge-Client mod. A player who has it sees every item in range
+  # in JEI instead of the 36 a server can fake, and their phantom slots are turned off. Players
+  # without the mod are unaffected either way; turn this off to put everyone on phantom slots.
+  client-link: true
+
+# Promote CraftBridge's DEBUG logging (packet decode failures, trigger detection) to
+# INFO so it shows in the console without touching log4j config.
+debug: false
+
+# -----------------------------------------------------------------------------
+# Feature 3 — chest sorting
+# -----------------------------------------------------------------------------
+sorting:
+  # Default trigger for players who have not picked one in /sort settings.
+  # SHIFT_CLICK_OUTSIDE   shift + click the empty area outside the GUI (see README:
+  #                       the 26.2 client may not send the shift state for outside
+  #                       clicks; CraftBridge also accepts a plain outside click while
+  #                       sneaking; use /sort debug to see what your client sends)
+  # DOUBLE_CLICK_OUTSIDE  two clicks outside the GUI within double-click-ms (safest)
+  # SNEAK_PUNCH_BLOCK     sneak + left-click the container block
+  # COMMAND_ONLY          only /sort
+  default-trigger: DOUBLE_CLICK_OUTSIDE
+  double-click-ms: 400
+  # Allow players to enable "also sort my inventory" at all, and its default.
+  player-inventory:
+    allowed: true
+    default: false
+  # Middle-click to sort, for players with the CraftBridge-Client mod (a vanilla client never
+  # sends a middle-click in survival). Over a chest's slots it sorts the chest (and your rows,
+  # if you chose "Also sort my inventory"); over your own slots it sorts just your rows, never
+  # the hotbar. It follows your pick-block key binding, and works alongside your trigger:
+  # COMMAND_ONLY does not turn it off, the toggle in /sort settings does.
+  middle-click:
+    allowed: true
+    default: true
+  # Default for the sound/particle feedback toggle.
+  feedback-default: true
+  # Skip containers whose Towny plot / WorldGuard region the player cannot use.
+  respect-protection: true
+  # Categories are applied in this order. Each entry lists regular expressions that
+  # are matched against the Material name (e.g. DIAMOND_PICKAXE). Special tokens:
+  #   @edible  - anything the player can eat
+  #   @block   - anything placeable as a block
+  #   @default - everything else (put it last)
+  # Within a category items are ordered by material name, then display name.
+  categories:
+    - name: tools
+      match: ['.*_PICKAXE', '.*_AXE', '.*_SHOVEL', '.*_HOE', 'SHEARS', 'FLINT_AND_STEEL', 'FISHING_ROD', 'BRUSH', 'SPYGLASS', 'COMPASS', 'CLOCK', 'LEAD', 'NAME_TAG', 'BUCKET', '.*_BUCKET']
+    - name: weapons
+      match: ['.*_SWORD', 'BOW', 'CROSSBOW', 'TRIDENT', 'MACE', 'ARROW', '.*_ARROW', 'SHIELD']
+    - name: armor
+      match: ['.*_HELMET', '.*_CHESTPLATE', '.*_LEGGINGS', '.*_BOOTS', 'ELYTRA', 'TURTLE_HELMET', '.*_HORSE_ARMOR', 'WOLF_ARMOR']
+    - name: food
+      match: ['@edible']
+    - name: blocks
+      match: ['@block']
+    - name: items
+      match: ['@default']
+
+# -----------------------------------------------------------------------------
+# Feature 2 — Linked Workbench
+# -----------------------------------------------------------------------------
+linked-workbench:
+  # Containers (chests, double chests, barrels, placed shulker boxes) within this many
+  # blocks of the table are considered "nearby storage". Hoppers/furnaces never are.
+  radius: 8
+  # Skip containers the player may not use (vanilla lock is always honoured; this adds
+  # Towny/WorldGuard-style checks via a synthetic interact event).
+  respect-protection: true
+  # Show nearby storage in the player's empty inventory slots while the table is open,
+  # so JEI's client-side check passes and [+] can fill the grid from chests. Display
+  # only: no click can take an item out of a phantom slot. A crafting menu has 36
+  # inventory slots and JEI reads only those, so more item types than free slots are
+  # split into pages (buttons in the last two free slots, or /craftbridge page).
+  phantom-slots: true
+  # Empty slots kept free of phantoms so JEI can still move leftovers out of the grid.
+  phantom-reserve-empty-slots: 2
+  # Base64 "textures" value of the head the block should look like.
+  head-texture: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDkzZDExMmRjZTc0NGNjOWY3OTc5OTZmMTJjZTNhMmQ4MjJkY2E5ZDA5YzllOWVkZTZjNmIxMzIwODA5OWMxIn19fQ=="
+  # The ItemDisplay that draws the head at full block size over the real crafting
+  # table. Tune live with /craftbridge workbench display <scale|x|y|z|yaw|transform>.
+  #   transform: NONE renders the raw head model (a half-block cube whose top sits at
+  #              the entity position); HEAD/FIXED apply the item model's display
+  #              transforms instead (FIXED is half-size and rotated 180°, so it needs
+  #              scale ≈ 4.04 and yaw-offset 180).
+  #   scale:     2.02 turns the 0.5-block head into 1.01 blocks — a hair of overlap so
+  #              the table underneath never z-fights through.
+  #   offset-*:  entity position relative to the block's origin corner; with NONE the
+  #              model hangs down from the entity, so y = 1.005 puts it over the block.
+  display:
+    transform: NONE
+    scale: 2.02
+    offset-x: 0.5
+    offset-y: 1.005
+    offset-z: 0.5
+    yaw-offset: 0
+  # Crafting recipe for the place-item (the head). H = chest, C = copper ingot,
+  # T = crafting table, E = ender pearl.
+  recipe:
+    enabled: true
+    shape: ['HCH', 'CTC', 'HEH']
+    ingredients:
+      H: CHEST
+      C: COPPER_INGOT
+      T: CRAFTING_TABLE
+      E: ENDER_PEARL
+
+# -----------------------------------------------------------------------------
+# Combo Chest — a storage terminal for everything within range (pull and deposit).
+# Physically a barrel (never used as storage itself); the display dresses it up.
+# -----------------------------------------------------------------------------
+combo-chest:
+  radius: 8
+  # Base64 "textures" value for the head the block should look like.
+  # Blank = the built-in Combo Chest head; "none" = show display-item instead.
+  head-texture: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNmJiMGUzYzE4YzczZTNhMmNhYmNjZjQ0ZWY1M2Q2MTdjYTA5NWUwZjIzNDdlZmE5M2Y2N2JkNDgwOGU3MGE3In19fQ=="
+  # Item the display shows (and the place-item is) when head-texture is "none".
+  display-item: CHEST
+  # Geometry of the ItemDisplay over the barrel. A head model is a half block, so it
+  # needs scale ~2.02 with the entity at the top of the block (like the workbench);
+  # the chest item model is 14/16 of a block and wants scale ~1.16 at the centre.
+  # Tune live with /craftbridge combochest display <scale|x|y|z|yaw|transform> <value>.
+  display:
+    transform: NONE
+    scale: 2.02
+    offset-x: 0.5
+    offset-y: 1.005
+    offset-z: 0.5
+    yaw-offset: 0
+  # H = chest, E = ender pearl, C = copper ingot, B = barrel, R = comparator.
+  recipe:
+    enabled: true
+    shape: ['HEH', 'CBC', 'HRH']
+    ingredients:
+      H: CHEST
+      E: ENDER_PEARL
+      C: COPPER_INGOT
+      B: BARREL
+      R: COMPARATOR
+
+# -----------------------------------------------------------------------------
+# Golem chests — chests and barrels that always keep the last item of every slot, so a
+# copper golem, hopper filter or item sorter that goes by "what is already in this slot"
+# keeps working. Right-click one with the Golem Chest Marker to mark or unmark it (both
+# halves of a double chest). Linked Workbench pulls and phantom slots, JEI [+] transfers,
+# the client mod's storage panel and the Combo Chest then never take a slot's last item;
+# deposits are unaffected. Needs features.linked-workbench.
+# -----------------------------------------------------------------------------
+golem-chests:
+  enabled: true
+  # Shown on marked containers to a player holding the marker, and to nobody else. Any
+  # particle that needs no extra data (WAX_ON, HAPPY_VILLAGER, END_ROD...), or none.
+  particle: WAX_ON
+  # How far from that player (in blocks) marked containers show it.
+  radius: 16
+  # The marker's recipe. C = copper ingot, H = honeycomb, S = stick.
+  recipe:
+    enabled: true
+    shape: ['C', 'H', 'S']
+    ingredients:
+      C: COPPER_INGOT
+      H: HONEYCOMB
+      S: STICK
+
+# -----------------------------------------------------------------------------
+# JEI (Feature 1 lives under features.jei-transfer; this is the recipe sync)
+# -----------------------------------------------------------------------------
+jei:
+  recipe-sync:
+    # Recipe types sent to JEI clients, in priority order. The whole set must fit in one
+    # 1 MiB custom payload (vanilla's limit; Fabric's packet splitter only exists on
+    # Fabric servers). If it does not, types are dropped from the END of this list until
+    # it fits, with a console warning. The full vanilla set is ~100-300 KB, so this only
+    # matters with thousands of plugin recipes.
+    # minecraft:brewing: Minecraft 26.3 made brewing a recipe type, and JEI 26.3 reads its
+    # Brewing category from the server's recipes instead of from the client. On 26.2 the id
+    # matches nothing and is skipped. (Comments inside this list would not survive a save,
+    # which is why this one lives up here.)
+    types:
+      - minecraft:crafting
+      - minecraft:smelting
+      - minecraft:blasting
+      - minecraft:smoking
+      - minecraft:campfire_cooking
+      - minecraft:stonecutting
+      - minecraft:smithing
+      - minecraft:brewing
+
+# -----------------------------------------------------------------------------
+# Which layout this file has. On startup CraftBridge upgrades an older config.yml to
+# the current one: settings added since are filled in with their defaults, entries new
+# in a release are added to lists once, and nothing you have set is changed. The file
+# as it was is kept beside it as config.yml.bak-v<old version>. Leave this number alone.
+config-version: 3

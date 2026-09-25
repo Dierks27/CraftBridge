@@ -1,10 +1,26 @@
 # CraftBridge link protocol
 
 The wire contract between the **CraftBridge Paper plugin** and the optional
-**CraftBridge-Client** mod. Both codebases keep a byte-identical copy of
-`link/LinkProtocol.java` and `link/SnapshotTracker.java`; if they ever diverge, the version
-byte at the head of every payload makes the pair refuse to talk rather than misread each
-other.
+**CraftBridge-Client** mod. Both codebases keep the same copy of `link/LinkProtocol.java`
+(identical but for the plugin's one `import com.dierks.craftbridge.jei.VarInts;` line) and
+of `link/SnapshotTracker.java`; if they ever diverge, the version byte at the head of every
+payload makes the pair refuse to talk rather than misread each other.
+
+The current version is **3**. Every payload starts with it as a VarInt.
+
+| Version | Plugin | Change |
+|---|---|---|
+| 2 | 0.13 | storage panel pulls, `storage_ack` |
+| 2 | 0.14 | (compatible additions) `sort_request` and the `FLAG_SORT` hello bit: an older client ignores both |
+| 3 | 0.14 | `transfer_request` carries a craft count and "All but one" |
+
+**A mismatched pair degrades, it never misreads.** A v2 mod on a v3 server: its hello fails
+the server's version check, the server tells the player once in chat and in the console
+("CraftBridge link protocol version 2, but this side speaks version 3; update whichever is
+older."), never links them, and they keep phantom slots and the `jei:recipe_transfer` path.
+A v3 mod on a v2 server: the older server says the same the other way round; the mod gets
+no hello back and stays dormant, and if the server does send it anything (a relink after a
+reload) the mod logs the mismatch, says it in chat, and goes dormant for the connection.
 
 ## Why the mod exists
 
@@ -18,13 +34,48 @@ checks its own network alongside the inventory.
 
 | Channel | Direction | Purpose |
 |---|---|---|
-| `craftbridge:hello` | C→S, then S→C | Announce the mod; the reply switches it on and says phantom slots are off for this player |
+| `craftbridge:hello` | C→S, then S→C | Announce the mod; the reply switches it on and carries flags (below). The server may send it again at any time to update the flags |
 | `craftbridge:storage` | S→C | Full snapshot or delta of everything in range, with a sequence number |
 | `craftbridge:resync` | C→S | "I fell behind at sequence N, send me everything" |
-| `craftbridge:transfer_request` | C→S | The player clicked `[+]`: this recipe, max-transfer, complete-sets |
-| `craftbridge:transfer_result` | S→C | Success, or the reason shown as a JEI transfer error |
+| `craftbridge:storage_ack` | C→S | "I have snapshot N and I am (not) drawing it": only this turns the phantom slots off |
+| `craftbridge:pull_request` | C→S | The player clicked an item in the storage panel: which item, which click |
+| `craftbridge:transfer_request` | C→S | The player clicked `[+]`: this recipe, max-transfer, complete-sets, how many crafts, "All but one" |
+| `craftbridge:sort_request` | C→S | The player middle-clicked in a container screen: which menu id, which half |
+| `craftbridge:transfer_result` | S→C | Success, or the reason, for a transfer, a pull or a sort |
 | `craftbridge:session_end` | S→C | Drop the cached snapshot (close, teleport, death, out of range) |
 | `craftbridge:item_catalog` | S→C | Custom items, so JEI can give them their own tiles |
+
+### Hello flags
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 1 | `FLAG_PHANTOM_SLOTS_OFF` | the server has turned phantom slots off for this player (not set today: the `storage_ack` handshake decides) |
+| 2 | `FLAG_SORT` | a middle-click will sort for this player: sorting on, `sorting.middle-click.allowed`, `craftbridge.sort`, and their own toggle. Without it the mod leaves middle-click alone |
+
+A client ignores bits it does not know, so a new flag never needs a version bump; the
+server re-sends `hello` whenever a flag changes (a `/sort settings` toggle, a reload).
+
+### `transfer_request` (v3)
+
+`varint version, varint requestId, varint basedOnSequence, bool maxTransfer,
+bool requireCompleteSets, varint craftCount, bool leaveOne, bool hasRecipeId`, then either
+`string recipeId` or `varint slotCount` and per slot `varint gridIndex, varint choiceCount,
+bytes choice...`.
+
+* `craftCount` 0 is JEI's own behaviour (one set, or as many as possible with
+  `maxTransfer`). Anything above 0 fills the grid for at most that many crafts, bounded by
+  what the player carries plus what is in range, and by each ingredient's stack size.
+* `leaveOne` ("All but one") makes every container the request reads keep at least one of
+  each slot it takes from — the rule a golem chest always follows. The player's own
+  inventory is spent as usual.
+
+### `sort_request`
+
+`varint version, varint requestId, varint containerId, string target` where `target` is
+`CONTAINER` (the open container's slots) or `PLAYER` (the player's own rows). The server
+refuses a `containerId` that is not the menu open right now, then applies `/sort`'s rules;
+the answer is a `transfer_result` with the same `requestId`, whose message (possibly empty)
+the mod shows in chat.
 
 If no `hello` reply arrives, the mod does nothing at all — a vanilla server, or a server
 without CraftBridge, is simply a server where JEI behaves normally.

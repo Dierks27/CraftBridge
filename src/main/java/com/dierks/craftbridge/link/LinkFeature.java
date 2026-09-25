@@ -4,9 +4,11 @@ import com.dierks.craftbridge.CraftBridgePlugin;
 import com.dierks.craftbridge.items.CustomItemRegistry;
 import com.dierks.craftbridge.recipes.CustomRecipe;
 import com.dierks.craftbridge.recipes.RecipeFeature;
+import com.dierks.craftbridge.sort.SortFeature;
 import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
 import com.dierks.craftbridge.workbench.BlockKind;
+import com.dierks.craftbridge.workbench.ComboChestMenu;
 import com.dierks.craftbridge.workbench.LinkedSession;
 import com.dierks.craftbridge.workbench.PullPlanner;
 import com.dierks.craftbridge.workbench.StoragePull;
@@ -23,6 +25,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.CraftingInventory;
 import org.bukkit.inventory.CraftingRecipe;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.RecipeChoice;
@@ -73,11 +76,34 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     /** A backstop on the recipe walk itself, so a misbehaving iterator cannot hang the join. */
     private static final int RECIPE_SCAN_LIMIT = 20_000;
 
+    private static final List<String> INCOMING = List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_RESYNC,
+            LinkProtocol.CHANNEL_STORAGE_ACK, LinkProtocol.CHANNEL_PULL_REQUEST,
+            LinkProtocol.CHANNEL_TRANSFER_REQUEST, LinkProtocol.CHANNEL_SORT_REQUEST);
+    private static final List<String> OUTGOING = List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_STORAGE,
+            LinkProtocol.CHANNEL_TRANSFER_RESULT, LinkProtocol.CHANNEL_SESSION_END,
+            LinkProtocol.CHANNEL_ITEM_CATALOG);
+
     private final CraftBridgePlugin plugin;
     private final Map<UUID, Linked> linked = new HashMap<>();
+    /** Per-player message budgets; kept for players who have not (yet) said hello too. */
+    private final Map<UUID, InboundGuard> guards = new HashMap<>();
+    /**
+     * Players with a Combo Chest open. Its terminal GUI stays as it is for everyone; a player
+     * with the mod also gets the storage panel beside it, fed by the same snapshot, delta and
+     * pull messages as a Linked Workbench, over the Combo Chest's own sources.
+     */
+    private final Map<UUID, ComboView> combos = new HashMap<>();
+    /** Players already told this session that their mod speaks another protocol version. */
+    private final java.util.Set<UUID> toldMismatch = new java.util.HashSet<>();
     private final Map<ItemStack, byte[]> blobCache = new LinkedHashMap<>();
     private ItemBlobs blobs;
+    /** Null when the menu ids could not be read: middle-click sorting is then never offered. */
+    private MenuIds menus;
     private int task = -1;
+
+    /** An open Combo Chest: its menu (which knows its sources) and the view it opened in. */
+    private record ComboView(ComboChestMenu menu, InventoryView view) {
+    }
 
     /** One player who has the mod and has said hello. */
     private static final class Linked {
@@ -112,15 +138,12 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         if (blobs == null) {
             return; // already logged; the plugin runs on without the link
         }
+        menus = MenuIds.create(plugin);
         Messenger messenger = plugin.getServer().getMessenger();
-        for (String channel : List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_RESYNC,
-                LinkProtocol.CHANNEL_STORAGE_ACK, LinkProtocol.CHANNEL_PULL_REQUEST,
-                LinkProtocol.CHANNEL_TRANSFER_REQUEST)) {
+        for (String channel : INCOMING) {
             messenger.registerIncomingPluginChannel(plugin, channel, this);
         }
-        for (String channel : List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_STORAGE,
-                LinkProtocol.CHANNEL_TRANSFER_RESULT, LinkProtocol.CHANNEL_SESSION_END,
-                LinkProtocol.CHANNEL_ITEM_CATALOG)) {
+        for (String channel : OUTGOING) {
             messenger.registerOutgoingPluginChannel(plugin, channel);
         }
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -128,6 +151,54 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 .getTaskId();
         plugin.getLogger().info("CraftBridge client link: speaking protocol v" + LinkProtocol.VERSION
                 + " on " + LinkProtocol.CHANNEL_HELLO + " (players without the mod are unaffected).");
+        // After /craftbridge reload: next tick, once the command has finished and every feature is up.
+        plugin.getServer().getScheduler().runTask(plugin, this::relinkOnlineClients);
+        // A saved/deleted recipe or custom item changes what the catalog should hold. The
+        // registry runs its listeners before Bukkit.updateRecipes(), so the new catalog reaches
+        // a linked client ahead of the recipe packets that make its JEI restart and re-read it.
+        RecipeFeature recipes = plugin.feature(RecipeFeature.class);
+        if (recipes != null) {
+            recipes.registry().onChange(this::resendCatalogs);
+        }
+    }
+
+    /** Send every linked player the catalog again (the recipes or custom items changed). */
+    private void resendCatalogs() {
+        if (task == -1 || blobs == null || linked.isEmpty()) {
+            return; // disabled (a listener on a registry that outlived us), or nobody to tell
+        }
+        for (UUID id : List.copyOf(linked.keySet())) {
+            Player player = plugin.getServer().getPlayer(id);
+            if (player != null && player.isOnline()) {
+                sendCatalog(player);
+            }
+        }
+    }
+
+    /**
+     * Pick up clients that are already connected. A client says hello once per connection, so
+     * after {@code /craftbridge reload} (which builds a fresh feature with an empty
+     * {@link #linked} map) nobody would be linked again until they rejoined. A client that
+     * registered {@code craftbridge:hello} is running the mod; answering it with a ServerHello
+     * and the catalog, exactly as if it had just said hello, puts it back where it was. It
+     * starts with its phantom slots on until it acknowledges a snapshot again, as on join.
+     */
+    private void relinkOnlineClients() {
+        if (task == -1 || blobs == null) {
+            return; // disabled again before this ran
+        }
+        int relinked = 0;
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (!linked.containsKey(player.getUniqueId())
+                    && player.getListeningPluginChannels().contains(LinkProtocol.CHANNEL_HELLO)) {
+                link(player, "unknown (re-linked after a reload)");
+                relinked++;
+            }
+        }
+        if (relinked > 0) {
+            plugin.getLogger().info("CraftBridge client link: re-linked " + relinked
+                    + " connected client(s) after the reload.");
+        }
     }
 
     @Override
@@ -149,7 +220,22 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 }
             }
         }
+        // Then, and only then, our channels -- ours alone, and this listener's alone. Left
+        // registered, a reload's new instance would register a second listener beside this
+        // one and every message would be answered twice.
+        if (blobs != null) {
+            Messenger messenger = plugin.getServer().getMessenger();
+            for (String channel : INCOMING) {
+                messenger.unregisterIncomingPluginChannel(plugin, channel, this);
+            }
+            for (String channel : OUTGOING) {
+                messenger.unregisterOutgoingPluginChannel(plugin, channel);
+            }
+        }
         linked.clear();
+        combos.clear();
+        guards.clear();
+        toldMismatch.clear();
         blobCache.clear();
     }
 
@@ -178,9 +264,45 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         send(player, LinkProtocol.CHANNEL_SESSION_END, LinkProtocol.encode(new LinkProtocol.SessionEnd(reason)));
     }
 
+    /**
+     * A Combo Chest just opened. A player with the mod gets its storage in the panel beside the
+     * terminal GUI; for everyone else this costs nothing, since {@link #push} returns at once
+     * for a player who has not said hello.
+     */
+    public void comboOpened(Player player, ComboChestMenu menu) {
+        combos.put(player.getUniqueId(), new ComboView(menu, player.getOpenInventory()));
+        push(player, true);
+    }
+
+    /** That Combo Chest closed: tell the client to drop its view of the storage. */
+    public void comboClosed(Player player, ComboChestMenu menu) {
+        ComboView open = combos.get(player.getUniqueId());
+        if (open != null && open.menu() == menu) {
+            combos.remove(player.getUniqueId());
+            sessionEnded(player, "the Combo Chest was closed");
+        }
+    }
+
+    /** The Combo Chest's own GUI moved items (a pull or a deposit there): update the panel now. */
+    public void comboChanged(Player player, ComboChestMenu menu) {
+        ComboView open = combos.get(player.getUniqueId());
+        if (open != null && open.menu() == menu) {
+            push(player, false);
+        }
+    }
+
+    /** The player's open Combo Chest, but only while its view is the one they actually have open. */
+    private ComboView liveCombo(Player player) {
+        ComboView open = combos.get(player.getUniqueId());
+        return open != null && player.getOpenInventory() == open.view() ? open : null;
+    }
+
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        combos.remove(event.getPlayer().getUniqueId());
         linked.remove(event.getPlayer().getUniqueId());
+        guards.remove(event.getPlayer().getUniqueId());
+        toldMismatch.remove(event.getPlayer().getUniqueId());
     }
 
     // ---- incoming --------------------------------------------------------------------
@@ -189,6 +311,18 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     public void onPluginMessageReceived(String channel, Player player, byte[] message) {
         if (!Bukkit.isPrimaryThread()) {
             Bukkit.getScheduler().runTask(plugin, () -> onPluginMessageReceived(channel, player, message));
+            return;
+        }
+        if (!player.isOnline()) {
+            return; // queued from off the main thread and the player left meanwhile
+        }
+        InboundGuard guard = guards.computeIfAbsent(player.getUniqueId(), id -> new InboundGuard());
+        long now = System.nanoTime();
+        if (!guard.allow(channel, now)) {
+            if (guard.shouldReportDrop(now)) {
+                plugin.debug("CraftBridge client link: " + player.getName() + " is sending " + channel
+                        + " faster than any stock client does; dropping the excess.");
+            }
             return;
         }
         try {
@@ -201,16 +335,29 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                         onPullRequest(player, LinkProtocol.decodePullRequest(message));
                 case LinkProtocol.CHANNEL_TRANSFER_REQUEST ->
                         onTransferRequest(player, LinkProtocol.decodeTransferRequest(message));
+                case LinkProtocol.CHANNEL_SORT_REQUEST ->
+                        onSortRequest(player, LinkProtocol.decodeSortRequest(message));
                 default -> {
                 }
             }
-        } catch (IllegalArgumentException versionMismatch) {
+        } catch (IllegalArgumentException ex) {
+            if (!InboundGuard.isVersionMismatch(message)) {
+                // A truncated or garbled payload of the right version (or a handler refusing a
+                // bad value). Not something the player can fix, and not a reason to drop the
+                // link or chat at them: ignore this one message.
+                plugin.debug("CraftBridge client link: bad " + channel + " from " + player.getName()
+                        + " (" + message.length + " bytes): " + ex.getMessage());
+                return;
+            }
             // The two halves are from different releases. Say so once, to the person who can
             // fix it, rather than trying to guess what the payload meant.
+            // Once per session: the mod retries its hello a few times before it gives up.
             linked.remove(player.getUniqueId());
-            player.sendMessage(Text.msg("<yellow>CraftBridge: " + versionMismatch.getMessage()));
-            plugin.getLogger().info("CraftBridge client link: " + player.getName() + " on " + channel
-                    + ": " + versionMismatch.getMessage());
+            if (toldMismatch.add(player.getUniqueId())) {
+                player.sendMessage(Text.msg("<yellow>CraftBridge: " + ex.getMessage()));
+                plugin.getLogger().info("CraftBridge client link: " + player.getName() + " on " + channel
+                        + ": " + ex.getMessage());
+            }
         } catch (RuntimeException ex) {
             plugin.debug("CraftBridge client link: unreadable " + channel + " from " + player.getName()
                     + " (" + message.length + " bytes): " + ex);
@@ -218,16 +365,43 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     }
 
     private void onHello(Player player, LinkProtocol.ClientHello hello) {
-        linked.put(player.getUniqueId(), new Linked(hello.modVersion()));
+        link(player, hello.modVersion());
+    }
+
+    /** Start (or restart) the link with a player whose client runs the mod. */
+    private void link(Player player, String modVersion) {
+        linked.put(player.getUniqueId(), new Linked(modVersion));
         plugin.getLogger().info("CraftBridge client link: " + player.getName() + " has the mod (version "
-                + hello.modVersion() + "); phantom slots stay on until it confirms it is showing storage.");
+                + modVersion + "); phantom slots stay on until it confirms it is showing storage.");
         // No FLAG_PHANTOM_SLOTS_OFF yet: the phantoms are still there, and stay there until the
         // client acknowledges a snapshot. Saying otherwise here is what would let a mod that
         // cannot display anything leave the player with nothing.
         send(player, LinkProtocol.CHANNEL_HELLO, LinkProtocol.encode(new LinkProtocol.ServerHello(
-                plugin.getPluginMeta().getVersion(), 0)));
+                plugin.getPluginMeta().getVersion(), helloFlags(player))));
         sendCatalog(player);
         push(player, true);
+    }
+
+    /**
+     * The flags this player's hello carries. {@link LinkProtocol#FLAG_SORT} only when a
+     * middle-click would really sort for them: sorting on, middle-click allowed, the
+     * {@code craftbridge.sort} permission and their own toggle. Without it the mod leaves
+     * middle-click alone, so it never swallows a click the server would refuse.
+     */
+    private int helloFlags(Player player) {
+        SortFeature sort = plugin.feature(SortFeature.class);
+        return menus != null && sort != null && sort.middleClickOffered(player) ? LinkProtocol.FLAG_SORT : 0;
+    }
+
+    /**
+     * Something a hello flag depends on changed (the player's sort settings): say hello again.
+     * The client only takes the flags from a repeated ServerHello, so nothing else is reset.
+     */
+    public void refreshHello(Player player) {
+        if (linked.containsKey(player.getUniqueId())) {
+            send(player, LinkProtocol.CHANNEL_HELLO, LinkProtocol.encode(new LinkProtocol.ServerHello(
+                    plugin.getPluginMeta().getVersion(), helloFlags(player))));
+        }
     }
 
     private void onResync(Player player) {
@@ -248,7 +422,9 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 + ack.sequence() + (ack.displaying()
                 ? " and is showing it; phantom slots off." : " but is not showing it; phantom slots stay on."));
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        if (workbench == null || workbench.phantoms() == null) {
+        // Phantom slots belong to a Linked Workbench. At a Combo Chest there are none to take
+        // away or give back; the flag alone decides what the next workbench opens with.
+        if (workbench == null || workbench.phantoms() == null || workbench.sessions().of(player) == null) {
             return;
         }
         if (ack.displaying()) {
@@ -284,8 +460,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return;
         }
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
-        if (session == null) {
+        List<StorageScanner.Source> sources = storageOf(workbench, player);
+        if (sources == null) {
             if (link.sessionOpen) {
                 link.sessionOpen = false;
                 send(player, LinkProtocol.CHANNEL_SESSION_END,
@@ -295,7 +471,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
 
         Map<SnapshotTracker.ItemKey, Integer> current = new LinkedHashMap<>();
-        for (Map.Entry<ItemStack, Integer> entry : inRange(workbench, player, session).entrySet()) {
+        for (Map.Entry<ItemStack, Integer> entry : workbench.scanner().aggregate(sources).entrySet()) {
             current.put(new SnapshotTracker.ItemKey(blob(entry.getKey())), entry.getValue());
         }
 
@@ -319,8 +495,20 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 + changes.size() + " change(s), " + payload.length + " bytes.");
     }
 
-    private Map<ItemStack, Integer> inRange(WorkbenchFeature workbench, Player player, LinkedSession session) {
-        return workbench.scanner().aggregate(sources(workbench, player, session));
+    /**
+     * The storage this player's client should be showing: their Linked Workbench's, or else
+     * the Combo Chest they have open, or null for neither.
+     */
+    private List<StorageScanner.Source> storageOf(WorkbenchFeature workbench, Player player) {
+        if (workbench == null) {
+            return null;
+        }
+        LinkedSession session = workbench.sessions().of(player);
+        if (session != null) {
+            return sources(workbench, player, session);
+        }
+        ComboView combo = liveCombo(player);
+        return combo == null ? null : combo.menu().currentSources();
     }
 
     private List<StorageScanner.Source> sources(WorkbenchFeature workbench, Player player, LinkedSession session) {
@@ -350,7 +538,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
 
     /**
      * Every custom item on this server: CraftBridge's own blocks, its own recipes' results,
-     * and the result of every other plugin's recipe. They are renamed vanilla items carrying
+     * every custom item defined in {@code /recipe items}, and the result of every other
+     * plugin's recipe. They are renamed vanilla items carrying
      * plugin data rather than registry entries of their own, so JEI has no tile for them and
      * nothing to look a recipe up from until it is told they exist.
      *
@@ -368,11 +557,19 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             for (BlockKind kind : BlockKind.values()) {
                 add(entries, workbench.items().placeItem(kind, 1));
             }
+            if (workbench.golems() != null) {
+                add(entries, workbench.golems().markerItem(1));
+            }
         }
         RecipeFeature recipes = plugin.feature(RecipeFeature.class);
         if (recipes != null) {
             for (CustomRecipe recipe : recipes.store().all().values()) {
                 add(entries, recipe.result());
+            }
+            // Every defined custom item too, not only those some recipe makes: an item that is
+            // only an ingredient, or that has no recipe yet, still needs a JEI tile of its own.
+            for (ItemStack item : recipes.customItems().allStacks()) {
+                add(entries, item);
             }
         }
         addEveryOtherPluginsResults(entries);
@@ -471,13 +668,18 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return; // never said hello: nothing to answer to
         }
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
+        LinkedSession session = liveSession(workbench, player);
         if (session == null || !(session.view().getTopInventory() instanceof CraftingInventory crafting)) {
             refuse(player, request, "Open a Linked Workbench first.");
             return;
         }
 
         List<StorageScanner.Source> sources = sources(workbench, player, session);
+        if (request.leaveOne()) {
+            // "All but one": every container read for this request keeps one of each slot, the
+            // same rule a golem chest always follows, so the supply below and the pulls agree.
+            sources = StorageScanner.keepingOne(sources);
+        }
         List<ItemStack> keys = new ArrayList<>();
         List<GridPlanner.Supply> supply = new ArrayList<>();
         index(player, workbench, sources, keys, supply);
@@ -487,12 +689,23 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             refuse(player, request, "That recipe is not one this server knows.");
             return;
         }
+        // Before anything is planned or taken: a slot the grid does not have (or one named
+        // twice) would have its items pulled and then never placed. The stock client never
+        // sends one, so this is a bad or modified client -- refuse the whole request.
+        String badGrid = GridPlanner.gridProblem(slots);
+        if (badGrid != null) {
+            plugin.debug("CraftBridge client link: refused " + player.getName()
+                    + "'s transfer request: " + badGrid);
+            refuse(player, request, "That request does not fit a crafting grid.");
+            return;
+        }
         int[] maxStack = new int[keys.size()];
         for (int i = 0; i < keys.size(); i++) {
             maxStack[i] = Math.max(1, Math.min(keys.get(i).getMaxStackSize(), 64));
         }
 
-        GridPlanner.Plan plan = GridPlanner.plan(slots, supply, maxStack, request.maxTransfer());
+        GridPlanner.Plan plan = GridPlanner.plan(slots, supply, maxStack, request.maxTransfer(),
+                Math.max(0, request.craftCount()));
         if (!plan.ok()) {
             refuse(player, request, "Not enough in range: " + plan.failure() + ".");
             return;
@@ -503,6 +716,9 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         workbench.sessions().drainGrid(player, session, true);
         ItemStack[] matrix = crafting.getMatrix();
         for (GridPlanner.Fill fill : plan.fills()) {
+            if (fill.gridIndex() < 0 || fill.gridIndex() >= matrix.length) {
+                continue; // cannot happen after gridProblem; never take what cannot be placed
+            }
             ItemStack key = keys.get(fill.type());
             int taken = 0;
             if (fill.fromPlayer() > 0) {
@@ -514,7 +730,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                     session.addOrigin(fill.gridIndex(), pulled.source().location(), pulled.stack().getAmount(), pulled.stack());
                 }
             }
-            if (taken > 0 && fill.gridIndex() >= 0 && fill.gridIndex() < matrix.length) {
+            if (taken > 0) {
                 matrix[fill.gridIndex()] = key.clone().asQuantity(taken);
             }
         }
@@ -538,9 +754,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return;
         }
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
-        if (session == null) {
-            reply(player, request.requestId(), false, "Open a Linked Workbench first.");
+        LinkedSession session = liveSession(workbench, player);
+        ComboView combo = session == null && workbench != null ? liveCombo(player) : null;
+        if (session == null && combo == null) {
+            reply(player, request.requestId(), false, "Open a Linked Workbench or a Combo Chest first.");
             return;
         }
         ItemStack wanted = blobs.decode(request.item());
@@ -562,10 +779,14 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return;
         }
 
-        List<StorageScanner.Source> sources = sources(workbench, player, session);
+        // At a Combo Chest the sources are the terminal's own (its radius, never its barrel),
+        // and golem chests keep their last item either way: the scanner applies that.
+        List<StorageScanner.Source> sources = session != null
+                ? sources(workbench, player, session) : combo.menu().currentSources();
+        int free = session != null ? StoragePull.freeInventorySlots(session.view()) : freeStorageSlots(player);
         ItemStack key = StorageScanner.keyOf(wanted);
         StoragePull.Result result = StoragePull.pull(player, workbench.scanner(), sources, key, mode,
-                StoragePull.freeInventorySlots(session.view()), over -> putBack(player, sources, over));
+                free, over -> putBack(player, sources, over));
         if (!result.happened()) {
             reply(player, request.requestId(), false, "No room, or none left in range.");
             push(player, true);
@@ -573,7 +794,79 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
         player.updateInventory();
         reply(player, request.requestId(), true, "");
+        if (combo != null) {
+            combo.menu().storageChanged(); // the terminal's own list shows the new counts too
+        }
         push(player, true); // the chests just changed
+    }
+
+    /** Empty slots in the player's main inventory and hotbar: the room a pull at a Combo Chest has. */
+    private static int freeStorageSlots(Player player) {
+        int free = 0;
+        for (ItemStack stack : player.getInventory().getStorageContents()) {
+            if (Items.isEmpty(stack)) {
+                free++;
+            }
+        }
+        return free;
+    }
+
+    /**
+     * Middle-click sort from the mod. The client names only which screen (its menu id) and which
+     * half of it; the id must be the menu open on the server right now, and everything else is
+     * {@code /sort}'s rules ({@link SortFeature#sortFromClient}). Rate-limited by
+     * {@link InboundGuard} like every other link message.
+     */
+    private void onSortRequest(Player player, LinkProtocol.SortRequest request) {
+        SortFeature sort = plugin.feature(SortFeature.class);
+        if (sort == null || menus == null) {
+            reply(player, request.requestId(), false, ""); // a stale flag: nothing to say
+            return;
+        }
+        // Compared, never valueOf'd: an IllegalArgumentException from here would read as a
+        // bad packet at best.
+        boolean playerSide = LinkProtocol.SORT_TARGET_PLAYER.equals(request.target());
+        if (!playerSide && !LinkProtocol.SORT_TARGET_CONTAINER.equals(request.target())) {
+            reply(player, request.requestId(), false, "");
+            return;
+        }
+        int open;
+        try {
+            open = menus.openContainerId(player);
+        } catch (RuntimeException | LinkageError ex) {
+            // Server internals that moved fail on first use, not at load: switch sorting off
+            // for everyone rather than fail every click.
+            plugin.getLogger().warning("CraftBridge client link: middle-click sorting disabled; the open menu's"
+                    + " id cannot be read on this server (" + ex + ").");
+            menus = null;
+            reply(player, request.requestId(), false, "");
+            return;
+        }
+        if (request.containerId() != open) {
+            reply(player, request.requestId(), false, ""); // that screen is gone; never sort its replacement
+            return;
+        }
+        SortFeature.ClientSort result;
+        try {
+            result = sort.sortFromClient(player, playerSide);
+        } catch (RuntimeException ex) {
+            plugin.getLogger().warning("CraftBridge client link: middle-click sort for " + player.getName()
+                    + " failed: " + ex);
+            result = new SortFeature.ClientSort(false, "");
+        }
+        reply(player, request.requestId(), result.sorted(), result.message());
+    }
+
+    /**
+     * The player's Linked Workbench session, but only while its menu is the one they actually
+     * have open. A session can briefly outlive its menu (the close is handled a tick later on
+     * death or teleport, or another plugin swapped the menu out), and a pull or transfer acting
+     * on it then would fill a grid the player cannot see, or hand items to a player who is no
+     * longer at the table.
+     */
+    private static LinkedSession liveSession(WorkbenchFeature workbench, Player player) {
+        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
+        return session != null && player.getOpenInventory() == session.view() ? session : null;
     }
 
     /** Anything that fits neither cursor nor inventory goes back where it came from. */
@@ -742,7 +1035,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         // isEnabled() as well as isOnline(): sessionEnded() is reached during shutdown from
         // WorkbenchFeature's teardown, which runs before this feature's own disable(), and
         // sendPluginMessage refuses once Paper has disabled the plugin.
-        if (player.isOnline() && plugin.isEnabled()) {
+        // And the channel must still be registered: a send that races a disable must be a no-op,
+        // not a ChannelNotRegisteredException thrown into whatever called us.
+        if (player.isOnline() && plugin.isEnabled()
+                && plugin.getServer().getMessenger().isOutgoingChannelRegistered(plugin, channel)) {
             player.sendPluginMessage(plugin, channel, payload);
         }
     }

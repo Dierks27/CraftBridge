@@ -1,0 +1,24 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "craftbridge:block/linked_workbench_front",
+    "top": "craftbridge:block/linked_workbench_top",
+    "bottom": "craftbridge:block/linked_workbench_bottom",
+    "front": "craftbridge:block/linked_workbench_front",
+    "side": "craftbridge:block/linked_workbench_side"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "down": {"uv": [0, 0, 16, 16], "texture": "#bottom"},
+        "up": {"uv": [0, 0, 16, 16], "texture": "#top"},
+        "north": {"uv": [0, 0, 16, 16], "texture": "#front"},
+        "south": {"uv": [0, 0, 16, 16], "texture": "#side"},
+        "west": {"uv": [0, 0, 16, 16], "texture": "#side"},
+        "east": {"uv": [0, 0, 16, 16], "texture": "#side"}
+      }
+    }
+  ]
+}

@@ -52,6 +52,16 @@ public final class SortSettingsMenu extends Menu {
             });
         }
 
+        if (feature.middleClickAllowed()) {
+            set(14, Icons.toggle(settings.middleClick(), "<white>Middle-click sort (needs CraftBridge Client)",
+                    "With the CraftBridge-Client mod, middle-click",
+                    "a chest's slots to sort it, or your own",
+                    "slots to sort just your rows.",
+                    "Works alongside your trigger above."), e -> {
+                feature.update(player, s -> s.withMiddleClick(!s.middleClick()));
+                refresh();
+            });
+        }
         if (feature.playerInventoryAllowed()) {
             set(15, Icons.toggle(settings.sortPlayerInventory(), "<white>Also sort my inventory",
                     "Sorting a chest also tidies your own",
@@ -67,10 +77,10 @@ public final class SortSettingsMenu extends Menu {
         });
 
         set(22, Items.icon(Material.BOOK, "<aqua>About triggers",
-                "Middle-click can't be a trigger: in survival",
-                "the client never sends a middle-click packet,",
-                "so the server can't see it. If middle-click",
-                "sorts for you today, that's a client-side mod.",
+                "Middle-click needs the CraftBridge-Client",
+                "mod: in survival a vanilla client never sends",
+                "a middle-click, so the server can't see it.",
+                "With the mod, turn it on or off above.",
                 "",
                 "/sort always works while a chest is open."), null);
         set(26, Icons.close(), e -> player.closeInventory());

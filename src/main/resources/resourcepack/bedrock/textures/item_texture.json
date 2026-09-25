@@ -1,0 +1,16 @@
+{
+  "resource_pack_name": "CraftBridge",
+  "texture_name": "atlas.items",
+  "texture_data": {
+    "craftbridge.linked_workbench": {
+      "textures": [
+        "textures/items/craftbridge/linked_workbench"
+      ]
+    },
+    "craftbridge.combo_chest": {
+      "textures": [
+        "textures/items/craftbridge/combo_chest"
+      ]
+    }
+  }
+}

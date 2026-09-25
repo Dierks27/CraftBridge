@@ -22,9 +22,11 @@ import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.inventory.FurnaceBurnEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -78,6 +80,35 @@ public final class WorkbenchListener implements Listener {
             feature.place(block, player, kind);
             block.getWorld().playSound(block.getLocation().add(0.5, 0.5, 0.5), Sound.BLOCK_WOOD_PLACE, 1f, 1f);
         });
+    }
+
+    /**
+     * A place-item in model mode is a real crafting table or barrel, so vanilla recipes (a
+     * crafter, a chest boat...) and furnaces would take it as one and use it up. Only our own
+     * block recipes may.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPrepareCraft(PrepareItemCraftEvent event) {
+        if (!(event.getRecipe() instanceof org.bukkit.Keyed keyed)) {
+            return;
+        }
+        org.bukkit.NamespacedKey key = keyed.getKey();
+        if (!key.getNamespace().equals(org.bukkit.NamespacedKey.MINECRAFT)) {
+            return; // a plugin's recipe (ours included) decided to accept it
+        }
+        for (ItemStack item : event.getInventory().getMatrix()) {
+            if (WorkbenchItems.kindOf(item) != null) {
+                event.getInventory().setResult(null);
+                return;
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onFuel(FurnaceBurnEvent event) {
+        if (WorkbenchItems.kindOf(event.getFuel()) != null) {
+            event.setCancelled(true);
+        }
     }
 
     // ---- breaking / destruction ------------------------------------------------

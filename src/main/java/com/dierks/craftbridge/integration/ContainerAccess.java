@@ -11,10 +11,13 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.DoubleChestInventory;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.plugin.PluginManager;
 
 import java.lang.reflect.Method;
+import java.util.List;
 
 /**
  * "May this player use that container?" — shared by sorting and the Linked Workbench.
@@ -71,6 +74,36 @@ public final class ContainerAccess {
             return false;
         }
         return true;
+    }
+
+    /**
+     * {@link #canUse} for every block behind {@code inventory}: both halves of a double chest,
+     * otherwise just {@code block}.
+     *
+     * <p>A double chest's inventory is both halves at once, so checking only the half that was
+     * clicked (or that a scan happened to reach first) let a player sort or pull from a half
+     * that is locked, or that sits across a claim border they may not cross. Vanilla itself
+     * refuses to open a double chest unless both halves let the player in.
+     */
+    public boolean canUseAll(Player player, Block block, Inventory inventory, boolean probeWithEvent) {
+        for (Block part : blocksBehind(block, inventory)) {
+            if (!canUse(player, part, probeWithEvent)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Both halves of a double chest's inventory, or just {@code block} for anything else. */
+    public static List<Block> blocksBehind(Block block, Inventory inventory) {
+        if (inventory instanceof DoubleChestInventory both) {
+            Location left = both.getLeftSide().getLocation();
+            Location right = both.getRightSide().getLocation();
+            if (left != null && right != null) {
+                return List.of(left.getBlock(), right.getBlock());
+            }
+        }
+        return List.of(block);
     }
 
     private boolean townyAllows(Player player, Block block) {

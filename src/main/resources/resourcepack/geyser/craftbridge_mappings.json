@@ -1,0 +1,41 @@
+{
+  "format_version": 2,
+  "items": {
+    "minecraft:crafting_table": [
+      {
+        "type": "definition",
+        "model": "minecraft:crafting_table",
+        "bedrock_identifier": "craftbridge:linked_workbench",
+        "display_name": "Linked Workbench",
+        "predicate": {
+          "type": "match",
+          "property": "custom_model_data",
+          "value": "craftbridge:linked_workbench",
+          "index": 0
+        },
+        "bedrock_options": {
+          "icon": "craftbridge.linked_workbench",
+          "creative_category": "items"
+        }
+      }
+    ],
+    "minecraft:barrel": [
+      {
+        "type": "definition",
+        "model": "minecraft:barrel",
+        "bedrock_identifier": "craftbridge:combo_chest",
+        "display_name": "Combo Chest",
+        "predicate": {
+          "type": "match",
+          "property": "custom_model_data",
+          "value": "craftbridge:combo_chest",
+          "index": 0
+        },
+        "bedrock_options": {
+          "icon": "craftbridge.combo_chest",
+          "creative_category": "items"
+        }
+      }
+    ]
+  }
+}
