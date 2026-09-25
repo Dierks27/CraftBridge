@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.14.0
+
+**Needs CraftBridge Client 0.4.0.** The client link is now protocol version 3. A 0.3.0 client
+is told once to update and keeps working with phantom slots, without the storage panel.
+`config.yml` is upgraded automatically (config-version 4), keeping your own values and comments.
+
+### New
+
+* **Custom block models (resource pack).** The Linked Workbench and Combo Chest can show their own
+  block models instead of the textured heads (`<block>.display.mode: model`, the default).
+  * The plugin builds `plugins/CraftBridge/pack/craftbridge-java.zip` on every start and logs its
+    SHA-1. Upload it to your website and set `resource-pack.url`. The plugin always sends its
+    own hash, and at startup it checks that the uploaded copy matches, warning when it is stale.
+    Re-upload after any update that changes the pack.
+  * A built-in web server is available instead (`resource-pack.host`, off by default, port 8765).
+  * **Until a URL (or the host) is set, the blocks keep their heads**, so upgrading changes
+    nothing until you upload the zip.
+  * Players who decline the pack see the plain crafting table or barrel. `display.mode: head`
+    brings the heads back for everyone.
+  * Change the models by dropping files into `plugins/CraftBridge/pack/overrides/java/`
+    (see `resourcepack/README.md`, Blockbench).
+  * Bedrock: `/craftbridge geyser export` writes a `.mcpack`, a Geyser item mapping and a
+    GeyserDisplayEntity mapping (and copies them into Geyser when it runs on this server).
+    `bedrock.show-displays` is off by default. The Bedrock side is untested.
+  * `/craftbridge pack` shows the pack's hash, URL and how many players loaded it.
+* **Golem chests.** Craft a Golem Chest Marker (copper, honeycomb and a stick) and right-click a
+  chest, double chest or barrel to mark it. The Linked Workbench, JEI transfers, the storage
+  panel and the Combo Chest then always leave one item in every slot of a marked container, so
+  copper golems keep sorting into it. Holding the marker shows sparkles on marked containers
+  nearby (only to you). No chest is affected until someone marks it. `golem-chests.enabled`
+  turns the feature off.
+* **Middle-click sort.** Players with the client mod can middle-click a container, or their own
+  inventory, to sort it. It is a per-player toggle in `/sort settings`
+  (`sorting.middle-click.allowed` / `.default`) and follows `/sort`'s locks, claims and rules.
+* **Choose how many to craft.** JEI transfers can ask for an exact number of crafts, or "All but
+  one", which leaves one of every ingredient in storage.
+* **The storage panel at the Combo Chest.** With the client mod, the panel appears beside an open
+  Combo Chest and pulls from the terminal's storage. The GUI itself is unchanged.
+* The client's JEI list is refreshed whenever recipes or custom items change, and it includes
+  custom items that are not the result of any recipe.
+
+### Fixed
+
+* Grid items at a Linked Workbench were lost when the player died with it open. They now drop
+  where the player died.
+* A recipe, custom item or workbench entry that failed to load was erased by the next save, and a
+  YAML syntax error in `recipes.yml` (or the other stores) made the next save wipe the whole file.
+  Unreadable entries are now kept as written, and a file that failed to load is never saved over.
+* A client transfer naming grid slots outside the 3x3 grid could delete the items it had taken.
+* A Linked Workbench session could outlive a menu another plugin kept from opening.
+* After `/craftbridge reload`, client-mod players had to rejoin to get their panel back. They are
+  re-linked automatically now.
+* Client link messages are rate-limited, and a malformed message is ignored instead of unlinking
+  the player with a misleading "update" message.
+* Storage pulls and sneak-punch sorting now check the lock and claim of both halves of a double
+  chest.
+* Editing a custom item now updates the recipes that make it without a reload.
+
 ## 0.13.3
 
 **Item duplication fixes.** All three were found in an audit; none needed a modified client
