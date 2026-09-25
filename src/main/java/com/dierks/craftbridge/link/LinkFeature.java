@@ -487,6 +487,16 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             refuse(player, request, "That recipe is not one this server knows.");
             return;
         }
+        // Before anything is planned or taken: a slot the grid does not have (or one named
+        // twice) would have its items pulled and then never placed. The stock client never
+        // sends one, so this is a bad or modified client -- refuse the whole request.
+        String badGrid = GridPlanner.gridProblem(slots);
+        if (badGrid != null) {
+            plugin.debug("CraftBridge client link: refused " + player.getName()
+                    + "'s transfer request: " + badGrid);
+            refuse(player, request, "That request does not fit a crafting grid.");
+            return;
+        }
         int[] maxStack = new int[keys.size()];
         for (int i = 0; i < keys.size(); i++) {
             maxStack[i] = Math.max(1, Math.min(keys.get(i).getMaxStackSize(), 64));
@@ -503,6 +513,9 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         workbench.sessions().drainGrid(player, session, true);
         ItemStack[] matrix = crafting.getMatrix();
         for (GridPlanner.Fill fill : plan.fills()) {
+            if (fill.gridIndex() < 0 || fill.gridIndex() >= matrix.length) {
+                continue; // cannot happen after gridProblem; never take what cannot be placed
+            }
             ItemStack key = keys.get(fill.type());
             int taken = 0;
             if (fill.fromPlayer() > 0) {
@@ -514,7 +527,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                     session.addOrigin(fill.gridIndex(), pulled.source().location(), pulled.stack().getAmount(), pulled.stack());
                 }
             }
-            if (taken > 0 && fill.gridIndex() >= 0 && fill.gridIndex() < matrix.length) {
+            if (taken > 0) {
                 matrix[fill.gridIndex()] = key.clone().asQuantity(taken);
             }
         }

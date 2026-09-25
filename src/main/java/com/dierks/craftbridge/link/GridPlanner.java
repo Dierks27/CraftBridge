@@ -46,7 +46,34 @@ public final class GridPlanner {
         }
     }
 
+    /** Slots in a 3x3 crafting grid. */
+    public static final int GRID_SIZE = 9;
+
     private GridPlanner() {
+    }
+
+    /**
+     * Why these slots cannot be a crafting grid, or null when they can: every index in 0-8 and
+     * none twice.
+     *
+     * <p>For a client-described recipe the grid indexes come straight off the wire. An index the
+     * grid does not have, or a slot named twice, used to be caught only after its items had been
+     * taken from the player or a chest — and then quietly not placed, deleting them. Checked
+     * here, before any plan exists, nothing is ever taken for a slot that cannot receive it.
+     */
+    public static String gridProblem(List<Slot> slots) {
+        boolean[] seen = new boolean[GRID_SIZE];
+        for (Slot slot : slots) {
+            int index = slot.gridIndex();
+            if (index < 0 || index >= GRID_SIZE) {
+                return "grid slot " + index + " does not exist";
+            }
+            if (seen[index]) {
+                return "grid slot " + index + " is named twice";
+            }
+            seen[index] = true;
+        }
+        return null;
     }
 
     /**
@@ -58,6 +85,10 @@ public final class GridPlanner {
     public static Plan plan(List<Slot> slots, List<Supply> supply, int[] maxStack, boolean maxTransfer) {
         if (slots.isEmpty()) {
             return new Plan(List.of(), 0, List.of(), "that recipe has no ingredients");
+        }
+        String bad = gridProblem(slots);
+        if (bad != null) {
+            return new Plan(List.of(), 0, List.of(), bad);
         }
 
         // One item type per slot, decided by a single pass: a slot takes the first type it

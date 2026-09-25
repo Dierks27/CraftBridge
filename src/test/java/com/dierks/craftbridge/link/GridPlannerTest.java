@@ -11,6 +11,8 @@ import static com.dierks.craftbridge.link.GridPlanner.Supply;
 import static com.dierks.craftbridge.link.GridPlanner.plan;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -145,5 +147,37 @@ class GridPlannerTest {
         assertTrue(p.ok(), p.failure());
         assertEquals(1, p.sets());
         assertEquals(8, p.fills().stream().mapToInt(Fill::count).sum());
+    }
+    @Test
+    void aGridIndexOutsideTheGridIsRefusedBeforeAnythingIsPlanned() {
+        // Client-written indexes: a slot 9 or -1 would have its items taken and never placed.
+        for (int bad : new int[]{-1, 9, 42, Integer.MIN_VALUE}) {
+            List<Slot> slots = List.of(new Slot(0, new int[]{0}), new Slot(bad, new int[]{0}));
+            assertNotNull(GridPlanner.gridProblem(slots), "index " + bad);
+            Plan p = plan(slots, List.of(new Supply(64, 64)), stacks(64), true);
+            assertFalse(p.ok(), "index " + bad);
+            assertTrue(p.fills().isEmpty(), "nothing is taken for a request that cannot be placed");
+        }
+    }
+
+    @Test
+    void aGridSlotNamedTwiceIsRefused() {
+        // Two fills for one slot: the second would overwrite the first, deleting its items.
+        List<Slot> slots = List.of(new Slot(4, new int[]{0}), new Slot(4, new int[]{0}));
+        assertNotNull(GridPlanner.gridProblem(slots));
+        Plan p = plan(slots, List.of(new Supply(64, 64)), stacks(64), true);
+        assertFalse(p.ok());
+        assertTrue(p.fills().isEmpty());
+    }
+
+    @Test
+    void everyRealGridSlotIsAccepted() {
+        List<Slot> all = new java.util.ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            all.add(new Slot(i, new int[]{0}));
+        }
+        assertNull(GridPlanner.gridProblem(all));
+        assertNull(GridPlanner.gridProblem(chestShape()));
+        assertTrue(plan(all, List.of(new Supply(9, 0)), stacks(64), false).ok());
     }
 }
