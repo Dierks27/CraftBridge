@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.13.3
+
+**Item duplication fixes.** All three were found in an audit; none needed a modified client
+to reach, though a modified one made them larger.
+
+* **JEI [+] at a Linked Workbench could create items.** The phantom slots that show nearby
+  storage are counted when the player last clicked; if a hopper, another player or a pull
+  emptied a chest after that, the transfer still planned with the old counts. Storage then
+  came up short, and only the crafting grid was trimmed: whatever the transfer had put in
+  spare inventory slots or handed over as overflow reached the player anyway. Storage is now
+  counted again at the moment of the transfer, in the same tick the items are taken, and any
+  shortfall is taken back from overflow first, then the inventory, then the grid.
+* **A JEI transfer could turn one item into another.** When a transfer used up a phantom
+  slot and then put a different item into that (really empty) slot, the plugin only compared
+  counts: it put phantom items that never existed back into storage and lost the other item.
+  That item now goes to the player, and the phantom counts as fully used.
+* **The Combo Chest could pull from a broken shulker box.** It pulled from the list of
+  containers it scanned when the page was drawn; a shulker box broken since (by another
+  player or a piston) dropped with its contents and could still be emptied from the menu.
+  A pull now re-scans right before it takes, and no pull or deposit ever touches a container
+  whose block is no longer storage.
+
 ## 0.13.2
 
 **Updating is now drop-in-the-jar: an older `config.yml` is upgraded automatically.**
