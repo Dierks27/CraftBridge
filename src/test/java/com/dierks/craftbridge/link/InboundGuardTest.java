@@ -50,6 +50,24 @@ class InboundGuardTest {
     }
 
     @Test
+    void middleClickSortingIsThrottledButAnHonestPlayerIsNot() {
+        InboundGuard guard = new InboundGuard();
+        // One middle-click a second for a minute: never dropped.
+        for (int i = 0; i < 60; i++) {
+            assertTrue(guard.allow(LinkProtocol.CHANNEL_SORT_REQUEST, i * SECOND), "sort " + i);
+        }
+        // A macro hammering it: the burst, then nothing until the bucket refills.
+        InboundGuard flooded = new InboundGuard();
+        int allowed = 0;
+        for (int i = 0; i < 100; i++) {
+            if (flooded.allow(LinkProtocol.CHANNEL_SORT_REQUEST, 0)) {
+                allowed++;
+            }
+        }
+        assertTrue(allowed == 3, "allowed " + allowed);
+    }
+
+    @Test
     void aBurstIsAllowedThenThrottled() {
         InboundGuard guard = new InboundGuard();
         int allowed = 0;

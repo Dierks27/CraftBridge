@@ -102,6 +102,45 @@ class LinkProtocolTest {
     }
 
     @Test
+    void aSortRequestRoundTrips() {
+        LinkProtocol.SortRequest got = LinkProtocol.decodeSortRequest(LinkProtocol.encode(
+                new LinkProtocol.SortRequest(12, 57, LinkProtocol.SORT_TARGET_PLAYER)));
+        assertEquals(12, got.requestId());
+        assertEquals(57, got.containerId());
+        assertEquals("PLAYER", got.target());
+        assertEquals(0, LinkProtocol.decodeSortRequest(LinkProtocol.encode(
+                new LinkProtocol.SortRequest(1, 0, LinkProtocol.SORT_TARGET_CONTAINER))).containerId());
+    }
+
+    @Test
+    void helloFlagsAreIndependentBits() {
+        assertEquals(0, LinkProtocol.FLAG_SORT & LinkProtocol.FLAG_PHANTOM_SLOTS_OFF);
+        LinkProtocol.ServerHello sortOnly = LinkProtocol.decodeServerHello(
+                LinkProtocol.encode(new LinkProtocol.ServerHello("0.14", LinkProtocol.FLAG_SORT)));
+        assertTrue(sortOnly.sortAllowed());
+        assertFalse(sortOnly.phantomSlotsOff(), "what an older client, which only reads bit 1, sees");
+        LinkProtocol.ServerHello both = new LinkProtocol.ServerHello("0.14",
+                LinkProtocol.FLAG_SORT | LinkProtocol.FLAG_PHANTOM_SLOTS_OFF);
+        assertTrue(both.sortAllowed() && both.phantomSlotsOff());
+        assertFalse(new LinkProtocol.ServerHello("0.14", 0).sortAllowed());
+    }
+
+    @Test
+    void theServerHelloLayoutIsUnchangedByTheSortFlag() {
+        assertArrayEquals(new byte[]{(byte) LinkProtocol.VERSION, 4, '0', '.', '1', '3', 2},
+                LinkProtocol.encode(new LinkProtocol.ServerHello("0.13", LinkProtocol.FLAG_SORT)));
+    }
+
+    @Test
+    void aTruncatedOrMismatchedSortRequestIsRejected() {
+        byte[] payload = LinkProtocol.encode(new LinkProtocol.SortRequest(3, 4, "CONTAINER"));
+        byte[] cut = java.util.Arrays.copyOf(payload, payload.length - 1);
+        assertThrows(IllegalArgumentException.class, () -> LinkProtocol.decodeSortRequest(cut));
+        payload[0] = (byte) (LinkProtocol.VERSION + 1);
+        assertThrows(IllegalArgumentException.class, () -> LinkProtocol.decodeSortRequest(payload));
+    }
+
+    @Test
     void aVersionMismatchRefusesRatherThanMisreads() {
         byte[] payload = LinkProtocol.encode(new LinkProtocol.SessionEnd("closed"));
         payload[0] = (byte) (LinkProtocol.VERSION + 1);

@@ -4,6 +4,7 @@ import com.dierks.craftbridge.CraftBridgePlugin;
 import com.dierks.craftbridge.items.CustomItemRegistry;
 import com.dierks.craftbridge.recipes.CustomRecipe;
 import com.dierks.craftbridge.recipes.RecipeFeature;
+import com.dierks.craftbridge.sort.SortFeature;
 import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
 import com.dierks.craftbridge.workbench.BlockKind;
@@ -75,7 +76,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
 
     private static final List<String> INCOMING = List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_RESYNC,
             LinkProtocol.CHANNEL_STORAGE_ACK, LinkProtocol.CHANNEL_PULL_REQUEST,
-            LinkProtocol.CHANNEL_TRANSFER_REQUEST);
+            LinkProtocol.CHANNEL_TRANSFER_REQUEST, LinkProtocol.CHANNEL_SORT_REQUEST);
     private static final List<String> OUTGOING = List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_STORAGE,
             LinkProtocol.CHANNEL_TRANSFER_RESULT, LinkProtocol.CHANNEL_SESSION_END,
             LinkProtocol.CHANNEL_ITEM_CATALOG);
@@ -86,6 +87,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     private final Map<UUID, InboundGuard> guards = new HashMap<>();
     private final Map<ItemStack, byte[]> blobCache = new LinkedHashMap<>();
     private ItemBlobs blobs;
+    /** Null when the menu ids could not be read: middle-click sorting is then never offered. */
+    private MenuIds menus;
     private int task = -1;
 
     /** One player who has the mod and has said hello. */
@@ -121,6 +124,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         if (blobs == null) {
             return; // already logged; the plugin runs on without the link
         }
+        menus = MenuIds.create(plugin);
         Messenger messenger = plugin.getServer().getMessenger();
         for (String channel : INCOMING) {
             messenger.registerIncomingPluginChannel(plugin, channel, this);
@@ -280,6 +284,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                         onPullRequest(player, LinkProtocol.decodePullRequest(message));
                 case LinkProtocol.CHANNEL_TRANSFER_REQUEST ->
                         onTransferRequest(player, LinkProtocol.decodeTransferRequest(message));
+                case LinkProtocol.CHANNEL_SORT_REQUEST ->
+                        onSortRequest(player, LinkProtocol.decodeSortRequest(message));
                 default -> {
                 }
             }
@@ -317,9 +323,31 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         // client acknowledges a snapshot. Saying otherwise here is what would let a mod that
         // cannot display anything leave the player with nothing.
         send(player, LinkProtocol.CHANNEL_HELLO, LinkProtocol.encode(new LinkProtocol.ServerHello(
-                plugin.getPluginMeta().getVersion(), 0)));
+                plugin.getPluginMeta().getVersion(), helloFlags(player))));
         sendCatalog(player);
         push(player, true);
+    }
+
+    /**
+     * The flags this player's hello carries. {@link LinkProtocol#FLAG_SORT} only when a
+     * middle-click would really sort for them: sorting on, middle-click allowed, the
+     * {@code craftbridge.sort} permission and their own toggle. Without it the mod leaves
+     * middle-click alone, so it never swallows a click the server would refuse.
+     */
+    private int helloFlags(Player player) {
+        SortFeature sort = plugin.feature(SortFeature.class);
+        return menus != null && sort != null && sort.middleClickOffered(player) ? LinkProtocol.FLAG_SORT : 0;
+    }
+
+    /**
+     * Something a hello flag depends on changed (the player's sort settings): say hello again.
+     * The client only takes the flags from a repeated ServerHello, so nothing else is reset.
+     */
+    public void refreshHello(Player player) {
+        if (linked.containsKey(player.getUniqueId())) {
+            send(player, LinkProtocol.CHANNEL_HELLO, LinkProtocol.encode(new LinkProtocol.ServerHello(
+                    plugin.getPluginMeta().getVersion(), helloFlags(player))));
+        }
     }
 
     private void onResync(Player player) {
@@ -688,6 +716,52 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         player.updateInventory();
         reply(player, request.requestId(), true, "");
         push(player, true); // the chests just changed
+    }
+
+    /**
+     * Middle-click sort from the mod. The client names only which screen (its menu id) and which
+     * half of it; the id must be the menu open on the server right now, and everything else is
+     * {@code /sort}'s rules ({@link SortFeature#sortFromClient}). Rate-limited by
+     * {@link InboundGuard} like every other link message.
+     */
+    private void onSortRequest(Player player, LinkProtocol.SortRequest request) {
+        SortFeature sort = plugin.feature(SortFeature.class);
+        if (sort == null || menus == null) {
+            reply(player, request.requestId(), false, ""); // a stale flag: nothing to say
+            return;
+        }
+        // Compared, never valueOf'd: an IllegalArgumentException from here would read as a
+        // bad packet at best.
+        boolean playerSide = LinkProtocol.SORT_TARGET_PLAYER.equals(request.target());
+        if (!playerSide && !LinkProtocol.SORT_TARGET_CONTAINER.equals(request.target())) {
+            reply(player, request.requestId(), false, "");
+            return;
+        }
+        int open;
+        try {
+            open = menus.openContainerId(player);
+        } catch (RuntimeException | LinkageError ex) {
+            // Server internals that moved fail on first use, not at load: switch sorting off
+            // for everyone rather than fail every click.
+            plugin.getLogger().warning("CraftBridge client link: middle-click sorting disabled; the open menu's"
+                    + " id cannot be read on this server (" + ex + ").");
+            menus = null;
+            reply(player, request.requestId(), false, "");
+            return;
+        }
+        if (request.containerId() != open) {
+            reply(player, request.requestId(), false, ""); // that screen is gone; never sort its replacement
+            return;
+        }
+        SortFeature.ClientSort result;
+        try {
+            result = sort.sortFromClient(player, playerSide);
+        } catch (RuntimeException ex) {
+            plugin.getLogger().warning("CraftBridge client link: middle-click sort for " + player.getName()
+                    + " failed: " + ex);
+            result = new SortFeature.ClientSort(false, "");
+        }
+        reply(player, request.requestId(), result.sorted(), result.message());
     }
 
     /**

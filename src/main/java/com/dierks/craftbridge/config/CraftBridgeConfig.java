@@ -316,4 +316,16 @@ public final class CraftBridgeConfig {
     public int golemRadius() {
         return Math.max(1, Math.min(32, raw.getInt("golem-chests.radius", 16)));
     }
+
+    // ---- middle-click sorting --------------------------------------------------------
+
+    /** Whether players may middle-click to sort at all (it needs the CraftBridge-Client mod). */
+    public boolean sortMiddleClickAllowed() {
+        return raw.getBoolean("sorting.middle-click.allowed", true);
+    }
+
+    /** The per-player default of the middle-click toggle in /sort settings. */
+    public boolean sortMiddleClickDefault() {
+        return raw.getBoolean("sorting.middle-click.default", true);
+    }
 }

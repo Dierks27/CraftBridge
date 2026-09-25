@@ -1,10 +1,10 @@
 # CraftBridge link protocol
 
 The wire contract between the **CraftBridge Paper plugin** and the optional
-**CraftBridge-Client** mod. Both codebases keep a byte-identical copy of
-`link/LinkProtocol.java` and `link/SnapshotTracker.java`; if they ever diverge, the version
-byte at the head of every payload makes the pair refuse to talk rather than misread each
-other.
+**CraftBridge-Client** mod. Both codebases keep the same copy of `link/LinkProtocol.java`
+(identical but for the plugin's one `import com.dierks.craftbridge.jei.VarInts;` line) and
+of `link/SnapshotTracker.java`; if they ever diverge, the version byte at the head of every
+payload makes the pair refuse to talk rather than misread each other.
 
 ## Why the mod exists
 
@@ -18,13 +18,34 @@ checks its own network alongside the inventory.
 
 | Channel | Direction | Purpose |
 |---|---|---|
-| `craftbridge:hello` | C→S, then S→C | Announce the mod; the reply switches it on and says phantom slots are off for this player |
+| `craftbridge:hello` | C→S, then S→C | Announce the mod; the reply switches it on and carries flags (below). The server may send it again at any time to update the flags |
 | `craftbridge:storage` | S→C | Full snapshot or delta of everything in range, with a sequence number |
 | `craftbridge:resync` | C→S | "I fell behind at sequence N, send me everything" |
+| `craftbridge:storage_ack` | C→S | "I have snapshot N and I am (not) drawing it": only this turns the phantom slots off |
+| `craftbridge:pull_request` | C→S | The player clicked an item in the storage panel: which item, which click |
 | `craftbridge:transfer_request` | C→S | The player clicked `[+]`: this recipe, max-transfer, complete-sets |
-| `craftbridge:transfer_result` | S→C | Success, or the reason shown as a JEI transfer error |
+| `craftbridge:sort_request` | C→S | The player middle-clicked in a container screen: which menu id, which half |
+| `craftbridge:transfer_result` | S→C | Success, or the reason, for a transfer, a pull or a sort |
 | `craftbridge:session_end` | S→C | Drop the cached snapshot (close, teleport, death, out of range) |
 | `craftbridge:item_catalog` | S→C | Custom items, so JEI can give them their own tiles |
+
+### Hello flags
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 1 | `FLAG_PHANTOM_SLOTS_OFF` | the server has turned phantom slots off for this player (not set today: the `storage_ack` handshake decides) |
+| 2 | `FLAG_SORT` | a middle-click will sort for this player: sorting on, `sorting.middle-click.allowed`, `craftbridge.sort`, and their own toggle. Without it the mod leaves middle-click alone |
+
+A client ignores bits it does not know, so a new flag never needs a version bump; the
+server re-sends `hello` whenever a flag changes (a `/sort settings` toggle, a reload).
+
+### `sort_request`
+
+`varint version, varint requestId, varint containerId, string target` where `target` is
+`CONTAINER` (the open container's slots) or `PLAYER` (the player's own rows). The server
+refuses a `containerId` that is not the menu open right now, then applies `/sort`'s rules;
+the answer is a `transfer_result` with the same `requestId`, whose message (possibly empty)
+the mod shows in chat.
 
 If no `hello` reply arrives, the mod does nothing at all — a vanilla server, or a server
 without CraftBridge, is simply a server where JEI behaves normally.

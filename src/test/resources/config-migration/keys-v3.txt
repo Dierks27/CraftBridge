@@ -12,6 +12,9 @@ sorting.double-click-ms
 sorting.player-inventory
 sorting.player-inventory.allowed
 sorting.player-inventory.default
+sorting.middle-click
+sorting.middle-click.allowed
+sorting.middle-click.default
 sorting.feedback-default
 sorting.respect-protection
 sorting.categories

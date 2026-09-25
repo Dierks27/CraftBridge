@@ -199,7 +199,7 @@ class ConfigMigratorTest {
         assertTrue(after.contains("# Minecraft 26.3 made brewing a recipe type"), "a comment inside a list survives");
         assertTrue(after.contains("# Golem chests"), "the new section keeps the jar's comments");
         assertEquals(1, reload().getStringList(TYPES).stream().filter("minecraft:brewing"::equals).count());
-        assertTrue(logged.get(0).contains("added golem-chests"), logged.get(0));
+        assertTrue(logged.get(0).contains("added sorting.middle-click, golem-chests"), logged.get(0));
     }
 
     @Test
@@ -583,7 +583,11 @@ class ConfigMigratorTest {
         String jar = bundledText();
         String golem = jar.substring(jar.indexOf(header + "# Golem chests"), jar.indexOf(header + "# JEI"));
         int at = text.indexOf(header + "# JEI");
-        return text.substring(0, at) + golem + text.substring(at);
+        text = text.substring(0, at) + golem + text.substring(at);
+        String feedback = "  # Default for the sound/particle feedback toggle.\n";
+        String middle = jar.substring(jar.indexOf("  # Middle-click to sort"), jar.indexOf(feedback));
+        at = text.indexOf(feedback);
+        return text.substring(0, at) + middle + text.substring(at);
     }
 
     private static String bundledText() throws IOException {

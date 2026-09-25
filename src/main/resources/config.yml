@@ -37,6 +37,14 @@ sorting:
   player-inventory:
     allowed: true
     default: false
+  # Middle-click to sort, for players with the CraftBridge-Client mod (a vanilla client never
+  # sends a middle-click in survival). Over a chest's slots it sorts the chest (and your rows,
+  # if you chose "Also sort my inventory"); over your own slots it sorts just your rows, never
+  # the hotbar. It follows your pick-block key binding, and works alongside your trigger:
+  # COMMAND_ONLY does not turn it off, the toggle in /sort settings does.
+  middle-click:
+    allowed: true
+    default: true
   # Default for the sound/particle feedback toggle.
   feedback-default: true
   # Skip containers whose Towny plot / WorldGuard region the player cannot use.

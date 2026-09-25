@@ -32,7 +32,9 @@ final class InboundGuard {
         /** A click in the storage panel: fast clicking stays well inside this. */
         PULL_REQUEST(20, 10),
         /** A JEI [+]: a burst of shift-clicks stays inside this. */
-        TRANSFER_REQUEST(10, 4);
+        TRANSFER_REQUEST(10, 4),
+        /** A middle-click sort: a sort rewrites a whole container, so a few, then two a second. */
+        SORT_REQUEST(3, 2);
 
         final double burst;
         final double perSecond;
@@ -50,6 +52,7 @@ final class InboundGuard {
                 case LinkProtocol.CHANNEL_STORAGE_ACK -> STORAGE_ACK;
                 case LinkProtocol.CHANNEL_PULL_REQUEST -> PULL_REQUEST;
                 case LinkProtocol.CHANNEL_TRANSFER_REQUEST -> TRANSFER_REQUEST;
+                case LinkProtocol.CHANNEL_SORT_REQUEST -> SORT_REQUEST;
                 default -> null;
             };
         }

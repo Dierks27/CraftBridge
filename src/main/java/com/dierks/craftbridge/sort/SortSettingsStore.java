@@ -87,7 +87,8 @@ public final class SortSettingsStore {
                 }
                 settings.put(uuid, new PlayerSortSettings(trigger,
                         s.getBoolean("sort-player-inventory", defaults.sortPlayerInventory()),
-                        s.getBoolean("feedback", defaults.feedback())));
+                        s.getBoolean("feedback", defaults.feedback()),
+                        s.getBoolean("middle-click", defaults.middleClick())));
             } catch (IllegalArgumentException ignored) {
                 plugin.getLogger().warning("sort-players.yml: ignoring bad UUID '" + id + "' (kept in the file)");
                 unreadable.keep(id, s);
@@ -106,6 +107,7 @@ public final class SortSettingsStore {
             yaml.set(base + ".trigger", e.getValue().trigger().name());
             yaml.set(base + ".sort-player-inventory", e.getValue().sortPlayerInventory());
             yaml.set(base + ".feedback", e.getValue().feedback());
+            yaml.set(base + ".middle-click", e.getValue().middleClick());
         }
         if (!unreadable.isEmpty()) {
             ConfigurationSection root = yaml.getConfigurationSection("players");

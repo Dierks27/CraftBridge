@@ -62,7 +62,8 @@ Every node is declared in `plugin.yml` with a description and a default, so Luck
 suggests them. `craftbridge.admin` (op) covers everything that hands out items or changes
 server state; `craftbridge.recipes.admin` (op) gates `/recipe` **and every screen it opens**
 — the check is re-run on each click, so revoking it mid-session closes the GUI immediately
-rather than at the next login. `craftbridge.sort` (everyone) covers `/sort`, and
+rather than at the next login. `craftbridge.sort` (everyone) covers `/sort` and every
+trigger, middle-click included, and
 `craftbridge.sort.others` is reserved for a future "sort any container I'm looking at" admin
 tool and does nothing yet.
 
@@ -96,12 +97,31 @@ Towny plot / WorldGuard region is checked first (`sorting.respect-protection`).
 | `SNEAK_PUNCH_BLOCK` | sneak and left-click the container block (block damage is cancelled) |
 | `COMMAND_ONLY` | only `/sort` |
 
+**Middle-click sort** (needs the [CraftBridge-Client](https://github.com/Dierks27/CraftBridge-Client)
+mod) works *alongside* whichever trigger you picked — it is its own toggle in `/sort settings`
+("Middle-click sort (needs CraftBridge Client)", on by default: `sorting.middle-click.default`;
+`sorting.middle-click.allowed: false` removes it for everyone), not a fifth trigger, so
+`COMMAND_ONLY` does not turn it off. With an empty cursor, middle-click (your pick-block
+binding) over a chest's slots sorts the chest — plus your rows if you chose "Also sort my
+inventory" — and over your own slots sorts just your main rows, never the hotbar. The mod
+only takes the click while the server says it will sort for you (a flag in the link's hello,
+re-sent whenever you change the toggle), so on a server that cannot sort, without the
+permission or with the toggle off, middle-click stays whatever it was. The server does not
+trust the click: the request names only the screen's menu id and which half was clicked; the
+id must be the menu open on the server right now, and then the same rules as `/sort` apply
+(permission, lock and claim of both halves of a double chest, the cursor must be empty),
+rate-limited like every link message. CraftBridge's own menus, the Linked Workbench and
+anything else that is not a chest, barrel or shulker box are left alone without a chat line.
+
 ### Reality check: what the client actually sends
 
-* **Middle-click cannot be a trigger.** In survival the client does not send a middle-click
-  inventory packet at all, so a server plugin never sees it. If middle-click sorts chests
-  for you today, that is a client-side mod doing it. The settings GUI says so in its help
-  book so players don't file bugs.
+* **Middle-click needs the client mod.** In survival the vanilla client does not send a
+  middle-click inventory packet at all, so a server plugin never sees it. With
+  CraftBridge-Client the mod catches the click and sends `craftbridge:sort_request`, and the
+  server applies `/sort`'s rules to whatever you have open at that moment (see above). The
+  settings GUI's help book says so. Another client-side sorting mod that also uses
+  middle-click (Inventory Sorter and the like) will not fire while CraftBridge's is on: turn
+  one of the two off.
 * **Shift-click outside is fuzzy.** Historically the vanilla client sends a click on the
   area outside a GUI as a `THROW`-mode click with slot `-999` and *without* the shift
   state, and while a screen is open it does not report sneaking either. CraftBridge
@@ -668,6 +688,14 @@ never to nothing.
   the scarcest ingredient setting how many sets are made, stack sizes respected, the player's
   own items spent before storage is touched). The worst a modified client can do is ask for a
   recipe it could have asked for by clicking.
+* **Middle-click sorting** (`craftbridge:sort_request`) is offered through a flag in the
+  server's hello (`FLAG_SORT`), set only when sorting is on, middle-click is allowed, the
+  player has `craftbridge.sort` and their toggle is on, and re-sent whenever they change it.
+  The request carries the menu id the client clicked in and which half; the server refuses a
+  menu id that is not the one open now, rate-limits it (`link.InboundGuard`), and otherwise
+  decides by the same rules as `/sort` (`sort.MiddleClickRules`, unit tested). The answer
+  comes back on `transfer_result`. The menu id is read by `link.nms.PaperMenuIds`; if that
+  ever fails, middle-click sorting switches off and nothing else does.
 * **Before the grid is refilled it is emptied** by the same rules a close uses — items that
   came from a container go back to it, the rest to the player — so nothing is lost and nothing
   is duplicated. Items pulled from storage remember which chest they came from and go back
