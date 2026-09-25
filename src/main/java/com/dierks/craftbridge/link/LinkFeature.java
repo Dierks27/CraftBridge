@@ -471,7 +471,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return; // never said hello: nothing to answer to
         }
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
+        LinkedSession session = liveSession(workbench, player);
         if (session == null || !(session.view().getTopInventory() instanceof CraftingInventory crafting)) {
             refuse(player, request, "Open a Linked Workbench first.");
             return;
@@ -551,7 +551,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return;
         }
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
+        LinkedSession session = liveSession(workbench, player);
         if (session == null) {
             reply(player, request.requestId(), false, "Open a Linked Workbench first.");
             return;
@@ -587,6 +587,18 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         player.updateInventory();
         reply(player, request.requestId(), true, "");
         push(player, true); // the chests just changed
+    }
+
+    /**
+     * The player's Linked Workbench session, but only while its menu is the one they actually
+     * have open. A session can briefly outlive its menu (the close is handled a tick later on
+     * death or teleport, or another plugin swapped the menu out), and a pull or transfer acting
+     * on it then would fill a grid the player cannot see, or hand items to a player who is no
+     * longer at the table.
+     */
+    private static LinkedSession liveSession(WorkbenchFeature workbench, Player player) {
+        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
+        return session != null && player.getOpenInventory() == session.view() ? session : null;
     }
 
     /** Anything that fits neither cursor nor inventory goes back where it came from. */

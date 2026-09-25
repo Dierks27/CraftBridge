@@ -40,6 +40,9 @@ public final class SessionManager {
      * Open a real vanilla crafting menu attached to the table (so it closes when the
      * player walks more than 8 blocks away or the table is gone, and so JEI recognises it
      * as MenuType.CRAFTING) and start the session.
+     *
+     * @return the session, or null when the menu did not open (another plugin cancelled the
+     *         InventoryOpenEvent, or the player cannot be shown a menu right now)
      */
     public LinkedSession open(Player player, WorkbenchRecord record) {
         end(player, false);
@@ -50,6 +53,16 @@ public final class SessionManager {
                 .title(Component.text("Linked Workbench"))
                 .build(player);
         player.openInventory(view);
+        // openInventory returns nothing, and a cancelled InventoryOpenEvent just leaves the old
+        // menu up. A session kept for a menu that never opened would outlive it: nothing ever
+        // closes it, and its phantom slots and link pulls/transfers would act on a grid the
+        // player cannot see. getOpenInventory() hands back the very view we built when the open
+        // went through (the menu caches its Bukkit view), which is also what isLinkedView relies on.
+        if (player.getOpenInventory() != view) {
+            plugin.debug("Linked Workbench: the crafting menu for " + player.getName()
+                    + " did not open (cancelled by another plugin?); no session started.");
+            return null;
+        }
         LinkedSession session = new LinkedSession(player.getUniqueId(), record, view);
         sessions.put(player.getUniqueId(), session);
         if (phantoms != null) {
