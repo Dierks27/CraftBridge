@@ -179,8 +179,8 @@ class ConfigMigratorTest {
 
         migrate();
 
-        String expected = original.replace("      - minecraft:smithing\n",
-                "      - minecraft:smithing\n      - minecraft:brewing\n")
+        String expected = withV3Sections(original.replace("      - minecraft:smithing\n",
+                "      - minecraft:smithing\n      - minecraft:brewing\n"))
                 + "\n" + versionBlock() + "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n";
         assertEquals(expected, Files.readString(config));
         assertTrue(Files.readString(config).contains("shape: ['HEH', 'CBC', 'HRH']"), "flow lists kept as written");
@@ -188,17 +188,43 @@ class ConfigMigratorTest {
     }
 
     @Test
-    void aV0131FileOnlyGainsTheVersionStamp() throws IOException {
+    void aV0131FileOnlyGainsTheNewSectionsAndTheVersionStamp() throws IOException {
         String original = fixture("config-v0.13.1.yml");
         Files.writeString(config, original);
 
         migrate();
 
         String after = Files.readString(config);
-        assertTrue(after.startsWith(original.stripTrailing()), "nothing before the stamp changed");
+        assertTrue(after.startsWith(withV3Sections(original).stripTrailing()), "nothing else before the stamp changed");
         assertTrue(after.contains("# Minecraft 26.3 made brewing a recipe type"), "a comment inside a list survives");
+        assertTrue(after.contains("# Golem chests"), "the new section keeps the jar's comments");
         assertEquals(1, reload().getStringList(TYPES).stream().filter("minecraft:brewing"::equals).count());
-        assertTrue(logged.get(0).contains("nothing to add"), logged.get(0));
+        assertTrue(logged.get(0).contains("added golem-chests"), logged.get(0));
+    }
+
+    @Test
+    void aNewSectionLandsBeforeTheNextOneTheFileHas() throws IOException {
+        Files.writeString(config, fixture("config-v0.13.yml"));
+
+        migrate();
+
+        String after = Files.readString(config);
+        int golem = after.indexOf("golem-chests:");
+        assertTrue(golem > after.indexOf("combo-chest:") && golem < after.indexOf("\njei:"), after);
+        assertEquals(List.of("C", "H", "S"), reload().getStringList("golem-chests.recipe.shape"));
+        assertEquals("HONEYCOMB", reload().getString("golem-chests.recipe.ingredients.H"));
+    }
+
+    @Test
+    void aFileWithoutTheNextSectionStillGetsTheNewOneThroughTheYamlWriter() throws IOException {
+        String original = fixture("config-v0.13.yml");
+        Files.writeString(config, original.substring(0, original.indexOf("# ---------------------------------"
+                + "--------------------------------------------\n# JEI")));
+
+        migrate();
+
+        assertTrue(reload().getBoolean("golem-chests.enabled"));
+        assertEquals(ConfigMigrator.CURRENT_VERSION, reload().getInt(ConfigMigrator.VERSION_KEY));
     }
 
     @Test
@@ -218,8 +244,8 @@ class ConfigMigratorTest {
 
         migrate();
 
-        String expected = (fixture("config-v0.13.yml").replace("      - minecraft:smithing\n",
-                "      - minecraft:smithing\n      - minecraft:brewing\n")
+        String expected = (withV3Sections(fixture("config-v0.13.yml").replace("      - minecraft:smithing\n",
+                "      - minecraft:smithing\n      - minecraft:brewing\n"))
                 + "\n" + versionBlock() + "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n").replace("\n", "\r\n");
         assertEquals("\uFEFF" + expected, Files.readString(config));
     }
@@ -546,6 +572,18 @@ class ConfigMigratorTest {
         int key = bundled.indexOf("\n" + ConfigMigrator.VERSION_KEY + ":");
         int start = bundled.lastIndexOf("\n\n", key) + 2;
         return bundled.substring(start, key + 1);
+    }
+
+    /**
+     * A 0.13 file's text as a v3 upgrade leaves it: the settings v3 added, copied from the jar
+     * with their comments, just before the next setting the file already has.
+     */
+    private static String withV3Sections(String text) throws IOException {
+        String header = "# -----------------------------------------------------------------------------\n";
+        String jar = bundledText();
+        String golem = jar.substring(jar.indexOf(header + "# Golem chests"), jar.indexOf(header + "# JEI"));
+        int at = text.indexOf(header + "# JEI");
+        return text.substring(0, at) + golem + text.substring(at);
     }
 
     private static String bundledText() throws IOException {

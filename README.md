@@ -11,6 +11,7 @@ server and modded-client conveniences:
 | 1 | **JEI `[+]` recipe transfer** for Fabric/JEI clients on a plugin server | PR 4 |
 | 2b | **Combo Chest** — one block that browses, pulls from and deposits into every chest in range | PR 9 |
 | 1b | **Client link** — the optional [CraftBridge-Client](https://github.com/Dierks27/CraftBridge-Client) mod sees every item in range, not the 36 a server can fake | PR 24 |
+| 2c | **Golem chests** — mark a chest or barrel so CraftBridge never takes the last item of any slot | |
 
 Every feature has its own master switch under `features:` in `config.yml`, so any one
 of them can be shipped or turned off independently. `/craftbridge reload` re-reads the
@@ -49,7 +50,7 @@ generate `plugins/CraftBridge/config.yml`).
 |---------|-----------|---------|
 | `/craftbridge reload` / `/craftbridge version` (alias `/cb`) | `craftbridge.admin` | op |
 | `/craftbridge page next\|prev` — turn the nearby-storage page at a Linked Workbench | none | everyone |
-| `/craftbridge give <player> workbench|combochest [amount]` | `craftbridge.admin` | op |
+| `/craftbridge give <player> workbench|combochest|golemmarker [amount]` | `craftbridge.admin` | op |
 | `/craftbridge workbench|combochest list` / `refresh` / `display <scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
 | `/craftbridge jei` / `/craftbridge jei resync` — recipe-sync state, or re-encode and re-send it now | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
@@ -589,6 +590,37 @@ and reachable from no chest.
 **Getting the block:** craft it, or `/craftbridge give <player> combochest [amount]`.
 Both blocks share the code in `workbench.*`: `BlockKind` picks the physical block,
 tag, recipe key, config section and display defaults per kind.
+
+## Feature 2c — Golem chests
+
+Copper golems, hopper filters and item sorters decide where things go by what a slot
+*already holds*. A Linked Workbench, a JEI `[+]` or the Combo Chest that takes the last item
+out of such a slot breaks the sorter without a word. A **golem chest** is a chest, double
+chest or barrel that CraftBridge never takes the last item of any slot from.
+
+* **Marking.** Craft the **Golem Chest Marker** (default: copper ingot over honeycomb over a
+  stick, `golem-chests.recipe` in `config.yml`; or `/craftbridge give <player> golemmarker`)
+  and right-click a chest, double chest or barrel with it in your main hand: that toggles the
+  mark, with a chat line and a sound, and the container does not open. A double chest is
+  marked (and unmarked) on both halves. Only a player who may use the container — lock,
+  Towny, protection plugins, both halves — may mark it. A Combo Chest's barrel is a terminal,
+  not storage, and cannot be marked.
+* **Where the mark lives.** In the block's own persistent data (`craftbridge:golem_chest`),
+  so it moves with nothing and survives restarts. Breaking the block forgets it; the chest
+  that drops is an ordinary chest.
+* **Seeing the marks.** While you hold the marker (either hand), marked containers within
+  `golem-chests.radius` (16) blocks show `golem-chests.particle` (`WAX_ON`) every half
+  second — to you only. Only players holding the marker cost anything, and for them only the
+  block entities of the chunks in range are looked at.
+* **The rule.** Every CraftBridge read of storage counts a marked container as
+  `amount - 1` per slot (`workbench.TakePlanner`, unit tested), and every pull honours the
+  same number, taking from the fullest slots first. That covers the Linked Workbench's
+  phantom slots and its JEI transfers, the client mod's storage panel and `[+]`, and the
+  Combo Chest's list and pulls — they all go through `workbench.StorageScanner`. Deposits
+  are unaffected, and so is anything that is not CraftBridge (a player opening the chest can
+  take everything as usual).
+* `golem-chests.enabled: false` turns the whole thing off: no marker, no recipe, and marks
+  already placed are ignored until it is turned back on.
 
 ## Feature 1b — the client link
 

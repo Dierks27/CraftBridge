@@ -461,6 +461,9 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             for (BlockKind kind : BlockKind.values()) {
                 add(entries, workbench.items().placeItem(kind, 1));
             }
+            if (workbench.golems() != null) {
+                add(entries, workbench.golems().markerItem(1));
+            }
         }
         RecipeFeature recipes = plugin.feature(RecipeFeature.class);
         if (recipes != null) {

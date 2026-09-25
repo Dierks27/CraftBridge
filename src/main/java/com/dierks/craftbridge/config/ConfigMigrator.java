@@ -49,10 +49,12 @@ import java.util.regex.Pattern;
  *       comes back at most once, on the upgrade that introduced it, and never again;</li>
  *   <li>stamps the new version and saves, keeping the file's comments.</li>
  * </ol>
- * When the upgrade only appends list entries and stamps the version — every upgrade from a
- * 0.13 file — those lines are inserted into the admin's text as it is, and every other byte
- * stays put: their layout, flow-style lists and comments inside lists included. The edited
- * text is parsed back and must read exactly like the full migration, or the full save is used.
+ * When the upgrade only appends list entries, adds settings or sections the file lacks and
+ * stamps the version — every upgrade from a 0.13 file — those lines are inserted into the
+ * admin's text as it is (a missing setting as the jar's own lines, comments included, just
+ * before the next setting the file has), and every other byte stays put: their layout,
+ * flow-style lists and comments inside lists included. The edited text is parsed back and
+ * must read exactly like the full migration, or the full save is used.
  * Anything more (whole sections added to a much older file) goes through Paper's YAML writer,
  * which keeps comments on settings but lays some things out anew.
  * A file at the current version is not touched at all, so a second boot changes nothing.
@@ -76,14 +78,15 @@ public final class ConfigMigrator {
      * bump would never reach existing servers. ConfigMigratorTest holds the bundled keys for
      * this version and fails until the number is bumped.
      */
-    public static final int CURRENT_VERSION = 2;
+    public static final int CURRENT_VERSION = 3;
 
     /** Values the admin owns as a whole: added when missing, never merged entry by entry. */
     private static final Set<String> WHOLE_VALUES = Set.of(
             "sorting.categories",
             "jei.recipe-sync.types",
             "linked-workbench.recipe.shape", "linked-workbench.recipe.ingredients",
-            "combo-chest.recipe.shape", "combo-chest.recipe.ingredients");
+            "combo-chest.recipe.shape", "combo-chest.recipe.ingredients",
+            "golem-chests.recipe.shape", "golem-chests.recipe.ingredients");
 
     /**
      * Settings whose absence means something the jar's value does not, so filling them in
@@ -93,7 +96,7 @@ public final class ConfigMigrator {
     private static final Set<String> NEVER_ADD = Set.of("linked-workbench.head-texture");
 
     /** Blocks whose {@code recipe.shape} and {@code recipe.ingredients} must agree with each other. */
-    private static final List<String> RECIPE_BLOCKS = List.of("linked-workbench", "combo-chest");
+    private static final List<String> RECIPE_BLOCKS = List.of("linked-workbench", "combo-chest", "golem-chests");
 
     /**
      * One upgrade step: applied to a file older than {@code version}. Add one (with the bump
@@ -203,9 +206,9 @@ public final class ConfigMigrator {
             move(partial, backup);
         }
         String edited = null;
-        if (added.isEmpty() && repaired.isEmpty()) {
+        if (repaired.isEmpty()) {
             try {
-                String candidate = editInPlace(original, appendedTo, versionBlock(bundledText));
+                String candidate = editInPlace(original, appendedTo, added, bundledText, versionBlock(bundledText));
                 edited = candidate != null && readsLike(candidate, live) ? candidate : null;
             } catch (RuntimeException | StackOverflowError unexpectedLayout) {
                 edited = null; // the YAML writer handles whatever the hand edit could not
@@ -446,11 +449,14 @@ public final class ConfigMigrator {
     private static final Pattern PLAIN_SCALAR = Pattern.compile("[A-Za-z0-9_][A-Za-z0-9_:./-]*");
 
     /**
-     * The admin's text with the appended list entries inserted after each list's last item
-     * and the version stamped, or null when that cannot be done safely by hand (a flow-style
-     * or nested list, a map item, mixed line endings, the version key written twice).
+     * The admin's text with the appended list entries inserted after each list's last item,
+     * every missing setting in {@code added} copied in from the jar's text, and the version
+     * stamped, or null when that cannot be done safely by hand (a flow-style or nested list, a
+     * map item, mixed line endings, the version key written twice, a missing setting with no
+     * later sibling in the file to place it before, or a file indented differently).
      */
-    static String editInPlace(String original, Map<String, List<String>> appendedTo, List<String> versionBlock) {
+    static String editInPlace(String original, Map<String, List<String>> appendedTo, List<String> added,
+                              String bundledText, List<String> versionBlock) {
         String bom = original.startsWith("\uFEFF") ? "\uFEFF" : "";
         String body = original.substring(bom.length());
         String eol = "\n";
@@ -463,6 +469,14 @@ public final class ConfigMigrator {
             body = body.replace("\r\n", "\n");
         }
         List<String> lines = new ArrayList<>(Arrays.asList(body.split("\n", -1)));
+        if (!added.isEmpty()) {
+            List<String> jar = Arrays.asList(bundledText.replace("\r\n", "\n").split("\n", -1));
+            for (String path : added) {
+                if (!insertFromJar(lines, jar, path.split("\\."))) {
+                    return null;
+                }
+            }
+        }
         for (Map.Entry<String, List<String>> append : appendedTo.entrySet()) {
             int last = lastItemOfBlockList(lines, append.getKey().split("\\."));
             if (last < 0) {
@@ -595,6 +609,101 @@ public final class ConfigMigrator {
             }
         }
         return lastItem;
+    }
+
+    /**
+     * Copy the jar's lines for one missing setting (its comment block, its key and everything
+     * under it) into the admin's text, just before the comment block of the next setting the
+     * jar lists after it at the same level that the file has too.
+     *
+     * @return false when there is no such sibling, or the indentation of the two files differs
+     */
+    private static boolean insertFromJar(List<String> lines, List<String> jar, String[] path) {
+        int jarKey = keyLine(jar, path);
+        if (jarKey < 0) {
+            return false;
+        }
+        int indent = indentOf(jar.get(jarKey));
+        int end = endOfBlock(jar, jarKey, indent);
+        while (end > jarKey + 1 && isBlankOrComment(jar.get(end - 1))) {
+            end--; // trailing comments belong to whatever comes next
+        }
+        int start = jarKey;
+        while (start > 0 && jar.get(start - 1).trim().startsWith("#")) {
+            start--;
+        }
+        List<String> block = new ArrayList<>(jar.subList(start, end));
+        boolean blankAfter = end < jar.size() && jar.get(end).isBlank();
+
+        // The next sibling, in the jar's order, that the admin's file has as well.
+        String[] parent = Arrays.copyOf(path, path.length - 1);
+        int jarParent = parent.length == 0 ? -1 : keyLine(jar, parent);
+        int jarParentEnd = jarParent < 0 ? jar.size() : endOfBlock(jar, jarParent, indentOf(jar.get(jarParent)));
+        for (int i = end; i < jarParentEnd; i++) {
+            String line = jar.get(i);
+            if (isBlankOrComment(line) || indentOf(line) != indent) {
+                continue;
+            }
+            Matcher key = KEY_LINE.matcher(line);
+            if (!key.matches()) {
+                continue;
+            }
+            String[] sibling = Arrays.copyOf(path, path.length);
+            sibling[path.length - 1] = unquote(key.group(2).trim());
+            int at = keyLine(lines, sibling);
+            if (at < 0) {
+                continue;
+            }
+            if (indentOf(lines.get(at)) != indent) {
+                return false; // the admin indents differently: leave it to the YAML writer
+            }
+            while (at > 0 && lines.get(at - 1).trim().startsWith("#") && indentOf(lines.get(at - 1)) >= indent) {
+                at--;
+            }
+            if (blankAfter) {
+                block.add("");
+            }
+            lines.addAll(at, block);
+            return true;
+        }
+        return false;
+    }
+
+    /** Index of the line holding the key at {@code path}, block style throughout, or -1. */
+    private static int keyLine(List<String> lines, String[] path) {
+        int parentIndent = -1;
+        int from = 0;
+        int to = lines.size();
+        int found = -1;
+        for (String name : path) {
+            found = -1;
+            int childIndent = -1;
+            for (int i = from; i < to; i++) {
+                String line = lines.get(i);
+                if (isBlankOrComment(line)) {
+                    continue;
+                }
+                int indent = indentOf(line);
+                if (indent <= parentIndent) {
+                    break;
+                }
+                if (childIndent < 0) {
+                    childIndent = indent;
+                }
+                Matcher key = KEY_LINE.matcher(line);
+                if (indent == childIndent && key.matches() && unquote(key.group(2).trim()).equals(name)) {
+                    found = i;
+                    from = i + 1;
+                    to = endOfBlock(lines, i, indent);
+                    parentIndent = indent;
+                    break;
+                }
+            }
+            if (found < 0) {
+                return -1;
+            }
+        }
+        return found;
     }
 
     private static int endOfBlock(List<String> lines, int keyLine, int indent) {

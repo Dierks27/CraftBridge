@@ -56,6 +56,17 @@ combo-chest.recipe.ingredients.E
 combo-chest.recipe.ingredients.C
 combo-chest.recipe.ingredients.B
 combo-chest.recipe.ingredients.R
+golem-chests
+golem-chests.enabled
+golem-chests.particle
+golem-chests.radius
+golem-chests.recipe
+golem-chests.recipe.enabled
+golem-chests.recipe.shape
+golem-chests.recipe.ingredients
+golem-chests.recipe.ingredients.C
+golem-chests.recipe.ingredients.H
+golem-chests.recipe.ingredients.S
 jei
 jei.recipe-sync
 jei.recipe-sync.types

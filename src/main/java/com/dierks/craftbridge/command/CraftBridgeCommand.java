@@ -39,7 +39,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             sender.sendMessage(Text.msg("<gray>/craftbridge page next|prev <dark_gray>- turn the storage page at a Linked Workbench"));
             sender.sendMessage(Text.msg("<gray>/craftbridge reload <dark_gray>- reload config and features"));
             sender.sendMessage(Text.msg("<gray>/craftbridge version <dark_gray>- show version"));
-            sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest [amount] <dark_gray>- hand out CraftBridge blocks"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest|golemmarker [amount] <dark_gray>- hand out CraftBridge blocks and the Golem Chest Marker"));
             sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
             sender.sendMessage(Text.msg("<gray>/craftbridge jei [resync|dump <recipe>] <dark_gray>- recipe sync state, re-send, or inspect one recipe on the wire"));
             return true;
@@ -67,7 +67,7 @@ public final class CraftBridgeCommand implements TabExecutor {
                     + " <dark_gray>| <gray>" + plugin.enabledFeatureNames()));
             case "give" -> {
                 if (args.length < 3) {
-                    sender.sendMessage(Text.msg("<red>Usage: /craftbridge give <player> <workbench|combochest> [amount]"));
+                    sender.sendMessage(Text.msg("<red>Usage: /craftbridge give <player> <workbench|combochest|golemmarker> [amount]"));
                     return true;
                 }
                 Player target = plugin.getServer().getPlayer(args[1]);
@@ -174,7 +174,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             return null; // player names
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("give")) {
-            return List.of("workbench", "combochest");
+            return List.of("workbench", "combochest", "golemmarker");
         }
         boolean blockCmd = args[0].equalsIgnoreCase("workbench") || args[0].equalsIgnoreCase("combochest");
         if (args.length == 2 && blockCmd) {

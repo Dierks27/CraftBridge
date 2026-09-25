@@ -25,7 +25,7 @@ public final class CraftBridgeConfig {
 
     /** Top-level sections the plugin expects; a config from an older version may lack some. */
     private static final List<String> SECTIONS = List.of("features", "sorting", "linked-workbench",
-            "combo-chest", "jei");
+            "combo-chest", "golem-chests", "jei");
 
     public CraftBridgeConfig(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -245,31 +245,75 @@ public final class CraftBridgeConfig {
     }
 
     public boolean recipeEnabled(com.dierks.craftbridge.workbench.BlockKind kind) {
-        return raw.getBoolean(kind.configSection() + ".recipe.enabled", true);
+        return recipeEnabled(kind.configSection());
     }
 
     public List<String> recipeShape(com.dierks.craftbridge.workbench.BlockKind kind) {
-        List<String> shape = raw.getStringList(kind.configSection() + ".recipe.shape");
-        return shape.isEmpty() ? kind.defaultRecipeShape() : shape;
+        return recipeShape(kind.configSection(), kind.defaultRecipeShape());
     }
 
     public Map<Character, Material> recipeIngredients(com.dierks.craftbridge.workbench.BlockKind kind) {
+        return recipeIngredients(kind.configSection(), kind.defaultRecipeIngredients());
+    }
+
+    /** {@code <section>.recipe.enabled}, for any block or item with a configurable recipe. */
+    public boolean recipeEnabled(String section) {
+        return raw.getBoolean(section + ".recipe.enabled", true);
+    }
+
+    public List<String> recipeShape(String section, List<String> defaults) {
+        List<String> shape = raw.getStringList(section + ".recipe.shape");
+        return shape.isEmpty() ? defaults : shape;
+    }
+
+    public Map<Character, Material> recipeIngredients(String section, Map<Character, Material> defaults) {
         Map<Character, Material> out = new LinkedHashMap<>();
         // Not getConfigurationSection: when the file lacks the map it creates a new, empty one
         // in the live config instead of returning null, and the next saveConfig() (any
         // "/craftbridge ... display" tweak) wrote that "ingredients: {}" to disk.
-        if (!(raw.get(kind.configSection() + ".recipe.ingredients", null) instanceof ConfigurationSection section)) {
-            return kind.defaultRecipeIngredients();
+        if (!(raw.get(section + ".recipe.ingredients", null) instanceof ConfigurationSection map)) {
+            return defaults;
         }
-        for (String key : section.getKeys(false)) {
-            String name = section.getString(key, "");
+        for (String key : map.getKeys(false)) {
+            String name = map.getString(key, "");
             Material material = Material.matchMaterial(name);
             if (key.length() != 1 || material == null) {
-                plugin.getLogger().warning(kind.configSection() + ".recipe.ingredients." + key + " = '" + name + "' is not valid; ignored.");
+                plugin.getLogger().warning(section + ".recipe.ingredients." + key + " = '" + name + "' is not valid; ignored.");
                 continue;
             }
             out.put(key.charAt(0), material);
         }
         return out;
+    }
+
+    // ---- golem chests ----------------------------------------------------------------
+
+    /** Golem chests: the marker item, its recipe, and the keep-one-per-slot rule on marked containers. */
+    public boolean golemChestsEnabled() {
+        return raw.getBoolean("golem-chests.enabled", true);
+    }
+
+    /** The particle a marked container shows to a player holding the marker; null turns them off. */
+    public org.bukkit.Particle golemParticle() {
+        String name = raw.getString("golem-chests.particle", "WAX_ON");
+        if (name == null || name.isBlank() || name.equalsIgnoreCase("none")) {
+            return null;
+        }
+        try {
+            org.bukkit.Particle particle = org.bukkit.Particle.valueOf(name.trim().toUpperCase(Locale.ROOT));
+            if (particle.getDataType() == Void.class) {
+                return particle;
+            }
+            plugin.getLogger().warning("golem-chests.particle " + particle + " needs extra data (a colour, a"
+                    + " block...); pick one that does not, such as WAX_ON or HAPPY_VILLAGER. Using WAX_ON.");
+        } catch (IllegalArgumentException ex) {
+            plugin.getLogger().warning("golem-chests.particle '" + name + "' is not a particle; using WAX_ON.");
+        }
+        return org.bukkit.Particle.WAX_ON;
+    }
+
+    /** How far (in blocks) from a player holding the marker marked containers show their particles. */
+    public int golemRadius() {
+        return Math.max(1, Math.min(32, raw.getInt("golem-chests.radius", 16)));
     }
 }

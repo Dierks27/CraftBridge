@@ -34,6 +34,8 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     private PhantomManager phantoms;
     private final java.util.Set<BlockKind> recipesRegistered = java.util.EnumSet.noneOf(BlockKind.class);
     private RecipeIngredientIndex ingredientIndex;
+    /** Null when golem-chests.enabled is off: no marker, no recipe, and no keep-one rule. */
+    private GolemChests golems;
 
     public WorkbenchFeature(CraftBridgePlugin plugin) {
         this.plugin = plugin;
@@ -64,6 +66,13 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         if (phantoms != null) {
             plugin.getLogger().info("Linked Workbench: phantom inventory slots enabled (JEI sees nearby storage).");
         }
+        if (plugin.config().golemChestsEnabled()) {
+            golems = new GolemChests(plugin, store);
+            golems.enable();
+            scanner.golemChests(GolemChests::anyMarked);
+        } else {
+            scanner.golemChests(null);
+        }
         listener = new WorkbenchListener(plugin, this);
         plugin.getServer().getPluginManager().registerEvents(listener, plugin);
         JeiTransferFeature jei = plugin.feature(JeiTransferFeature.class);
@@ -76,6 +85,10 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     @Override
     public void disable() {
         sessions.endAll();
+        if (golems != null) {
+            golems.disable();
+            golems = null;
+        }
         if (listener != null) {
             HandlerList.unregisterAll(listener);
         }
@@ -105,6 +118,11 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         return sessions;
     }
 
+    /** Null when golem chests are switched off in config.yml. */
+    public GolemChests golems() {
+        return golems;
+    }
+
     /** Null when phantom slots are disabled in config or the packet bridge failed to load. */
     /**
      * "Which items are ingredients in which recipes", built once from the server's recipe
@@ -125,11 +143,19 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         return phantoms;
     }
 
-    /** Hand out place-items: {@code kindName} is "workbench" or "combochest". */
+    /** Hand out place-items: {@code kindName} is "workbench", "combochest" or "golemmarker". */
     public boolean give(CommandSender sender, Player target, String kindName, int amount) {
+        if (kindName.equalsIgnoreCase("golemmarker") || kindName.equalsIgnoreCase("golem")) {
+            if (golems == null) {
+                sender.sendMessage(Text.msg("<red>Golem chests are switched off (golem-chests.enabled in config.yml)."));
+                return false;
+            }
+            golems.give(sender, target, amount);
+            return true;
+        }
         BlockKind kind = BlockKind.byId(kindName);
         if (kind == null) {
-            sender.sendMessage(Text.msg("<red>Unknown item '" + kindName + "'. Try: workbench, combochest"));
+            sender.sendMessage(Text.msg("<red>Unknown item '" + kindName + "'. Try: workbench, combochest, golemmarker"));
             return false;
         }
         ItemStack item = items.placeItem(kind, amount);

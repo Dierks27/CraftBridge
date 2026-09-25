@@ -143,6 +143,30 @@ combo-chest:
       R: COMPARATOR
 
 # -----------------------------------------------------------------------------
+# Golem chests — chests and barrels that always keep the last item of every slot, so a
+# copper golem, hopper filter or item sorter that goes by "what is already in this slot"
+# keeps working. Right-click one with the Golem Chest Marker to mark or unmark it (both
+# halves of a double chest). Linked Workbench pulls and phantom slots, JEI [+] transfers,
+# the client mod's storage panel and the Combo Chest then never take a slot's last item;
+# deposits are unaffected. Needs features.linked-workbench.
+# -----------------------------------------------------------------------------
+golem-chests:
+  enabled: true
+  # Shown on marked containers to a player holding the marker, and to nobody else. Any
+  # particle that needs no extra data (WAX_ON, HAPPY_VILLAGER, END_ROD...), or none.
+  particle: WAX_ON
+  # How far from that player (in blocks) marked containers show it.
+  radius: 16
+  # The marker's recipe. C = copper ingot, H = honeycomb, S = stick.
+  recipe:
+    enabled: true
+    shape: ['C', 'H', 'S']
+    ingredients:
+      C: COPPER_INGOT
+      H: HONEYCOMB
+      S: STICK
+
+# -----------------------------------------------------------------------------
 # JEI (Feature 1 lives under features.jei-transfer; this is the recipe sync)
 # -----------------------------------------------------------------------------
 jei:
@@ -171,4 +195,4 @@ jei:
 # the current one: settings added since are filled in with their defaults, entries new
 # in a release are added to lists once, and nothing you have set is changed. The file
 # as it was is kept beside it as config.yml.bak-v<old version>. Leave this number alone.
-config-version: 2
+config-version: 3
