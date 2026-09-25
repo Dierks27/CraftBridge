@@ -14,10 +14,12 @@ import org.bukkit.craftbukkit.inventory.CraftItemStack;
  *       contents, so an empty stack is representable and every component travels;</li>
  *   <li>{@code RegistryFriendlyByteBuf(ByteBuf, RegistryAccess)} and
  *       {@code MinecraftServer#registryAccess()} — components are registry-aware;</li>
- *   <li>{@code CraftItemStack#asNMSCopy} / {@code #asBukkitCopy}.</li>
+ *   <li>{@code CraftItemStack#asNMSCopy} / {@code #asBukkitCopy(ItemInstance)}.</li>
  * </ul>
- * The same three are used by {@code jei.nms.PaperRecipeSyncEncoder}; if one of them moves,
- * both fail to load and both features switch themselves off rather than breaking the server.
+ * The same three are used by {@code jei.nms.PaperRecipeSyncEncoder}. A class that is missing
+ * outright fails to load and switches its feature off, but a method that moved only fails when
+ * it is first called — the JVM resolves method references lazily — so a startup log that looks
+ * clean proves nothing about the calls here.
  */
 public final class PaperItemBlobs implements ItemBlobs {
 
@@ -42,7 +44,12 @@ public final class PaperItemBlobs implements ItemBlobs {
             RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(raw, registries());
             net.minecraft.world.item.ItemStack decoded =
                     net.minecraft.world.item.ItemStack.OPTIONAL_STREAM_CODEC.decode(buf);
-            return decoded.isEmpty() ? null : CraftItemStack.asBukkitCopy(decoded);
+            // Through the ItemInstance overload, the only one Paper 26.3 kept: 26.3 removed
+            // asBukkitCopy(net.minecraft.world.item.ItemStack), which a jar built against 26.2
+            // binds to by default and which then throws NoSuchMethodError on the first pull.
+            // 26.2 has this overload too, and on both it copies the stack before mirroring it.
+            return decoded.isEmpty() ? null
+                    : CraftItemStack.asBukkitCopy((net.minecraft.world.item.ItemInstance) decoded);
         } catch (RuntimeException e) {
             return null; // client-written bytes: a bad one is a refused request, not an exception
         } finally {
