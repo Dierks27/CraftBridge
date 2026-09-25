@@ -82,6 +82,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
 
     private final CraftBridgePlugin plugin;
     private final Map<UUID, Linked> linked = new HashMap<>();
+    /** Per-player message budgets; kept for players who have not (yet) said hello too. */
+    private final Map<UUID, InboundGuard> guards = new HashMap<>();
     private final Map<ItemStack, byte[]> blobCache = new LinkedHashMap<>();
     private ItemBlobs blobs;
     private int task = -1;
@@ -193,6 +195,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             }
         }
         linked.clear();
+        guards.clear();
         blobCache.clear();
     }
 
@@ -224,6 +227,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         linked.remove(event.getPlayer().getUniqueId());
+        guards.remove(event.getPlayer().getUniqueId());
     }
 
     // ---- incoming --------------------------------------------------------------------
@@ -232,6 +236,18 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     public void onPluginMessageReceived(String channel, Player player, byte[] message) {
         if (!Bukkit.isPrimaryThread()) {
             Bukkit.getScheduler().runTask(plugin, () -> onPluginMessageReceived(channel, player, message));
+            return;
+        }
+        if (!player.isOnline()) {
+            return; // queued from off the main thread and the player left meanwhile
+        }
+        InboundGuard guard = guards.computeIfAbsent(player.getUniqueId(), id -> new InboundGuard());
+        long now = System.nanoTime();
+        if (!guard.allow(channel, now)) {
+            if (guard.shouldReportDrop(now)) {
+                plugin.debug("CraftBridge client link: " + player.getName() + " is sending " + channel
+                        + " faster than any stock client does; dropping the excess.");
+            }
             return;
         }
         try {
@@ -247,13 +263,21 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 default -> {
                 }
             }
-        } catch (IllegalArgumentException versionMismatch) {
+        } catch (IllegalArgumentException ex) {
+            if (!InboundGuard.isVersionMismatch(message)) {
+                // A truncated or garbled payload of the right version (or a handler refusing a
+                // bad value). Not something the player can fix, and not a reason to drop the
+                // link or chat at them: ignore this one message.
+                plugin.debug("CraftBridge client link: bad " + channel + " from " + player.getName()
+                        + " (" + message.length + " bytes): " + ex.getMessage());
+                return;
+            }
             // The two halves are from different releases. Say so once, to the person who can
             // fix it, rather than trying to guess what the payload meant.
             linked.remove(player.getUniqueId());
-            player.sendMessage(Text.msg("<yellow>CraftBridge: " + versionMismatch.getMessage()));
+            player.sendMessage(Text.msg("<yellow>CraftBridge: " + ex.getMessage()));
             plugin.getLogger().info("CraftBridge client link: " + player.getName() + " on " + channel
-                    + ": " + versionMismatch.getMessage());
+                    + ": " + ex.getMessage());
         } catch (RuntimeException ex) {
             plugin.debug("CraftBridge client link: unreadable " + channel + " from " + player.getName()
                     + " (" + message.length + " bytes): " + ex);
