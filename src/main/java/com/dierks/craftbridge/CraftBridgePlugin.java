@@ -8,6 +8,7 @@ import com.dierks.craftbridge.integration.ContainerAccess;
 import com.dierks.craftbridge.jei.JeiTransferFeature;
 import com.dierks.craftbridge.jei.RecipeSyncFeature;
 import com.dierks.craftbridge.link.LinkFeature;
+import com.dierks.craftbridge.pack.ResourcePackFeature;
 import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.sort.SortFeature;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
@@ -67,6 +68,8 @@ public final class CraftBridgePlugin extends JavaPlugin {
         }
         if (config.linkedWorkbenchEnabled()) {
             features.add(new WorkbenchFeature(this));
+            // After the workbench: it decides who sees the displays the workbench spawned.
+            features.add(new ResourcePackFeature(this));
         }
         if (config.jeiTransferEnabled()) {
             features.add(new JeiTransferFeature(this));
@@ -156,6 +159,11 @@ public final class CraftBridgePlugin extends JavaPlugin {
 
     public CraftBridgeConfig config() {
         return config;
+    }
+
+    /** The plugin's jar, where the resource packs are built from. */
+    public File jarFile() {
+        return getFile();
     }
 
     public ContainerAccess containerAccess() {

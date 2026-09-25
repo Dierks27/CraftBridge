@@ -1,6 +1,7 @@
 package com.dierks.craftbridge.command;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
+import com.dierks.craftbridge.pack.ResourcePackFeature;
 import com.dierks.craftbridge.util.Text;
 import com.dierks.craftbridge.workbench.BlockKind;
 import com.dierks.craftbridge.workbench.PhantomManager;
@@ -42,6 +43,8 @@ public final class CraftBridgeCommand implements TabExecutor {
             sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest|golemmarker [amount] <dark_gray>- hand out CraftBridge blocks and the Golem Chest Marker"));
             sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
             sender.sendMessage(Text.msg("<gray>/craftbridge jei [resync|dump <recipe>] <dark_gray>- recipe sync state, re-send, or inspect one recipe on the wire"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge pack <dark_gray>- how the block models' resource pack is sent, and who loaded it"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge geyser export <dark_gray>- write the Bedrock pack and Geyser mappings (and copy them into Geyser)"));
             return true;
         }
         String sub = args[0].toLowerCase(java.util.Locale.ROOT);
@@ -111,6 +114,25 @@ public final class CraftBridgeCommand implements TabExecutor {
                     sender.sendMessage(Text.msg("<dark_gray>/craftbridge jei resync <dark_gray>re-encodes and re-sends to everyone"));
                 }
             }
+            case "pack" -> {
+                ResourcePackFeature pack = plugin.feature(ResourcePackFeature.class);
+                if (pack == null) {
+                    sender.sendMessage(Text.msg("<red>The Linked Workbench feature is disabled in config.yml."));
+                } else {
+                    pack.status(sender);
+                }
+            }
+            case "geyser" -> {
+                ResourcePackFeature pack = plugin.feature(ResourcePackFeature.class);
+                if (args.length < 2 || !args[1].equalsIgnoreCase("export")) {
+                    sender.sendMessage(Text.msg("<gray>/craftbridge geyser export <dark_gray>- write CraftBridge.mcpack and the"
+                            + " Geyser mappings to plugins/CraftBridge/geyser (and into Geyser's folders when it runs here)"));
+                } else if (pack == null) {
+                    sender.sendMessage(Text.msg("<red>The Linked Workbench feature is disabled in config.yml."));
+                } else {
+                    pack.exportGeyser(sender);
+                }
+            }
             case "workbench", "wb", "combochest", "combo", "cc" -> {
                 WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
                 if (workbench == null) {
@@ -160,7 +182,7 @@ public final class CraftBridgeCommand implements TabExecutor {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             if (sender.hasPermission(ADMIN)) {
-                return List.of("page", "reload", "version", "give", "workbench", "combochest", "jei");
+                return List.of("page", "reload", "version", "give", "workbench", "combochest", "jei", "pack", "geyser");
             }
             return sender.hasPermission(PAGE) ? List.of("page") : List.of();
         }
@@ -169,6 +191,9 @@ public final class CraftBridgeCommand implements TabExecutor {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("jei")) {
             return List.of("status", "resync", "dump");
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("geyser")) {
+            return List.of("export");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             return null; // player names
@@ -181,7 +206,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             return List.of("give", "list", "refresh", "display");
         }
         if (args.length == 3 && blockCmd && args[1].equalsIgnoreCase("display")) {
-            return List.of("scale", "x", "y", "z", "yaw", "transform");
+            return List.of("mode", "modelscale", "scale", "x", "y", "z", "yaw", "transform");
         }
         return List.of();
     }

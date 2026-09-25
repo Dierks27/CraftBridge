@@ -20,6 +20,11 @@ public final class Text {
         return MM.deserialize(miniMessage);
     }
 
+    /** Plain text (a file path, an error message) made safe to put inside MiniMessage. */
+    public static String escape(String plain) {
+        return MM.escapeTags(plain);
+    }
+
     /** A chat line with the CraftBridge prefix. */
     public static Component msg(String miniMessage) {
         return MM.deserialize(PREFIX + miniMessage);
