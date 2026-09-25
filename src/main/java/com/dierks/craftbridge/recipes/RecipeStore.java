@@ -100,6 +100,17 @@ public final class RecipeStore {
         save();
     }
 
+    /**
+     * Swap a recipe in memory without rewriting recipes.yml, for when only its in-memory form
+     * is stale and the file already says the right thing (a {@code custom:} result whose item
+     * definition was just edited).
+     */
+    public void replaceInMemory(CustomRecipe recipe) {
+        if (recipes.containsKey(recipe.id())) {
+            recipes.put(recipe.id(), recipe);
+        }
+    }
+
     public CustomRecipe remove(String id) {
         CustomRecipe removed = recipes.remove(id);
         if (removed != null) {

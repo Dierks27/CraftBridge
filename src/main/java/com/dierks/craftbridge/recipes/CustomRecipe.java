@@ -127,6 +127,10 @@ public final class CustomRecipe {
         return new CustomRecipe(id, kind, value, group, result, shape, legend, ingredients, cookingTime, experience);
     }
 
+    public CustomRecipe withResult(ItemStack newResult) {
+        return new CustomRecipe(id, kind, enabled, group, newResult, shape, legend, ingredients, cookingTime, experience);
+    }
+
     /**
      * The recipe laid out on a 3x3 grid (row-major, null = empty) for the editor / lore.
      * A cooking recipe occupies the single top-left cell, which is the slot the editor shows.

@@ -135,6 +135,26 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 + " on " + LinkProtocol.CHANNEL_HELLO + " (players without the mod are unaffected).");
         // After /craftbridge reload: next tick, once the command has finished and every feature is up.
         plugin.getServer().getScheduler().runTask(plugin, this::relinkOnlineClients);
+        // A saved/deleted recipe or custom item changes what the catalog should hold. The
+        // registry runs its listeners before Bukkit.updateRecipes(), so the new catalog reaches
+        // a linked client ahead of the recipe packets that make its JEI restart and re-read it.
+        RecipeFeature recipes = plugin.feature(RecipeFeature.class);
+        if (recipes != null) {
+            recipes.registry().onChange(this::resendCatalogs);
+        }
+    }
+
+    /** Send every linked player the catalog again (the recipes or custom items changed). */
+    private void resendCatalogs() {
+        if (task == -1 || blobs == null || linked.isEmpty()) {
+            return; // disabled (a listener on a registry that outlived us), or nobody to tell
+        }
+        for (UUID id : List.copyOf(linked.keySet())) {
+            Player player = plugin.getServer().getPlayer(id);
+            if (player != null && player.isOnline()) {
+                sendCatalog(player);
+            }
+        }
     }
 
     /**
@@ -422,7 +442,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
 
     /**
      * Every custom item on this server: CraftBridge's own blocks, its own recipes' results,
-     * and the result of every other plugin's recipe. They are renamed vanilla items carrying
+     * every custom item defined in {@code /recipe items}, and the result of every other
+     * plugin's recipe. They are renamed vanilla items carrying
      * plugin data rather than registry entries of their own, so JEI has no tile for them and
      * nothing to look a recipe up from until it is told they exist.
      *
@@ -445,6 +466,11 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         if (recipes != null) {
             for (CustomRecipe recipe : recipes.store().all().values()) {
                 add(entries, recipe.result());
+            }
+            // Every defined custom item too, not only those some recipe makes: an item that is
+            // only an ingredient, or that has no recipe yet, still needs a JEI tile of its own.
+            for (ItemStack item : recipes.customItems().allStacks()) {
+                add(entries, item);
             }
         }
         addEveryOtherPluginsResults(entries);
