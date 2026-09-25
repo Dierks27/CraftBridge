@@ -461,8 +461,17 @@ public final class PhantomManager {
         if (session == null || linked == null || linked.view() != view) {
             return Map.of();
         }
+        // Re-scan now rather than trust the counts from the last rebuild: a hopper, another
+        // player or this player's own pull may have emptied a chest since, and the engine must
+        // not plan with items that are gone. settle() runs in this same tick on these sources.
+        session.sources = feature.scanner().scan(player, linked.record().location(), plugin.config().workbenchRadius());
         Map<Integer, TransferEngine.Stack<ItemStack>> out = new HashMap<>();
-        session.byRaw.forEach((raw, p) -> out.put(raw, new TransferEngine.Stack<>(p.key(), p.available())));
+        session.byRaw.forEach((raw, p) -> {
+            int live = StorageScanner.count(session.sources, p.key());
+            if (live > 0) {
+                out.put(raw, new TransferEngine.Stack<>(p.key(), live));
+            }
+        });
         return out;
     }
 
@@ -485,6 +494,16 @@ public final class PhantomManager {
         for (Map.Entry<Integer, TransferEngine.Stack<ItemStack>> e : virtualBefore.entrySet()) {
             TransferEngine.Stack<ItemStack> before = e.getValue();
             TransferEngine.Stack<ItemStack> after = resultSlots.get(e.getKey());
+            if (after != null && !after.key().isSimilar(before.key())) {
+                // The engine used up this phantom and then put something else in its (really
+                // empty) slot. That item is real — it came off the grid or another slot — so
+                // it goes to the player, and the phantom counts as fully taken.
+                ItemStack other = after.key().clone().asQuantity(after.count());
+                for (ItemStack rest : player.getInventory().addItem(other).values()) {
+                    player.getWorld().dropItemNaturally(player.getLocation(), rest);
+                }
+                after = null;
+            }
             int afterCount = after == null ? 0 : after.count();
             int delta = before.count() - afterCount;
             if (delta > 0) {

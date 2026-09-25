@@ -125,6 +125,7 @@ public final class StorageScanner {
      * goes back where it came from. Returns how many items were moved.
      */
     public int pullToPlayer(Player player, List<Source> sources, ItemStack key, int wanted) {
+        sources = standing(sources);
         int moved = 0;
         for (Source source : sources) {
             Inventory inv = source.inventory();
@@ -169,6 +170,7 @@ public final class StorageScanner {
      * transfer to feed the crafting grid directly.
      */
     public List<Pulled> pull(List<Source> sources, ItemStack key, int wanted) {
+        sources = standing(sources);
         List<Pulled> out = new ArrayList<>();
         for (Source source : sources) {
             Inventory inv = source.inventory();
@@ -198,6 +200,21 @@ public final class StorageScanner {
         return out;
     }
 
+    /**
+     * The sources whose block is still a storage block. A list is scanned at one moment and
+     * used at another; a container broken in between must not be pulled from (a broken
+     * shulker box's contents already went into its dropped item) or deposited into.
+     */
+    private static List<Source> standing(List<Source> sources) {
+        List<Source> out = new ArrayList<>(sources.size());
+        for (Source source : sources) {
+            if (isStorageBlock(source.block().getType())) {
+                out.add(source);
+            }
+        }
+        return out;
+    }
+
     /** Items taken from one source. */
     public record Pulled(ItemStack stack, Source source) {
     }
@@ -211,6 +228,7 @@ public final class StorageScanner {
      * locked and protected containers are skipped at every step.
      */
     public ItemStack deposit(List<Source> sources, ItemStack stack) {
+        sources = standing(sources);
         if (Items.isEmpty(stack)) {
             return null;
         }
@@ -276,6 +294,7 @@ public final class StorageScanner {
 
     /** How many items matching {@code key} the sources hold in total. */
     public static int count(List<Source> sources, ItemStack key) {
+        sources = standing(sources);
         int n = 0;
         Map<Inventory, Boolean> seen = new HashMap<>();
         for (Source source : sources) {

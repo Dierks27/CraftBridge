@@ -155,29 +155,50 @@ public final class JeiTransferFeature implements CraftBridgePlugin.Feature, Plug
                             .forEach((key, n) -> deficits.merge(key, n, Integer::sum));
                 }
             }
+            // Storage came up short of what the engine planned with. Take the shortfall back out
+            // of everything the engine handed out — overflow first, then what it stowed in the
+            // inventory, then the grid — so no item the pull did not cover reaches the player.
+            List<TransferEngine.Stack<ItemStack>> overflow = new ArrayList<>(result.overflow());
+            Map<Integer, TransferEngine.Stack<ItemStack>> slots = new HashMap<>(result.slots());
+            if (deficits.values().stream().anyMatch(n -> n > 0)) {
+                for (int i = 0; i < overflow.size(); i++) {
+                    overflow.set(i, trim(deficits, overflow.get(i), overflow.get(i).count()));
+                }
+                overflow.removeIf(java.util.Objects::isNull);
+                for (int raw : layout.inventorySlots()) {
+                    TransferEngine.Stack<ItemStack> wanted = slots.get(raw);
+                    TransferEngine.Stack<ItemStack> had = real.get(raw);
+                    if (wanted != null && !virtual.containsKey(raw)) {
+                        int added = wanted.count() - (had != null && had.key().isSimilar(wanted.key()) ? had.count() : 0);
+                        if (added > 0) {
+                            slots.put(raw, trim(deficits, wanted, added));
+                        }
+                    }
+                }
+                for (int raw : layout.gridSlots()) {
+                    TransferEngine.Stack<ItemStack> wanted = slots.get(raw);
+                    if (wanted != null) {
+                        slots.put(raw, trim(deficits, wanted, wanted.count()));
+                    }
+                }
+                int unmet = deficits.values().stream().mapToInt(Integer::intValue).filter(n -> n > 0).sum();
+                if (unmet > 0) {
+                    plugin.getLogger().warning("JEI transfer for " + player.getName() + ": " + unmet
+                            + " item(s) could not be taken back after storage came up short.");
+                }
+            }
             for (int raw : layout.allSlots()) {
                 if (virtual.containsKey(raw)) {
                     continue; // stays empty for real; the listener moved the actual items
                 }
-                TransferEngine.Stack<ItemStack> wanted = result.slots().get(raw);
-                if (wanted != null && layout.isGridSlot(raw) && !deficits.isEmpty()) {
-                    // Storage came up short: trim what the engine thought it had placed.
-                    for (Map.Entry<ItemStack, Integer> d : deficits.entrySet()) {
-                        if (d.getValue() > 0 && d.getKey().isSimilar(wanted.key())) {
-                            int trim = Math.min(d.getValue(), wanted.count());
-                            wanted = wanted.count() - trim <= 0 ? null : wanted.withCount(wanted.count() - trim);
-                            d.setValue(d.getValue() - trim);
-                            break;
-                        }
-                    }
-                }
+                TransferEngine.Stack<ItemStack> wanted = slots.get(raw);
                 TransferEngine.Stack<ItemStack> had = real.get(raw);
                 if (sameStack(wanted, had)) {
                     continue;
                 }
                 view.setItem(raw, wanted == null ? null : wanted.key().clone().asQuantity(wanted.count()));
             }
-            for (TransferEngine.Stack<ItemStack> extra : result.overflow()) {
+            for (TransferEngine.Stack<ItemStack> extra : overflow) {
                 ItemStack stack = extra.key().clone().asQuantity(extra.count());
                 for (ItemStack left : player.getInventory().addItem(stack).values()) {
                     player.getWorld().dropItemNaturally(player.getLocation(), left);
@@ -193,6 +214,22 @@ public final class JeiTransferFeature implements CraftBridgePlugin.Feature, Plug
             }
         }
         return result.success();
+    }
+
+    /**
+     * Take up to {@code at most} items of {@code stack} back against the matching deficit.
+     * @return what is left of the stack, or null when nothing is
+     */
+    private static TransferEngine.Stack<ItemStack> trim(Map<ItemStack, Integer> deficits,
+                                                        TransferEngine.Stack<ItemStack> stack, int atMost) {
+        for (Map.Entry<ItemStack, Integer> d : deficits.entrySet()) {
+            if (d.getValue() > 0 && d.getKey().isSimilar(stack.key())) {
+                int trim = Math.min(d.getValue(), Math.min(atMost, stack.count()));
+                d.setValue(d.getValue() - trim);
+                return stack.count() - trim <= 0 ? null : stack.withCount(stack.count() - trim);
+            }
+        }
+        return stack;
     }
 
     private static boolean sameStack(TransferEngine.Stack<ItemStack> a, TransferEngine.Stack<ItemStack> b) {

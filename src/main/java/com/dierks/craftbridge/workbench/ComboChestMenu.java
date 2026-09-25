@@ -32,7 +32,8 @@ import java.util.Map;
  *       you) if nothing has room. Your own inventory keeps ordinary click behaviour throughout,
  *       so an item can always be picked up onto the cursor to start a deposit.</li>
  *   <li><b>Filters:</b> all / blocks / tools &amp; armor / food / misc, from the sort categories.</li>
- *   <li><b>Live:</b> every click re-scans, so changes by hoppers or other players show on the next click.</li>
+ *   <li><b>Live:</b> every click re-scans, and a pull re-scans again right before it takes, so it only
+ *       ever takes from containers that exist and hold the item at that moment.</li>
  * </ul>
  */
 public final class ComboChestMenu extends Menu {
@@ -131,6 +132,9 @@ public final class ComboChestMenu extends Menu {
             Entry entry = entries.get(from + i);
             set(i, icon(entry), e -> {
                 int wanted = e.isShiftClick() ? Integer.MAX_VALUE : entry.key().getMaxStackSize();
+                // Scanned when the page was drawn; a container broken since (another player,
+                // a piston) must not be pulled from — a shulker box's contents went into its drop.
+                rescan();
                 int moved = feature.scanner().pullToPlayer(player, sources, entry.key(), wanted);
                 if (moved == 0) {
                     player.sendMessage(Text.msg("<red>No room in your inventory."));
