@@ -115,11 +115,12 @@ public final class SortListener implements Listener {
         if (!(block.getState(false) instanceof Container container)) {
             return;
         }
-        if (!plugin.containerAccess().canUse(player, block, plugin.config().sortRespectProtection())) {
+        Inventory inventory = container.getInventory(); // whole double chest for either half
+        // So both halves must pass: punching the unlocked, unclaimed half must not sort the other.
+        if (!plugin.containerAccess().canUseAll(player, block, inventory, plugin.config().sortRespectProtection())) {
             player.sendMessage(Text.msg("<red>You can't use that container."));
             return;
         }
-        Inventory inventory = container.getInventory(); // whole double chest for either half
         feature.sortNow(player, inventory, block.getLocation());
     }
 

@@ -91,7 +91,9 @@ public final class StorageScanner {
             if (invKey != null && !seenInventories.add(invKey)) {
                 continue; // the other half of a double chest we already have
             }
-            if (!plugin.containerAccess().canUse(player, block, protection)) {
+            // Both halves of a double chest: the inventory is shared, so the lock or claim of
+            // whichever half the scan reached first must not decide for the other.
+            if (!plugin.containerAccess().canUseAll(player, block, inventory, protection)) {
                 continue;
             }
             sources.add(new Source(block, inventory));
