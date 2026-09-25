@@ -164,3 +164,7 @@ jei:
       - minecraft:campfire_cooking
       - minecraft:stonecutting
       - minecraft:smithing
+      # Minecraft 26.3 made brewing a recipe type, and JEI 26.3 reads its Brewing category
+      # from the server's recipes instead of from the client. On 26.2 this id matches nothing
+      # and is skipped.
+      - minecraft:brewing

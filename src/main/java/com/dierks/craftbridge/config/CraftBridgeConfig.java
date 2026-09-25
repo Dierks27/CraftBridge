@@ -93,7 +93,8 @@ public final class CraftBridgeConfig {
         List<String> types = raw.getStringList("jei.recipe-sync.types");
         return types.isEmpty()
                 ? List.of("minecraft:crafting", "minecraft:smelting", "minecraft:blasting", "minecraft:smoking",
-                        "minecraft:campfire_cooking", "minecraft:stonecutting", "minecraft:smithing")
+                        "minecraft:campfire_cooking", "minecraft:stonecutting", "minecraft:smithing",
+                        "minecraft:brewing")
                 : types;
     }
 
