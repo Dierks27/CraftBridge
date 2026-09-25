@@ -1,0 +1,40 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:attachable": {
+    "description": {
+      "identifier": "craftbridge:linked_workbench",
+      "materials": {
+        "default": "entity_alphatest",
+        "enchanted": "entity_alphatest_glint"
+      },
+      "textures": {
+        "default": "textures/craftbridge/linked_workbench",
+        "enchanted": "textures/misc/enchanted_item_glint"
+      },
+      "geometry": {
+        "default": "geometry.craftbridge.linked_workbench"
+      },
+      "animations": {
+        "first_person": "animation.craftbridge.block.first_person",
+        "third_person": "animation.craftbridge.block.third_person",
+        "display": "animation.craftbridge.block.display"
+      },
+      "scripts": {
+        "animate": [
+          {
+            "first_person": "c.is_first_person && q.is_owner_identifier_any('minecraft:player')"
+          },
+          {
+            "third_person": "!c.is_first_person && q.is_owner_identifier_any('minecraft:player')"
+          },
+          {
+            "display": "q.is_owner_identifier_any('geyser:item_display')"
+          }
+        ]
+      },
+      "render_controllers": [
+        "controller.render.item_default"
+      ]
+    }
+  }
+}

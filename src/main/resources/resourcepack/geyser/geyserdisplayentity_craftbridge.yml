@@ -1,0 +1,23 @@
+# GeyserDisplayEntity mappings for CraftBridge's block displays. Goes in
+# plugins/Geyser-Spigot/extensions/geyserdisplayentity/Mappings/ (/craftbridge geyser export
+# copies it there when that folder exists). Bedrock players only see these displays when
+# CraftBridge's config.yml has bedrock.show-displays: true.
+mappings:
+  craftbridge_linked_workbench:
+    type: "minecraft:crafting_table"
+    # The bedrock_identifier from craftbridge_mappings.json.
+    item-identifier: "craftbridge:linked_workbench"
+    displayentityoptions:
+      y-offset: 0.0
+      vanilla-scale: false
+      vanilla-scale-multiplier: 1
+      # Equip the item in the display's hand, where the attachable binds to "rightitem".
+      hand: true
+  craftbridge_combo_chest:
+    type: "minecraft:barrel"
+    item-identifier: "craftbridge:combo_chest"
+    displayentityoptions:
+      y-offset: 0.0
+      vanilla-scale: false
+      vanilla-scale-multiplier: 1
+      hand: true
