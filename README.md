@@ -688,6 +688,11 @@ never to nothing.
   the scarcest ingredient setting how many sets are made, stack sizes respected, the player's
   own items spent before storage is touched). The worst a modified client can do is ask for a
   recipe it could have asked for by clicking.
+* **How many, and "All but one".** Since link protocol v3 the request can carry a craft count
+  (the mod's scroll-over-`[+]` and right-click prompt): the grid is filled for at most that
+  many crafts, bounded by what is to hand and by stack sizes exactly as a max transfer is.
+  "All but one" makes every container the request reads keep one of each slot it takes from,
+  as a golem chest always does; the player's own inventory is spent as usual.
 * **Middle-click sorting** (`craftbridge:sort_request`) is offered through a flag in the
   server's hello (`FLAG_SORT`), set only when sorting is on, middle-click is allowed, the
   player has `craftbridge.sort` and their toggle is on, and re-sent whenever they change it.

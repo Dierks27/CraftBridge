@@ -31,7 +31,7 @@ import java.util.List;
 public final class LinkProtocol {
 
     /** Bumped whenever any payload's layout changes. Both sides must agree exactly. */
-    public static final int VERSION = 2;
+    public static final int VERSION = 3;
 
     public static final String CHANNEL_HELLO = "craftbridge:hello";
     public static final String CHANNEL_STORAGE = "craftbridge:storage";
@@ -109,13 +109,19 @@ public final class LinkProtocol {
 
     /**
      * What the player asked for. The client says which recipe it wants and nothing more: it
-     * never says what it has or how much, because the server does not trust it.
+     * never says what it has, because the server does not trust it.
      *
      * @param basedOnSequence the storage sequence the client's craftability check used, so the
      *                        server can tell it to resync instead of acting on a stale view
+     * @param craftCount      how many crafts the grid should hold; 0 for JEI's own behaviour
+     *                        (one, or as many as possible with {@code maxTransfer}). The server
+     *                        fills at most this many, bounded by what is to hand and stack sizes
+     * @param leaveOne        "All but one": every container slot an ingredient is taken from
+     *                        keeps at least one of it, as a golem chest always does
      */
     public record TransferRequest(int requestId, int basedOnSequence, boolean maxTransfer,
-                                  boolean requireCompleteSets, String recipeId, List<SlotChoices> slots) {
+                                  boolean requireCompleteSets, int craftCount, boolean leaveOne,
+                                  String recipeId, List<SlotChoices> slots) {
     }
 
     /**
@@ -192,7 +198,9 @@ public final class LinkProtocol {
                 .writeVarInt(request.requestId())
                 .writeVarInt(request.basedOnSequence())
                 .writeBoolean(request.maxTransfer())
-                .writeBoolean(request.requireCompleteSets());
+                .writeBoolean(request.requireCompleteSets())
+                .writeVarInt(Math.max(0, request.craftCount()))
+                .writeBoolean(request.leaveOne());
         boolean hasId = request.recipeId() != null && !request.recipeId().isEmpty();
         w.writeBoolean(hasId);
         if (hasId) {
@@ -280,8 +288,11 @@ public final class LinkProtocol {
         int basedOn = r.readVarInt();
         boolean maxTransfer = r.readBoolean();
         boolean completeSets = r.readBoolean();
+        int craftCount = r.readVarInt();
+        boolean leaveOne = r.readBoolean();
         if (r.readBoolean()) {
-            return new TransferRequest(requestId, basedOn, maxTransfer, completeSets, r.readString(), List.of());
+            return new TransferRequest(requestId, basedOn, maxTransfer, completeSets, craftCount, leaveOne,
+                    r.readString(), List.of());
         }
         int slotCount = r.readVarInt();
         List<SlotChoices> slots = new ArrayList<>(Math.min(slotCount, 9));
@@ -294,7 +305,7 @@ public final class LinkProtocol {
             }
             slots.add(new SlotChoices(gridIndex, choices));
         }
-        return new TransferRequest(requestId, basedOn, maxTransfer, completeSets, "", slots);
+        return new TransferRequest(requestId, basedOn, maxTransfer, completeSets, craftCount, leaveOne, "", slots);
     }
 
     public static PullRequest decodePullRequest(byte[] payload) {

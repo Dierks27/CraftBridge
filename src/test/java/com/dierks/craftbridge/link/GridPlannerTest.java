@@ -55,6 +55,47 @@ class GridPlannerTest {
     }
 
     @Test
+    void aCraftCountFillsTheGridForExactlyThatMany() {
+        // Sticks: two planks stacked, 100 planks in range. Sixteen asked, sixteen per slot.
+        List<Slot> sticks = List.of(new Slot(1, new int[]{0}), new Slot(4, new int[]{0}));
+        Plan p = plan(sticks, List.of(new Supply(0, 100)), stacks(64), false, 16);
+        assertTrue(p.ok(), p.failure());
+        assertEquals(16, p.sets());
+        for (Fill fill : p.fills()) {
+            assertEquals(16, fill.count(), "slot " + fill.gridIndex());
+        }
+    }
+
+    @Test
+    void aCraftCountOverridesMaxTransferInBothDirections() {
+        List<Slot> sticks = List.of(new Slot(1, new int[]{0}), new Slot(4, new int[]{0}));
+        assertEquals(3, plan(sticks, List.of(new Supply(0, 100)), stacks(64), true, 3).sets());
+        assertEquals(50, plan(sticks, List.of(new Supply(0, 100)), stacks(64), true, 0).sets());
+        assertEquals(1, plan(sticks, List.of(new Supply(0, 100)), stacks(64), false, 0).sets());
+    }
+
+    @Test
+    void aCraftCountIsBoundedByWhatIsToHandAndByStackSizes() {
+        // Coal for 10 torches only.
+        List<Slot> torch = List.of(new Slot(1, new int[]{0}), new Slot(4, new int[]{1}));
+        Plan p = plan(torch, List.of(new Supply(3, 7), new Supply(0, 500)), stacks(64, 64), false, 64);
+        assertTrue(p.ok(), p.failure());
+        assertEquals(10, p.sets());
+        // Ender pearls stack to 16: a request for 64 eyes stops at a full slot.
+        List<Slot> eye = List.of(new Slot(0, new int[]{0}), new Slot(1, new int[]{1}));
+        assertEquals(16, plan(eye, List.of(new Supply(0, 500), new Supply(0, 500)), stacks(16, 64), false, 64).sets());
+    }
+
+    @Test
+    void aCraftCountStillSpendsThePlayersOwnItemsFirst() {
+        List<Slot> one = List.of(new Slot(4, new int[]{0}));
+        Plan p = plan(one, List.of(new Supply(5, 100)), stacks(64), false, 12);
+        assertEquals(12, p.sets());
+        assertEquals(5, p.fills().get(0).fromPlayer());
+        assertEquals(7, p.fills().get(0).fromStorage());
+    }
+
+    @Test
     void aSlotNeverHoldsMoreThanItsStackSize() {
         // A shulker box stacks to 1: however many are in range, one per slot is the limit.
         Plan p = plan(List.of(new Slot(0, new int[]{0}), new Slot(1, new int[]{0})),

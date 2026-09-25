@@ -100,7 +100,7 @@ class InboundGuardTest {
 
     @Test
     void aTruncatedPayloadIsABadPacketNotAVersionMismatch() {
-        byte[] payload = LinkProtocol.encode(new LinkProtocol.TransferRequest(3, 1, true, true, "",
+        byte[] payload = LinkProtocol.encode(new LinkProtocol.TransferRequest(3, 1, true, true, 0, false, "",
                 List.of(new LinkProtocol.SlotChoices(0, List.of(new byte[]{1, 2, 3})))));
         byte[] cut = Arrays.copyOf(payload, payload.length - 2);
         assertThrows(IllegalArgumentException.class, () -> LinkProtocol.decodeTransferRequest(cut));

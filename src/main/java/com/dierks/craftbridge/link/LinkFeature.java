@@ -85,6 +85,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     private final Map<UUID, Linked> linked = new HashMap<>();
     /** Per-player message budgets; kept for players who have not (yet) said hello too. */
     private final Map<UUID, InboundGuard> guards = new HashMap<>();
+    /** Players already told this session that their mod speaks another protocol version. */
+    private final java.util.Set<UUID> toldMismatch = new java.util.HashSet<>();
     private final Map<ItemStack, byte[]> blobCache = new LinkedHashMap<>();
     private ItemBlobs blobs;
     /** Null when the menu ids could not be read: middle-click sorting is then never offered. */
@@ -220,6 +222,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
         linked.clear();
         guards.clear();
+        toldMismatch.clear();
         blobCache.clear();
     }
 
@@ -252,6 +255,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     public void onQuit(PlayerQuitEvent event) {
         linked.remove(event.getPlayer().getUniqueId());
         guards.remove(event.getPlayer().getUniqueId());
+        toldMismatch.remove(event.getPlayer().getUniqueId());
     }
 
     // ---- incoming --------------------------------------------------------------------
@@ -300,10 +304,13 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             }
             // The two halves are from different releases. Say so once, to the person who can
             // fix it, rather than trying to guess what the payload meant.
+            // Once per session: the mod retries its hello a few times before it gives up.
             linked.remove(player.getUniqueId());
-            player.sendMessage(Text.msg("<yellow>CraftBridge: " + ex.getMessage()));
-            plugin.getLogger().info("CraftBridge client link: " + player.getName() + " on " + channel
-                    + ": " + ex.getMessage());
+            if (toldMismatch.add(player.getUniqueId())) {
+                player.sendMessage(Text.msg("<yellow>CraftBridge: " + ex.getMessage()));
+                plugin.getLogger().info("CraftBridge client link: " + player.getName() + " on " + channel
+                        + ": " + ex.getMessage());
+            }
         } catch (RuntimeException ex) {
             plugin.debug("CraftBridge client link: unreadable " + channel + " from " + player.getName()
                     + " (" + message.length + " bytes): " + ex);
@@ -607,6 +614,11 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
 
         List<StorageScanner.Source> sources = sources(workbench, player, session);
+        if (request.leaveOne()) {
+            // "All but one": every container read for this request keeps one of each slot, the
+            // same rule a golem chest always follows, so the supply below and the pulls agree.
+            sources = StorageScanner.keepingOne(sources);
+        }
         List<ItemStack> keys = new ArrayList<>();
         List<GridPlanner.Supply> supply = new ArrayList<>();
         index(player, workbench, sources, keys, supply);
@@ -631,7 +643,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             maxStack[i] = Math.max(1, Math.min(keys.get(i).getMaxStackSize(), 64));
         }
 
-        GridPlanner.Plan plan = GridPlanner.plan(slots, supply, maxStack, request.maxTransfer());
+        GridPlanner.Plan plan = GridPlanner.plan(slots, supply, maxStack, request.maxTransfer(),
+                Math.max(0, request.craftCount()));
         if (!plan.ok()) {
             refuse(player, request, "Not enough in range: " + plan.failure() + ".");
             return;

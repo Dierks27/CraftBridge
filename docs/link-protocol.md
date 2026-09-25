@@ -6,6 +6,22 @@ The wire contract between the **CraftBridge Paper plugin** and the optional
 of `link/SnapshotTracker.java`; if they ever diverge, the version byte at the head of every
 payload makes the pair refuse to talk rather than misread each other.
 
+The current version is **3**. Every payload starts with it as a VarInt.
+
+| Version | Plugin | Change |
+|---|---|---|
+| 2 | 0.13 | storage panel pulls, `storage_ack` |
+| 2 | 0.14 | (compatible additions) `sort_request` and the `FLAG_SORT` hello bit: an older client ignores both |
+| 3 | 0.14 | `transfer_request` carries a craft count and "All but one" |
+
+**A mismatched pair degrades, it never misreads.** A v2 mod on a v3 server: its hello fails
+the server's version check, the server tells the player once in chat and in the console
+("CraftBridge link protocol version 2, but this side speaks version 3; update whichever is
+older."), never links them, and they keep phantom slots and the `jei:recipe_transfer` path.
+A v3 mod on a v2 server: the older server says the same the other way round; the mod gets
+no hello back and stays dormant, and if the server does send it anything (a relink after a
+reload) the mod logs the mismatch, says it in chat, and goes dormant for the connection.
+
 ## Why the mod exists
 
 A vanilla crafting menu has 36 player-inventory slots, and JEI decides craftability on the
@@ -23,7 +39,7 @@ checks its own network alongside the inventory.
 | `craftbridge:resync` | C→S | "I fell behind at sequence N, send me everything" |
 | `craftbridge:storage_ack` | C→S | "I have snapshot N and I am (not) drawing it": only this turns the phantom slots off |
 | `craftbridge:pull_request` | C→S | The player clicked an item in the storage panel: which item, which click |
-| `craftbridge:transfer_request` | C→S | The player clicked `[+]`: this recipe, max-transfer, complete-sets |
+| `craftbridge:transfer_request` | C→S | The player clicked `[+]`: this recipe, max-transfer, complete-sets, how many crafts, "All but one" |
 | `craftbridge:sort_request` | C→S | The player middle-clicked in a container screen: which menu id, which half |
 | `craftbridge:transfer_result` | S→C | Success, or the reason, for a transfer, a pull or a sort |
 | `craftbridge:session_end` | S→C | Drop the cached snapshot (close, teleport, death, out of range) |
@@ -38,6 +54,20 @@ checks its own network alongside the inventory.
 
 A client ignores bits it does not know, so a new flag never needs a version bump; the
 server re-sends `hello` whenever a flag changes (a `/sort settings` toggle, a reload).
+
+### `transfer_request` (v3)
+
+`varint version, varint requestId, varint basedOnSequence, bool maxTransfer,
+bool requireCompleteSets, varint craftCount, bool leaveOne, bool hasRecipeId`, then either
+`string recipeId` or `varint slotCount` and per slot `varint gridIndex, varint choiceCount,
+bytes choice...`.
+
+* `craftCount` 0 is JEI's own behaviour (one set, or as many as possible with
+  `maxTransfer`). Anything above 0 fills the grid for at most that many crafts, bounded by
+  what the player carries plus what is in range, and by each ingredient's stack size.
+* `leaveOne` ("All but one") makes every container the request reads keep at least one of
+  each slot it takes from — the rule a golem chest always follows. The player's own
+  inventory is spent as usual.
 
 ### `sort_request`
 

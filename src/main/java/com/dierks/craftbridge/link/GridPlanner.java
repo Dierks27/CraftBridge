@@ -76,13 +76,24 @@ public final class GridPlanner {
         return null;
     }
 
-    /**
-     * @param slots       the recipe's non-empty slots, in grid order
-     * @param supply      per item type, how many are available
-     * @param maxStack    per item type, how many fit in one slot
-     * @param maxTransfer true for as many sets as the ingredients allow, false for exactly one
-     */
+    /** JEI's own behaviour: one set, or as many as possible with {@code maxTransfer}. */
     public static Plan plan(List<Slot> slots, List<Supply> supply, int[] maxStack, boolean maxTransfer) {
+        return plan(slots, supply, maxStack, maxTransfer, 0);
+    }
+
+    /**
+     * @param slots         the recipe's non-empty slots, in grid order
+     * @param supply        per item type, how many are available
+     * @param maxStack      per item type, how many fit in one slot
+     * @param maxTransfer   true for as many sets as the ingredients allow, false for exactly one
+     * @param requestedSets how many sets the player asked for (the client's craft count), or 0
+     *                      for {@code maxTransfer}'s answer. A request is a ceiling, never a
+     *                      promise: it is bounded by the scarcest ingredient and by stack
+     *                      sizes exactly as a max transfer is, so asking for 64 torches with
+     *                      coal for 10 fills the grid for 10
+     */
+    public static Plan plan(List<Slot> slots, List<Supply> supply, int[] maxStack, boolean maxTransfer,
+                            int requestedSets) {
         if (slots.isEmpty()) {
             return new Plan(List.of(), 0, List.of(), "that recipe has no ingredients");
         }
@@ -129,7 +140,9 @@ public final class GridPlanner {
         for (int i = 0; i < slots.size(); i++) {
             sets = Math.min(sets, Math.max(1, maxStack[chosen[i]]));
         }
-        if (!maxTransfer) {
+        if (requestedSets > 0) {
+            sets = Math.min(sets, requestedSets);
+        } else if (!maxTransfer) {
             sets = 1;
         }
         if (sets <= 0) {

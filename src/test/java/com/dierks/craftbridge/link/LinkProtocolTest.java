@@ -59,18 +59,20 @@ class LinkProtocolTest {
     @Test
     void aTransferRequestWithARecipeIdCarriesNothingElse() {
         LinkProtocol.TransferRequest got = LinkProtocol.decodeTransferRequest(LinkProtocol.encode(
-                new LinkProtocol.TransferRequest(3, 8, true, false, "minecraft:torch", List.of())));
+                new LinkProtocol.TransferRequest(3, 8, true, false, 0, false, "minecraft:torch", List.of())));
         assertEquals(3, got.requestId());
         assertEquals(8, got.basedOnSequence());
         assertTrue(got.maxTransfer());
         assertFalse(got.requireCompleteSets());
+        assertEquals(0, got.craftCount());
+        assertFalse(got.leaveOne());
         assertEquals("minecraft:torch", got.recipeId());
         assertTrue(got.slots().isEmpty());
     }
 
     @Test
     void aTransferRequestWithoutAnIdCarriesTheSlotChoices() {
-        LinkProtocol.TransferRequest sent = new LinkProtocol.TransferRequest(4, 9, false, true, "",
+        LinkProtocol.TransferRequest sent = new LinkProtocol.TransferRequest(4, 9, false, true, 0, false, "",
                 List.of(new LinkProtocol.SlotChoices(0, List.of(item(1), item(2))),
                         new LinkProtocol.SlotChoices(4, List.of(item(3)))));
         LinkProtocol.TransferRequest got = LinkProtocol.decodeTransferRequest(LinkProtocol.encode(sent));
@@ -78,6 +80,44 @@ class LinkProtocolTest {
         assertEquals(2, got.slots().size());
         assertEquals(4, got.slots().get(1).gridIndex());
         assertArrayEquals(item(2), got.slots().get(0).choices().get(1));
+    }
+
+    @Test
+    void aTransferRequestCarriesTheCraftCountAndLeaveOne() {
+        LinkProtocol.TransferRequest byId = LinkProtocol.decodeTransferRequest(LinkProtocol.encode(
+                new LinkProtocol.TransferRequest(5, 2, false, true, 16, true, "minecraft:stick", List.of())));
+        assertEquals(16, byId.craftCount());
+        assertTrue(byId.leaveOne());
+        assertEquals("minecraft:stick", byId.recipeId());
+        LinkProtocol.TransferRequest bySlots = LinkProtocol.decodeTransferRequest(LinkProtocol.encode(
+                new LinkProtocol.TransferRequest(6, 2, true, true, 300, false, "",
+                        List.of(new LinkProtocol.SlotChoices(1, List.of(item(9)))))));
+        assertEquals(300, bySlots.craftCount());
+        assertFalse(bySlots.leaveOne());
+        assertEquals(1, bySlots.slots().get(0).gridIndex());
+    }
+
+    @Test
+    void aNegativeCraftCountGoesOutAsZero() {
+        assertEquals(0, LinkProtocol.decodeTransferRequest(LinkProtocol.encode(
+                new LinkProtocol.TransferRequest(1, 0, false, true, -4, false, "a:b", List.of()))).craftCount());
+    }
+
+    @Test
+    void theV3TransferRequestLayoutIsPinned() {
+        // version, requestId, basedOnSequence, maxTransfer, requireCompleteSets, craftCount,
+        // leaveOne, hasRecipeId, recipeId
+        assertArrayEquals(new byte[]{3, 7, 1, 0, 1, 16, 1, 1, 3, 'a', ':', 'b'},
+                LinkProtocol.encode(new LinkProtocol.TransferRequest(7, 1, false, true, 16, true, "a:b", List.of())));
+    }
+
+    @Test
+    void aVersion2ClientsHelloIsAMismatchNotGarbage() {
+        byte[] v2Hello = {2, 5, '0', '.', '3', '.', '0'};
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> LinkProtocol.decodeClientHello(v2Hello));
+        assertTrue(ex.getMessage().contains("version 2") && ex.getMessage().contains("update"), ex.getMessage());
+        assertTrue(InboundGuard.isVersionMismatch(v2Hello));
     }
 
     @Test
