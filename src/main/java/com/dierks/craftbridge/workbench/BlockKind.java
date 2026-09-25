@@ -37,6 +37,15 @@ public enum BlockKind {
         return itemTag;
     }
 
+    /**
+     * The {@code custom_model_data} string (index 0) that picks this block's model in the
+     * resource pack's {@code items/crafting_table.json} / {@code items/barrel.json}, and that
+     * Geyser's item mapping matches. Same text as {@link #itemTag()}.
+     */
+    public String modelData() {
+        return itemTag.toString();
+    }
+
     /** The real block placed in the world (hitbox, protection checks, vanilla behaviour). */
     public Material block() {
         return block;

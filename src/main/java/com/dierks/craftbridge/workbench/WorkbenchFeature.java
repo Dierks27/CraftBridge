@@ -270,22 +270,26 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
             default -> {
                 sender.sendMessage(Text.msg("<gray>" + root + " give [player] [amount]"));
                 sender.sendMessage(Text.msg("<gray>" + root + " list | refresh"));
-                sender.sendMessage(Text.msg("<gray>" + root + " display <scale|x|y|z|yaw|transform> <value>"));
+                sender.sendMessage(Text.msg("<gray>" + root + " display <mode|modelscale|scale|x|y|z|yaw|transform> <value>"));
             }
         }
     }
 
     /** Live-tune the display look of one kind: writes config.yml and respawns every loaded display. */
     private void tune(CommandSender sender, String[] args, BlockKind kind, String root) {
+        String usage = "<gray>" + root + " display <mode|modelscale|scale|x|y|z|yaw|transform> <value>";
         if (args.length < 4) {
-            sender.sendMessage(Text.msg("<gray>Current: " + plugin.config().displayFor(kind)));
-            sender.sendMessage(Text.msg("<gray>" + root + " display <scale|x|y|z|yaw|transform> <value>"));
+            sender.sendMessage(Text.msg("<gray>Current: mode=" + plugin.config().displayMode(kind).name().toLowerCase(Locale.ROOT)
+                    + " model-scale=" + plugin.config().modelScale(kind) + " | head: " + plugin.config().displayFor(kind)));
+            sender.sendMessage(Text.msg(usage));
             return;
         }
         String what = args[2].toLowerCase(Locale.ROOT);
         String value = args[3];
         String base = kind.configSection() + ".display.";
         String path = switch (what) {
+            case "mode" -> base + "mode";
+            case "modelscale", "model-scale" -> base + "model-scale";
             case "scale" -> base + "scale";
             case "x" -> base + "offset-x";
             case "y" -> base + "offset-y";
@@ -295,10 +299,17 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
             default -> null;
         };
         if (path == null) {
-            sender.sendMessage(Text.msg("<red>Unknown property. Use scale, x, y, z, yaw or transform."));
+            sender.sendMessage(Text.msg("<red>Unknown property. Use mode, modelscale, scale, x, y, z, yaw or transform."));
             return;
         }
-        if (what.equals("transform")) {
+        if (what.equals("mode")) {
+            String mode = value.toLowerCase(Locale.ROOT);
+            if (!mode.equals("model") && !mode.equals("head")) {
+                sender.sendMessage(Text.msg("<red>Mode must be model (the resource pack's model) or head (the textured head)."));
+                return;
+            }
+            plugin.getConfig().set(path, mode);
+        } else if (what.equals("transform")) {
             try {
                 ItemDisplay.ItemDisplayTransform.valueOf(value.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException ex) {
@@ -316,8 +327,15 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         }
         plugin.saveConfig();
         int n = displays.refreshAll();
+        boolean model = plugin.config().displayMode(kind) == com.dierks.craftbridge.config.CraftBridgeConfig.DisplayMode.MODEL;
+        boolean headSetting = !what.equals("mode") && !what.startsWith("model");
         sender.sendMessage(Text.msg("<green>Set " + kind.displayName() + " " + what + " = " + value + " and respawned " + n
-                + " display(s). Now: " + plugin.config().displayFor(kind)));
+                + " display(s)." + (model && headSetting ? " <gray>(This setting shapes the head; mode is model.)" : "")));
+        if (what.equals("mode")) {
+            sender.sendMessage(Text.msg("<gray>/craftbridge give hands out the " + value.toLowerCase(Locale.ROOT)
+                    + " place-item now, the crafting recipe after /craftbridge reload; items already handed out"
+                    + " still place the block."));
+        }
     }
 
     public static String describeItem(ItemStack stack) {
