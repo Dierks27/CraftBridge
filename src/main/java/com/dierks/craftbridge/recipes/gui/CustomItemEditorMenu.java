@@ -253,6 +253,12 @@ public final class CustomItemEditorMenu extends Menu {
             player.sendMessage(Text.msg("<red>A custom item called <white>" + def.id() + "<red> already exists."));
             return;
         }
+        if (isNew && feature.itemStore().isUnreadable(def.id())) {
+            // The id is in custom-items.yml but failed to load; saving would overwrite that entry.
+            player.sendMessage(Text.msg("<red>custom-items.yml already has an item called <white>" + def.id()
+                    + "<red> that failed to load (see the server log). Fix or remove it first, or pick another name."));
+            return;
+        }
         feature.saveItem(def);
         player.sendMessage(Text.msg("<green>Saved custom item <white>" + def.id() + "<green>."));
         new CustomItemBrowseMenu(feature, player, 0).open(player);

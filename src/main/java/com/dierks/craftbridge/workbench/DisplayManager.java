@@ -137,7 +137,9 @@ public final class DisplayManager {
         String key = display.getPersistentDataContainer().get(LINKED_DISPLAY, PersistentDataType.STRING);
         WorkbenchRecord record = key == null ? null : store.byKey(key);
         if (record == null) {
-            return true;
+            // An entry for this table (or naming this display) is in linked-workbenches.yml but
+            // did not load: not an orphan, just unreadable for now. Keep it for when it is fixed.
+            return !store.isHeld(key, display.getUniqueId());
         }
         Block block = record.block();
         if (block == null || block.getType() != record.kind().block()) {
