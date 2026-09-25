@@ -676,6 +676,8 @@ and shown to one player at a time, once their client reports the pack loaded; de
 pack, a failed download, or the pack being removed hides it again. The place-item (recipe,
 `/craftbridge give`) is the same tagged block item, so it shows the model in hands and
 inventories too; place-items handed out before the update (heads) keep working.
+Until the pack can be sent (`resource-pack.url` set, or the built-in host on), model mode
+falls back to the heads, so an upgraded server keeps its look until you upload the zip.
 `display.mode: head` brings back the textured-head look for everyone, no pack needed;
 `/craftbridge workbench display mode head` switches live.
 

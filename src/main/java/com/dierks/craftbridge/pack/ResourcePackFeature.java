@@ -105,7 +105,9 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
                         : config.resourcePackUrl().isEmpty() && !config.resourcePackHostEnabled()
                         ? "no resource-pack.url and resource-pack.host is off" : "see the warning above";
                 plugin.getLogger().info("Resource pack: not sent to players (" + why + "), so the Linked Workbench"
-                        + " and Combo Chest models stay hidden and players see the plain blocks.");
+                        + " and Combo Chest " + (config.resourcePackDeliverable()
+                        ? "models stay hidden and players see the plain blocks."
+                        : "show their heads until resource-pack.url is set and the zip uploaded."));
             }
         }
 
@@ -245,7 +247,7 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
 
     private static boolean anyModelDisplays(CraftBridgeConfig config) {
         for (BlockKind kind : BlockKind.values()) {
-            if (config.displayMode(kind) == CraftBridgeConfig.DisplayMode.MODEL) {
+            if (config.configuredDisplayMode(kind) == CraftBridgeConfig.DisplayMode.MODEL) {
                 return true;
             }
         }

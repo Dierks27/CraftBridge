@@ -236,8 +236,26 @@ public final class CraftBridgeConfig {
         HEAD
     }
 
-    /** {@code <kind>.display.mode}; anything but "head" is the model. */
+    /**
+     * The look actually used: {@link #configuredDisplayMode}, except that the model falls back to
+     * the head while no way to send the pack is set up (resource-pack off, or neither a url nor
+     * the built-in host), so a server upgraded without uploading the pack keeps its heads.
+     */
     public DisplayMode displayMode(com.dierks.craftbridge.workbench.BlockKind kind) {
+        DisplayMode mode = configuredDisplayMode(kind);
+        if (mode == DisplayMode.MODEL && !resourcePackDeliverable()) {
+            return DisplayMode.HEAD;
+        }
+        return mode;
+    }
+
+    /** Whether the settings name a way to send the pack: enabled, with a url or the built-in host. */
+    public boolean resourcePackDeliverable() {
+        return resourcePackEnabled() && (!resourcePackUrl().isEmpty() || resourcePackHostEnabled());
+    }
+
+    /** {@code <kind>.display.mode} as written; anything but "head" is the model. */
+    public DisplayMode configuredDisplayMode(com.dierks.craftbridge.workbench.BlockKind kind) {
         String path = kind.configSection() + ".display.mode";
         String mode = raw.getString(path, "model");
         if (mode != null && mode.trim().equalsIgnoreCase("head")) {

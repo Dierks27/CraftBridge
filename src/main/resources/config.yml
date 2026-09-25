@@ -105,6 +105,7 @@ linked-workbench:
     #        players whose client loaded that pack; everyone else sees the plain crafting
     #        table. The place-item is then a crafting table carrying the model too.
     # head:  the textured head above (head-texture), shown to everyone, no pack needed.
+    # model falls back to head until resource-pack.url (or resource-pack.host) is set.
     mode: model
     # Size of the model over the table; a hair over 1 so the real block never shows through.
     model-scale: 1.002
