@@ -606,6 +606,14 @@ and reachable from no chest.
 * **Live.** Every click (pull, deposit, page, filter) re-scans, so hoppers and other
   players' changes show on the next click. The info icon in the middle of the bottom row
   shows the container count, item-type count and page.
+* **With the client mod.** A player with
+  [CraftBridge-Client](https://github.com/Dierks27/CraftBridge-Client) also gets its storage
+  panel beside the terminal, driven by the same snapshot, delta and pull messages as at a
+  Linked Workbench: every item type the terminal reads (its radius, never a terminal barrel,
+  golem chests keeping their last item), clickable to take a stack, half a stack or as many
+  as fit. Panel pulls go through the terminal's own sources and redraw its list; pulls and
+  deposits in the terminal update the panel at once. The terminal GUI itself is unchanged,
+  for everyone.
 
 **Getting the block:** craft it, or `/craftbridge give <player> combochest [amount]`.
 Both blocks share the code in `workbench.*`: `BlockKind` picks the physical block,

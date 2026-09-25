@@ -8,6 +8,7 @@ import com.dierks.craftbridge.sort.SortFeature;
 import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
 import com.dierks.craftbridge.workbench.BlockKind;
+import com.dierks.craftbridge.workbench.ComboChestMenu;
 import com.dierks.craftbridge.workbench.LinkedSession;
 import com.dierks.craftbridge.workbench.PullPlanner;
 import com.dierks.craftbridge.workbench.StoragePull;
@@ -24,6 +25,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.CraftingInventory;
 import org.bukkit.inventory.CraftingRecipe;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.RecipeChoice;
@@ -85,6 +87,12 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     private final Map<UUID, Linked> linked = new HashMap<>();
     /** Per-player message budgets; kept for players who have not (yet) said hello too. */
     private final Map<UUID, InboundGuard> guards = new HashMap<>();
+    /**
+     * Players with a Combo Chest open. Its terminal GUI stays as it is for everyone; a player
+     * with the mod also gets the storage panel beside it, fed by the same snapshot, delta and
+     * pull messages as a Linked Workbench, over the Combo Chest's own sources.
+     */
+    private final Map<UUID, ComboView> combos = new HashMap<>();
     /** Players already told this session that their mod speaks another protocol version. */
     private final java.util.Set<UUID> toldMismatch = new java.util.HashSet<>();
     private final Map<ItemStack, byte[]> blobCache = new LinkedHashMap<>();
@@ -92,6 +100,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     /** Null when the menu ids could not be read: middle-click sorting is then never offered. */
     private MenuIds menus;
     private int task = -1;
+
+    /** An open Combo Chest: its menu (which knows its sources) and the view it opened in. */
+    private record ComboView(ComboChestMenu menu, InventoryView view) {
+    }
 
     /** One player who has the mod and has said hello. */
     private static final class Linked {
@@ -221,6 +233,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             }
         }
         linked.clear();
+        combos.clear();
         guards.clear();
         toldMismatch.clear();
         blobCache.clear();
@@ -251,8 +264,42 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         send(player, LinkProtocol.CHANNEL_SESSION_END, LinkProtocol.encode(new LinkProtocol.SessionEnd(reason)));
     }
 
+    /**
+     * A Combo Chest just opened. A player with the mod gets its storage in the panel beside the
+     * terminal GUI; for everyone else this costs nothing, since {@link #push} returns at once
+     * for a player who has not said hello.
+     */
+    public void comboOpened(Player player, ComboChestMenu menu) {
+        combos.put(player.getUniqueId(), new ComboView(menu, player.getOpenInventory()));
+        push(player, true);
+    }
+
+    /** That Combo Chest closed: tell the client to drop its view of the storage. */
+    public void comboClosed(Player player, ComboChestMenu menu) {
+        ComboView open = combos.get(player.getUniqueId());
+        if (open != null && open.menu() == menu) {
+            combos.remove(player.getUniqueId());
+            sessionEnded(player, "the Combo Chest was closed");
+        }
+    }
+
+    /** The Combo Chest's own GUI moved items (a pull or a deposit there): update the panel now. */
+    public void comboChanged(Player player, ComboChestMenu menu) {
+        ComboView open = combos.get(player.getUniqueId());
+        if (open != null && open.menu() == menu) {
+            push(player, false);
+        }
+    }
+
+    /** The player's open Combo Chest, but only while its view is the one they actually have open. */
+    private ComboView liveCombo(Player player) {
+        ComboView open = combos.get(player.getUniqueId());
+        return open != null && player.getOpenInventory() == open.view() ? open : null;
+    }
+
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        combos.remove(event.getPlayer().getUniqueId());
         linked.remove(event.getPlayer().getUniqueId());
         guards.remove(event.getPlayer().getUniqueId());
         toldMismatch.remove(event.getPlayer().getUniqueId());
@@ -375,7 +422,9 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 + ack.sequence() + (ack.displaying()
                 ? " and is showing it; phantom slots off." : " but is not showing it; phantom slots stay on."));
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        if (workbench == null || workbench.phantoms() == null) {
+        // Phantom slots belong to a Linked Workbench. At a Combo Chest there are none to take
+        // away or give back; the flag alone decides what the next workbench opens with.
+        if (workbench == null || workbench.phantoms() == null || workbench.sessions().of(player) == null) {
             return;
         }
         if (ack.displaying()) {
@@ -411,8 +460,8 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return;
         }
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
-        LinkedSession session = workbench == null ? null : workbench.sessions().of(player);
-        if (session == null) {
+        List<StorageScanner.Source> sources = storageOf(workbench, player);
+        if (sources == null) {
             if (link.sessionOpen) {
                 link.sessionOpen = false;
                 send(player, LinkProtocol.CHANNEL_SESSION_END,
@@ -422,7 +471,7 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
 
         Map<SnapshotTracker.ItemKey, Integer> current = new LinkedHashMap<>();
-        for (Map.Entry<ItemStack, Integer> entry : inRange(workbench, player, session).entrySet()) {
+        for (Map.Entry<ItemStack, Integer> entry : workbench.scanner().aggregate(sources).entrySet()) {
             current.put(new SnapshotTracker.ItemKey(blob(entry.getKey())), entry.getValue());
         }
 
@@ -446,8 +495,20 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 + changes.size() + " change(s), " + payload.length + " bytes.");
     }
 
-    private Map<ItemStack, Integer> inRange(WorkbenchFeature workbench, Player player, LinkedSession session) {
-        return workbench.scanner().aggregate(sources(workbench, player, session));
+    /**
+     * The storage this player's client should be showing: their Linked Workbench's, or else
+     * the Combo Chest they have open, or null for neither.
+     */
+    private List<StorageScanner.Source> storageOf(WorkbenchFeature workbench, Player player) {
+        if (workbench == null) {
+            return null;
+        }
+        LinkedSession session = workbench.sessions().of(player);
+        if (session != null) {
+            return sources(workbench, player, session);
+        }
+        ComboView combo = liveCombo(player);
+        return combo == null ? null : combo.menu().currentSources();
     }
 
     private List<StorageScanner.Source> sources(WorkbenchFeature workbench, Player player, LinkedSession session) {
@@ -694,8 +755,9 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
         WorkbenchFeature workbench = plugin.feature(WorkbenchFeature.class);
         LinkedSession session = liveSession(workbench, player);
-        if (session == null) {
-            reply(player, request.requestId(), false, "Open a Linked Workbench first.");
+        ComboView combo = session == null && workbench != null ? liveCombo(player) : null;
+        if (session == null && combo == null) {
+            reply(player, request.requestId(), false, "Open a Linked Workbench or a Combo Chest first.");
             return;
         }
         ItemStack wanted = blobs.decode(request.item());
@@ -717,10 +779,14 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return;
         }
 
-        List<StorageScanner.Source> sources = sources(workbench, player, session);
+        // At a Combo Chest the sources are the terminal's own (its radius, never its barrel),
+        // and golem chests keep their last item either way: the scanner applies that.
+        List<StorageScanner.Source> sources = session != null
+                ? sources(workbench, player, session) : combo.menu().currentSources();
+        int free = session != null ? StoragePull.freeInventorySlots(session.view()) : freeStorageSlots(player);
         ItemStack key = StorageScanner.keyOf(wanted);
         StoragePull.Result result = StoragePull.pull(player, workbench.scanner(), sources, key, mode,
-                StoragePull.freeInventorySlots(session.view()), over -> putBack(player, sources, over));
+                free, over -> putBack(player, sources, over));
         if (!result.happened()) {
             reply(player, request.requestId(), false, "No room, or none left in range.");
             push(player, true);
@@ -728,7 +794,21 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         }
         player.updateInventory();
         reply(player, request.requestId(), true, "");
+        if (combo != null) {
+            combo.menu().storageChanged(); // the terminal's own list shows the new counts too
+        }
         push(player, true); // the chests just changed
+    }
+
+    /** Empty slots in the player's main inventory and hotbar: the room a pull at a Combo Chest has. */
+    private static int freeStorageSlots(Player player) {
+        int free = 0;
+        for (ItemStack stack : player.getInventory().getStorageContents()) {
+            if (Items.isEmpty(stack)) {
+                free++;
+            }
+        }
+        return free;
     }
 
     /**

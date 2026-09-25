@@ -10,6 +10,7 @@ import com.dierks.craftbridge.util.Text;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
@@ -34,6 +35,9 @@ import java.util.Map;
  *   <li><b>Filters:</b> all / blocks / tools &amp; armor / food / misc, from the sort categories.</li>
  *   <li><b>Live:</b> every click re-scans, and a pull re-scans again right before it takes, so it only
  *       ever takes from containers that exist and hold the item at that moment.</li>
+ *   <li><b>Client panel:</b> a player with the CraftBridge-Client mod also gets its storage panel
+ *       beside this GUI, over the same containers ({@link com.dierks.craftbridge.link.LinkFeature#comboOpened}).
+ *       This GUI is the same for everyone either way.</li>
  * </ul>
  */
 public final class ComboChestMenu extends Menu {
@@ -91,7 +95,48 @@ public final class ComboChestMenu extends Menu {
             who.sendMessage(Text.msg("<red>No room in nearby storage for " + Items.describe(stack) + "."));
         }
         refresh();
+        linkChanged();
         return Items.isEmpty(left) ? null : left;
+    }
+
+    @Override
+    public void open(Player viewer) {
+        super.open(viewer);
+        com.dierks.craftbridge.link.LinkFeature link = plugin.feature(com.dierks.craftbridge.link.LinkFeature.class);
+        // Only once the menu is really open: another plugin may have cancelled the open.
+        if (link != null && viewer.getOpenInventory().getTopInventory() == getInventory()) {
+            link.comboOpened(viewer, this);
+        }
+    }
+
+    @Override
+    protected void onClose(InventoryCloseEvent event) {
+        com.dierks.craftbridge.link.LinkFeature link = plugin.feature(com.dierks.craftbridge.link.LinkFeature.class);
+        if (link != null && event.getPlayer() instanceof Player viewer) {
+            link.comboClosed(viewer, this);
+        }
+    }
+
+    /**
+     * The containers this terminal reads, scanned now: what the client panel shows and pulls
+     * from. The scanner skips every terminal barrel and applies the golem-chest rule.
+     */
+    public List<StorageScanner.Source> currentSources() {
+        rescan();
+        return sources;
+    }
+
+    /** Something outside this GUI (a pull from the client panel) moved items: redraw the list. */
+    public void storageChanged() {
+        refresh();
+    }
+
+    /** This GUI moved items: the client panel beside it hears now rather than at the next poll. */
+    private void linkChanged() {
+        com.dierks.craftbridge.link.LinkFeature link = plugin.feature(com.dierks.craftbridge.link.LinkFeature.class);
+        if (link != null) {
+            link.comboChanged(player, this);
+        }
     }
 
     private void rescan() {
@@ -140,6 +185,7 @@ public final class ComboChestMenu extends Menu {
                     player.sendMessage(Text.msg("<red>No room in your inventory."));
                 }
                 refresh();
+                linkChanged();
             });
         }
 
