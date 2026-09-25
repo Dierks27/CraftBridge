@@ -73,6 +73,13 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     /** A backstop on the recipe walk itself, so a misbehaving iterator cannot hang the join. */
     private static final int RECIPE_SCAN_LIMIT = 20_000;
 
+    private static final List<String> INCOMING = List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_RESYNC,
+            LinkProtocol.CHANNEL_STORAGE_ACK, LinkProtocol.CHANNEL_PULL_REQUEST,
+            LinkProtocol.CHANNEL_TRANSFER_REQUEST);
+    private static final List<String> OUTGOING = List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_STORAGE,
+            LinkProtocol.CHANNEL_TRANSFER_RESULT, LinkProtocol.CHANNEL_SESSION_END,
+            LinkProtocol.CHANNEL_ITEM_CATALOG);
+
     private final CraftBridgePlugin plugin;
     private final Map<UUID, Linked> linked = new HashMap<>();
     private final Map<ItemStack, byte[]> blobCache = new LinkedHashMap<>();
@@ -113,14 +120,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
             return; // already logged; the plugin runs on without the link
         }
         Messenger messenger = plugin.getServer().getMessenger();
-        for (String channel : List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_RESYNC,
-                LinkProtocol.CHANNEL_STORAGE_ACK, LinkProtocol.CHANNEL_PULL_REQUEST,
-                LinkProtocol.CHANNEL_TRANSFER_REQUEST)) {
+        for (String channel : INCOMING) {
             messenger.registerIncomingPluginChannel(plugin, channel, this);
         }
-        for (String channel : List.of(LinkProtocol.CHANNEL_HELLO, LinkProtocol.CHANNEL_STORAGE,
-                LinkProtocol.CHANNEL_TRANSFER_RESULT, LinkProtocol.CHANNEL_SESSION_END,
-                LinkProtocol.CHANNEL_ITEM_CATALOG)) {
+        for (String channel : OUTGOING) {
             messenger.registerOutgoingPluginChannel(plugin, channel);
         }
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -128,6 +131,34 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                 .getTaskId();
         plugin.getLogger().info("CraftBridge client link: speaking protocol v" + LinkProtocol.VERSION
                 + " on " + LinkProtocol.CHANNEL_HELLO + " (players without the mod are unaffected).");
+        // After /craftbridge reload: next tick, once the command has finished and every feature is up.
+        plugin.getServer().getScheduler().runTask(plugin, this::relinkOnlineClients);
+    }
+
+    /**
+     * Pick up clients that are already connected. A client says hello once per connection, so
+     * after {@code /craftbridge reload} (which builds a fresh feature with an empty
+     * {@link #linked} map) nobody would be linked again until they rejoined. A client that
+     * registered {@code craftbridge:hello} is running the mod; answering it with a ServerHello
+     * and the catalog, exactly as if it had just said hello, puts it back where it was. It
+     * starts with its phantom slots on until it acknowledges a snapshot again, as on join.
+     */
+    private void relinkOnlineClients() {
+        if (task == -1 || blobs == null) {
+            return; // disabled again before this ran
+        }
+        int relinked = 0;
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (!linked.containsKey(player.getUniqueId())
+                    && player.getListeningPluginChannels().contains(LinkProtocol.CHANNEL_HELLO)) {
+                link(player, "unknown (re-linked after a reload)");
+                relinked++;
+            }
+        }
+        if (relinked > 0) {
+            plugin.getLogger().info("CraftBridge client link: re-linked " + relinked
+                    + " connected client(s) after the reload.");
+        }
     }
 
     @Override
@@ -147,6 +178,18 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
                     send(player, LinkProtocol.CHANNEL_SESSION_END,
                             LinkProtocol.encode(new LinkProtocol.SessionEnd("the server plugin is reloading")));
                 }
+            }
+        }
+        // Then, and only then, our channels -- ours alone, and this listener's alone. Left
+        // registered, a reload's new instance would register a second listener beside this
+        // one and every message would be answered twice.
+        if (blobs != null) {
+            Messenger messenger = plugin.getServer().getMessenger();
+            for (String channel : INCOMING) {
+                messenger.unregisterIncomingPluginChannel(plugin, channel, this);
+            }
+            for (String channel : OUTGOING) {
+                messenger.unregisterOutgoingPluginChannel(plugin, channel);
             }
         }
         linked.clear();
@@ -218,9 +261,14 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
     }
 
     private void onHello(Player player, LinkProtocol.ClientHello hello) {
-        linked.put(player.getUniqueId(), new Linked(hello.modVersion()));
+        link(player, hello.modVersion());
+    }
+
+    /** Start (or restart) the link with a player whose client runs the mod. */
+    private void link(Player player, String modVersion) {
+        linked.put(player.getUniqueId(), new Linked(modVersion));
         plugin.getLogger().info("CraftBridge client link: " + player.getName() + " has the mod (version "
-                + hello.modVersion() + "); phantom slots stay on until it confirms it is showing storage.");
+                + modVersion + "); phantom slots stay on until it confirms it is showing storage.");
         // No FLAG_PHANTOM_SLOTS_OFF yet: the phantoms are still there, and stay there until the
         // client acknowledges a snapshot. Saying otherwise here is what would let a mod that
         // cannot display anything leave the player with nothing.
@@ -767,7 +815,10 @@ public final class LinkFeature implements CraftBridgePlugin.Feature, PluginMessa
         // isEnabled() as well as isOnline(): sessionEnded() is reached during shutdown from
         // WorkbenchFeature's teardown, which runs before this feature's own disable(), and
         // sendPluginMessage refuses once Paper has disabled the plugin.
-        if (player.isOnline() && plugin.isEnabled()) {
+        // And the channel must still be registered: a send that races a disable must be a no-op,
+        // not a ChannelNotRegisteredException thrown into whatever called us.
+        if (player.isOnline() && plugin.isEnabled()
+                && plugin.getServer().getMessenger().isOutgoingChannelRegistered(plugin, channel)) {
             player.sendPluginMessage(plugin, channel, payload);
         }
     }

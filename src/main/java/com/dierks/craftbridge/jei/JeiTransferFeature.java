@@ -72,9 +72,16 @@ public final class JeiTransferFeature implements CraftBridgePlugin.Feature, Plug
 
     @Override
     public void disable() {
+        // Only our own channels. The plugin-wide unregister this used to do also tore down the
+        // client link's channels, and it runs first on a reload: the link's goodbye then threw
+        // ChannelNotRegisteredException and its disable() never finished.
         Messenger messenger = plugin.getServer().getMessenger();
-        messenger.unregisterIncomingPluginChannel(plugin);
-        messenger.unregisterOutgoingPluginChannel(plugin);
+        for (String channel : JeiChannels.INCOMING) {
+            messenger.unregisterIncomingPluginChannel(plugin, channel, this);
+        }
+        for (String channel : JeiChannels.OUTGOING) {
+            messenger.unregisterOutgoingPluginChannel(plugin, channel);
+        }
         listeners.clear();
     }
 
