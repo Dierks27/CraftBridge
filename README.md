@@ -52,7 +52,7 @@ generate `plugins/CraftBridge/config.yml`).
 | `/craftbridge page next\|prev` — turn the nearby-storage page at a Linked Workbench | none | everyone |
 | `/craftbridge give <player> workbench|combochest|golemmarker [amount]` | `craftbridge.admin` | op |
 | `/craftbridge workbench|combochest list` / `refresh` / `display <mode|modelscale|scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
-| `/craftbridge pack` — how the block models' resource pack is sent, and who loaded it | `craftbridge.admin` | op |
+| `/craftbridge pack` — the resource pack (block models, custom item art): how it is sent, who loaded it, which custom items have art and which files were skipped | `craftbridge.admin` | op |
 | `/craftbridge geyser export` — write the Bedrock pack and Geyser mappings, and copy them into Geyser | `craftbridge.admin` | op |
 | `/craftbridge jei` / `/craftbridge jei resync` — recipe-sync state, or re-encode and re-send it now | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
@@ -237,8 +237,12 @@ a rejoin reminder after each change instead.)
 a custom-item registry that recipes reference by id. Selecting a cooking type collapses the
 3x3 grid to a single input and exposes cook time and XP; each cooking type is its own recipe,
 as vanilla datapacks model them. Custom items are vanilla items with a name, lore and a
-`craftbridge:cb_item` tag — no resource pack, so Bedrock players see and use them — and
-recipes match the tag rather than the display name, which an anvil can forge.
+`craftbridge:cb_item` tag — they work without a resource pack, so Bedrock players see and use
+them — and recipes match the tag rather than the display name, which an anvil can forge. A custom
+item can also have a texture of its own: drop `<id>.png` into `plugins/CraftBridge/pack/items/`
+and run `/craftbridge reload` (see [Custom block models](#custom-block-models)). A custom item
+built on a block cannot be placed, because it would turn into the plain block;
+`custom-items.placeable: true` allows it.
 
 Full write-up, including the Bedrock/Geyser findings, the furnace recipe-cache caveat and
 the `/craftbridge spike` diagnostic: **[docs/cooking-and-custom-items.md](docs/cooking-and-custom-items.md)**.
@@ -664,7 +668,8 @@ chest or barrel that CraftBridge never takes the last item of any slot from.
 The Linked Workbench and the Combo Chest look like themselves, not like a crafting table and
 a barrel, for every player whose client loads CraftBridge's resource pack. Everyone else sees
 the plain vanilla block, and the blocks work the same for everyone: underneath the model the
-real crafting table and barrel are still there.
+real crafting table and barrel are still there. The same pack can give custom items from
+`/recipe` a texture of their own (*Custom item art* below).
 
 **How it works.** In `display.mode: model` (the default, per block under
 `linked-workbench.display` and `combo-chest.display`) the display over each block holds a
@@ -681,16 +686,34 @@ falls back to the heads, so an upgraded server keeps its look until you upload t
 `display.mode: head` brings back the textured-head look for everyone, no pack needed;
 `/craftbridge workbench display mode head` switches live.
 
-**The pack.** On every start (and `/craftbridge reload`) CraftBridge builds the pack from the
-files in its jar (`src/main/resources/resourcepack/java/`), plus any files in
-`plugins/CraftBridge/pack/overrides/java/`, writes it to
-`plugins/CraftBridge/pack/craftbridge-java.zip` and logs its SHA-1. It covers Minecraft 26.2
-and 26.3 (pack formats 88.0 to 97.1). The zip is byte-for-byte the same until its files
-change, so the hash (and every client's cached copy) only changes when the pack really does.
+**Custom item art.** Drop `<id>.png` into `plugins/CraftBridge/pack/items/` (made on first
+start) and run `/craftbridge reload`; the id is the one on the custom item editor's Save button.
+The texture is square, 16, 32, 64 or 128 pixels, or a strip of frames with an `.mcmeta` to
+animate it, and a Blockbench model can go beside it as `<id>.json`. Players with the pack see the
+texture in inventories, in hands and on the ground. Players without it, and Bedrock players, see
+the plain base item with the same name, lore and recipes. Custom items built on player heads keep
+their skin. Every other item of that type stays exactly vanilla: the pack's definition for the
+base item falls back to Minecraft's own, copied out of the client jar for each version CraftBridge
+supports (26.2 and 26.3). On a Minecraft version it has no table for, no custom item gets art and
+the log says so, until CraftBridge is updated. If another resource pack (the clock pack, say) also
+changes the base item, only the pack higher in the player's list wins, so build textured custom
+items on an item no other pack changes. The start and reload log has one line saying which items
+have art and which files were skipped, and why. The details, including animation, Blockbench and
+the namespace to use in a model, are in `src/main/resources/resourcepack/README.md`.
 
-**Getting it to players.** Players are offered the pack as they connect, before they enter the
+**The pack.** On every start (and `/craftbridge reload`) CraftBridge builds the pack from the
+files in its jar (`src/main/resources/resourcepack/java/`), the custom item art in
+`plugins/CraftBridge/pack/items/`, and any files in `plugins/CraftBridge/pack/overrides/java/`
+(which win over both), writes it to `plugins/CraftBridge/pack/craftbridge-java.zip` and logs its
+SHA-1. It covers Minecraft 26.2 and 26.3 (pack formats 88.0 to 97.1). The zip is byte-for-byte
+the same until its files change, so the hash (and every client's cached copy) only changes when
+the pack really does. This runs when `features.linked-workbench` or `features.recipes` is on.
+
+**Getting it to players.** The pack is sent when either block uses `display.mode: model` or at
+least one custom item has art. Players are offered it as they connect, before they enter the
 world (`resource-pack.prompt` is the text on the download screen; `required: false`, so
-declining is fine). Choose one:
+declining is fine), and players online during a `/craftbridge reload` are offered the new one.
+Choose one:
 
 * **Your own website (`resource-pack.url`, the usual choice).** Upload
   `plugins/CraftBridge/pack/craftbridge-java.zip` and set the address, e.g.
@@ -700,8 +723,10 @@ declining is fine). Choose one:
   built itself: a client refuses a file that differs (for example an upload from an older
   CraftBridge) and keeps the plain blocks. At startup CraftBridge also downloads the file at the
   URL once and logs whether it is current; a mismatch logs *"the uploaded pack is out of date:
-  upload plugins/CraftBridge/pack/craftbridge-java.zip"*. **After every CraftBridge update,
-  upload the new zip.**
+  upload plugins/CraftBridge/pack/craftbridge-java.zip"*. **After every CraftBridge update, and
+  every `/craftbridge reload` that changed the custom item art, upload the new zip.** A pack with
+  no custom item art is the same as 0.14's (same SHA-1), so updating from 0.14 alone needs no
+  upload.
 * **The built-in web server (`resource-pack.host`).** Off by default. `host.enabled: true`
   serves the zip on `host.port` (8765) at `http://<public-address>:<port>/craftbridge-java.zip`.
   The port must be reachable by players: on HomeCraft, 8080 (HomeCraftManagement) and 8100
@@ -710,8 +735,10 @@ declining is fine). Choose one:
   uses a different one. The server only runs while `url` is blank.
 
 With neither (or `resource-pack.enabled: false`) the pack is not sent, one console line says so,
-and every model display stays hidden: everyone sees the vanilla blocks. `/craftbridge pack`
-shows the hash, the address players download from and how many online players loaded it.
+and every model display stays hidden: everyone sees the vanilla blocks, and every custom item
+looks like its base item. `/craftbridge pack` shows the hash, the address players download from,
+how many online players loaded it, each custom item that has art (base item, texture size,
+generated or custom model) and each skipped item or file with the reason.
 
 **Bedrock (Geyser/Floodgate).** Bedrock clients cannot load a Java pack, and Geyser answers
 "declined" for them, so they see the plain blocks. With Floodgate (or Geyser) installed on this
@@ -725,9 +752,17 @@ models too:
    `plugins/CraftBridge/geyser/`. When `plugins/Geyser-Spigot` exists it also copies them into its
    `packs/` and `custom_mappings/` folders (and the display mapping into
    `extensions/geyserdisplayentity/Mappings/` when that extension is installed). If Geyser runs
-   on the proxy, copy the files into the proxy's Geyser folders yourself.
-2. Geyser's `config.yml` needs `enable-custom-content: true`. Restart. Bedrock players now see
-   the place-items with their own icons and 3D models in hand.
+   on a proxy on the same machine, set `bedrock.geyser-folder` to Geyser's folder there, in
+   single quotes so the backslashes stay as they are:
+   `geyser-folder: 'C:\Users\server\MCServerManager\Servers\Velocity\plugins\Geyser-Velocity'`.
+   The export then copies into that folder instead. Anywhere else, copy the files yourself.
+   Custom items with art get Bedrock icons too: the export adds each one's PNG (the first frame
+   of an animation) and a mapping on its base item. A custom item with only a model of its own
+   and no PNG gets no icon.
+2. Geyser's `config.yml` needs `enable-custom-content: true`. Restart the server Geyser runs on
+   (the proxy, when it runs there): Geyser only loads new packs and mappings when it starts.
+   Bedrock players now see the place-items with their own icons and 3D models in hand, and
+   custom items with their icons.
 3. Geyser does not draw item display entities; the
    [GeyserDisplayEntity](https://github.com/GeyserExtensionists/GeyserDisplayEntity) extension
    does. Install it, keep the display mapping in its `Mappings/` folder, set
@@ -751,7 +786,10 @@ geometry and identifier one file names exists in another; the `custom_model_data
 between plugin, pack and mappings) and against Mojang's 26.2 formats, but the look in game, the
 Bedrock hand positions and the GeyserDisplayEntity placement are untested starters that may need
 tuning (`model-scale`, the Bedrock `animations/craftbridge.animation.json`, the extension's
-`y-offset`).
+`y-offset`). The same goes for custom item art: unit tests check, for every item in both
+Minecraft versions, that the generated item definition falls back to Minecraft's own exactly, and
+that the generated models and their textures line up, but the look in game and the Bedrock icons
+are untested.
 
 ## Feature 1b — the client link
 

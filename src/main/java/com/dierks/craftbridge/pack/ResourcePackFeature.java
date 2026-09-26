@@ -198,7 +198,8 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
             String url = plugin.config().resourcePackUrl();
             plugin.getLogger().info("Resource pack: wrote plugins/" + plugin.getName() + "/pack/" + ZIP_NAME + " ("
                     + files.size() + " files, " + Math.max(1, zip.length / 1024) + " KB), SHA-1 " + sha1 + "."
-                    + (url.isEmpty() ? "" : " Upload this file to " + url + " after every CraftBridge update."));
+                    + (url.isEmpty() ? "" : " Upload this file to " + url + " whenever this SHA-1 changes (a CraftBridge"
+                    + " update, or a reload that changed the custom item art)."));
             return zip;
         } catch (IOException | RuntimeException ex) {
             plugin.getLogger().log(Level.SEVERE, "Resource pack: could not be built; nothing is sent", ex);
@@ -268,10 +269,10 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
                 plugin.getLogger().warning("Resource pack: the uploaded pack is out of date: upload plugins/"
                         + plugin.getName() + "/pack/" + ZIP_NAME + " to " + url + " (it has SHA-1 " + result.sha1()
                         + ", this CraftBridge builds " + expected + "). Until then players' clients reject it"
-                        + " and see the plain blocks.");
+                        + " and see the plain blocks and custom items.");
             } else {
                 plugin.getLogger().warning("Resource pack: could not check " + url + " (" + result.problem()
-                        + "). If players cannot download it either, they see the plain blocks.");
+                        + "). If players cannot download it either, they see the plain blocks and custom items.");
             }
         });
     }

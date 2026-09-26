@@ -45,9 +45,11 @@ import java.util.function.Predicate;
  * ({@link ModelTags}). That is a new component, and the exact fallback compares components,
  * so an {@code ExactChoice} of the new item alone would stop accepting every custom item made
  * on 0.14 the moment 0.15 loads. The fallback therefore lists two stacks: the current, tagged
- * item first (the recipe book and JEI cycle through the list, starting there) and the item
- * exactly as 0.14 built it second. {@link CustomItemRefresher} tags old items as players come across them, but a
- * stack in a hopper line, a crafter or a chest nobody has opened yet is still the 0.14 shape,
+ * item first (the recipe book cycles through the list, starting there; JEI only ever gets an
+ * exact ingredient's plain item type, see the README's recipe sync notes) and the item
+ * exactly as 0.14 built it second. {@link CustomItemRefresher} tags old items as players come
+ * across them, but a stack in a hopper line, a crafter or a chest nobody has opened yet is still
+ * the 0.14 shape,
  * so the second entry is not optional. The predicate path needs none of this: it only reads
  * the {@code cb_item} id, which both shapes carry.
  */
@@ -120,7 +122,7 @@ public final class CustomItemChoice {
 
     /**
      * What the exact fallback accepts for a custom item, in order: the current (tagged) item
-     * first, so it is the one the recipe book and JEI show first, then the item as 0.14 built
+     * first, so it is the one the recipe book shows first, then the item as 0.14 built
      * it, so items made before 0.15 keep matching. A null {@code before015} is left out.
      *
      * <p>Generic so the policy can be pinned by a test without a server to build stacks.
