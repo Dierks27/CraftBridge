@@ -77,8 +77,9 @@ public final class CustomItemListener implements Listener {
         }
         // Paper also fires this event for what a tool does to a block (a hoe tilling, an axe
         // stripping, flint and steel lighting), with the tool as the item in hand. Only an item
-        // that is itself a block item turns into the block.
-        if (placesABlock(def.base()) && !placeable.getAsBoolean()) {
+        // that is itself a block item turns into the block. The stack, not the definition: an
+        // admin may have moved the item to another base since this stack was made.
+        if (placesABlock(event.getItemInHand().getType()) && !placeable.getAsBoolean()) {
             event.setCancelled(true);
             event.getPlayer().sendMessage(Text.msg(REFUSED));
         }

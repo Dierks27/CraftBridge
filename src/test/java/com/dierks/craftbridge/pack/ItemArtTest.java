@@ -450,9 +450,42 @@ class ItemArtTest {
 
     @Test
     void anOversizedImageIsRefusedByTheSizeInItsHeader() {
-        byte[] huge = png(4096, 4096);
+        // The signature and IHDR only, no image data: this passes only if nothing is decoded.
+        byte[] huge = Arrays.copyOf(png(4096, 4096), 33);
         assertEquals(new ItemArt.Png(4096, 4096), ItemArt.readPng(huge));
-        assertTrue(ItemArt.pngProblem("huge.png", huge, null).contains("16, 32, 64 or 128"));
+        assertEquals("huge.png is 4096x4096: make it 16, 32, 64 or 128 pixels wide", ItemArt.pngProblem("huge.png", huge, null));
+    }
+
+    @Test
+    void theAnimationRulesFollowTheClient() {
+        byte[] strip = png(16, 64);
+        assertNull(ItemArt.pngProblem("a.png", strip, meta("{\"animation\": {\"frametime\": 1.5}}")), "read as 1");
+        assertNull(ItemArt.pngProblem("a.png", strip, meta("{\"animation\": {\"interpolate\": true,"
+                + " \"frames\": [0, 1, {\"index\": 2, \"time\": 5}, 3]}, \"texture\": {\"blur\": false}}")));
+        assertNull(ItemArt.pngProblem("a.png", strip, meta("{\"animation\": {}} trailing")), "what follows the value is never read");
+        assertTrue(ItemArt.pngProblem("a.png", strip, meta("{\"animation\": {\"interpolate\": \"true\"}}")).contains("true or false"));
+        assertTrue(ItemArt.pngProblem("a.png", strip, meta("{\"animation\": {\"frames\": [{\"index\": 0, \"time\": 0}]}}"))
+                .contains("neither a frame number"));
+        assertTrue(ItemArt.pngProblem("a.png", strip, meta("{\"animation\": {\"frames\": 3}}")).contains("not a list"));
+        assertTrue(ItemArt.pngProblem("a.png", strip, meta("{\"animation\": {}, \"texture\": {\"clamp\": 1}}")).contains("true or false"));
+        String bad = ItemArt.pngProblem("a.png", strip, meta("{\"animation\": {\"frametime\": 2,}}"));
+        assertTrue(bad.contains("not strict JSON at line 1") && !bad.contains("setStrictness"), bad);
+    }
+
+    static byte[] meta(String json) {
+        return json.getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void aCustomModelCannotReplaceOurOwnBlockTextures() throws IOException {
+        byte[] model = "{\"parent\": \"minecraft:block/cube_all\", \"textures\": {\"all\": \"craftbridge:block/linked_workbench_top\"}}"
+                .getBytes(StandardCharsets.UTF_8);
+        ItemArt.Result result = build(List.of(item("fancy_table", "stone")),
+                Map.of("fancy_table.json", model, "linked_workbench_top.png", PNG16), Set.of(), vanilla("26.2"));
+
+        assertFalse(result.files().containsKey("assets/craftbridge/textures/block/linked_workbench_top.png"));
+        assertTrue(result.warnings().stream().anyMatch(w -> w.contains("would replace CraftBridge's own")), result.warnings().toString());
+        assertEquals(List.of(), result.skipped());
     }
 
     @Test

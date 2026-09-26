@@ -144,11 +144,11 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         if (delivery == null) {
             // A client keeps a server pack until it is told to drop it or leaves. Nothing is sent
             // any more, so take back the pack sent before this reload: otherwise a texture whose
-            // PNG was just removed stays on screen until the player rejoins.
+            // PNG was just removed stays on screen until the player rejoins. Everyone, not only
+            // those known to have loaded it: dropping a pack a client lacks does nothing, and it
+            // also cancels one still waiting on the prompt or downloading.
             for (Player player : Bukkit.getOnlinePlayers()) {
-                if (LOADED.remove(player.getUniqueId()) != null) {
-                    player.removeResourcePacks(PACK_ID);
-                }
+                takeBack(player);
             }
         }
         // Players online through a reload (or a late enable) are brought up to date in game.
@@ -448,10 +448,23 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        if (delivery == null && LOADED.containsKey(player.getUniqueId())) {
+            // Accepted during configuration from an offer made before a reload that stopped sending it.
+            takeBack(player);
+            return;
+        }
         if (seesModels(player)) {
             showTo(player);
         } else if (!offeredWhileConfiguring.contains(player.getUniqueId())) {
             offerInGame(player);
+        }
+    }
+
+    /** Tell a Java client to drop this pack (it answers DISCARDED, which lands in {@link #onPackStatus}). */
+    private void takeBack(Player player) {
+        LOADED.remove(player.getUniqueId());
+        if (!bedrock.isBedrock(player.getUniqueId())) {
+            player.removeResourcePacks(PACK_ID);
         }
     }
 
@@ -475,6 +488,9 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
                 Delivery to = delivery;
                 if (to != null) {
                     LOADED.put(player.getUniqueId(), to.sha1());
+                } else {
+                    takeBack(player); // an offer from before a reload that stopped sending the pack
+                    return;
                 }
             }
             case ACCEPTED, DOWNLOADED -> {

@@ -10,7 +10,6 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.Strictness;
 import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonToken;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -35,6 +34,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -357,6 +358,11 @@ public final class ItemArt {
                     continue;
                 }
                 used.add(name);
+                if (ownPack.containsKey(path) || ownPack.containsKey(path + ".mcmeta")) {
+                    warnings.add(file + " uses " + ref + ", which would replace CraftBridge's own " + path + ", so "
+                            + art.name(name + ".png") + " is left out; give it and the reference another name.");
+                    continue;
+                }
                 String problem = pngProblem(art.name(name + ".png"), png, art.mcmeta.get(name));
                 if (problem != null) {
                     warnings.add(file + " uses " + ref + ", which is left out: " + problem);
@@ -490,21 +496,25 @@ public final class ItemArt {
      */
     static JsonObject parseStrictObject(byte[] bytes) {
         JsonElement element;
+        // One value, like the client's GsonHelper: what follows it is never read.
         try (JsonReader reader = new JsonReader(new StringReader(new String(bytes, StandardCharsets.UTF_8)))) {
             reader.setStrictness(Strictness.STRICT);
             element = JsonParser.parseReader(reader);
-            if (reader.peek() != JsonToken.END_DOCUMENT) {
-                throw new IllegalArgumentException("there is more after the JSON object");
-            }
         } catch (JsonParseException | IOException ex) {
+            // Gson's own message tells a programmer which API to call; say what to fix instead.
             Throwable cause = ex.getCause() == null ? ex : ex.getCause();
-            throw new IllegalArgumentException(String.valueOf(cause.getMessage()));
+            Matcher at = WHERE.matcher(String.valueOf(cause.getMessage()));
+            throw new IllegalArgumentException("it is not strict JSON" + (at.find() ? " at line " + at.group(1)
+                    + " column " + at.group(2) : "") + ": no comments, no trailing commas, every key and text in"
+                    + " double quotes");
         }
         if (!element.isJsonObject()) {
             throw new IllegalArgumentException("it is not a JSON object");
         }
         return element.getAsJsonObject();
     }
+
+    private static final Pattern WHERE = Pattern.compile("line (\\d+) column (\\d+)");
 
     /** Pretty-printed, so an admin can read the pack; the same tree always gives the same bytes. */
     static byte[] json(JsonElement element) {
@@ -613,6 +623,27 @@ public final class ItemArt {
         if (frametime != null) {
             return frametime;
         }
+        if (animation.has("interpolate") && !isBoolean(animation.get("interpolate"))) {
+            return "has \"interpolate\": " + animation.get("interpolate") + ", but it must be true or false";
+        }
+        if (animation.has("frames")) {
+            if (!animation.get("frames").isJsonArray()) {
+                return "has \"frames\" that is not a list";
+            }
+            for (JsonElement frame : animation.getAsJsonArray("frames")) {
+                if (!isFrame(frame)) {
+                    return "has the frame " + frame + ", which is neither a frame number nor"
+                            + " {\"index\": number, \"time\": ticks}";
+                }
+            }
+        }
+        if (meta.get("texture") instanceof JsonObject texture) {
+            for (String key : List.of("blur", "clamp")) {
+                if (texture.has(key) && !isBoolean(texture.get(key))) {
+                    return "has \"" + key + "\": " + texture.get(key) + ", but it must be true or false";
+                }
+            }
+        }
         for (String key : List.of("width", "height")) {
             String problem = positiveInt(animation, key);
             if (problem != null) {
@@ -629,16 +660,31 @@ public final class ItemArt {
     /** Null when the key is absent or a whole number of at least 1, else the complaint. */
     private static String positiveInt(JsonObject object, String key) {
         JsonElement value = object.get(key);
-        if (value == null) {
-            return null;
+        return value == null || atLeast(value, 1) ? null
+                : "has \"" + key + "\": " + value + ", but it must be a whole number of at least 1";
+    }
+
+    /** A number whose whole part is at least {@code min}: the client reads 1.5 as 1. */
+    private static boolean atLeast(JsonElement value, int min) {
+        return value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()
+                && value.getAsNumber().intValue() >= min;
+    }
+
+    private static boolean isBoolean(JsonElement value) {
+        return value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean();
+    }
+
+    /** A frame list entry: a frame number, or {@code {"index": n, "time": ticks}}. */
+    private static boolean isFrame(JsonElement frame) {
+        if (atLeast(frame, 0)) {
+            return true;
         }
-        if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()) {
-            double number = value.getAsDouble();
-            if (number >= 1 && number == Math.floor(number) && number <= Integer.MAX_VALUE) {
-                return null;
-            }
+        if (!frame.isJsonObject()) {
+            return false;
         }
-        return "has \"" + key + "\": " + value + ", but it must be a whole number of at least 1";
+        JsonObject entry = frame.getAsJsonObject();
+        return entry.has("index") && atLeast(entry.get("index"), 0)
+                && (!entry.has("time") || atLeast(entry.get("time"), 1));
     }
 
     // ---- the editor's line ---------------------------------------------------------------

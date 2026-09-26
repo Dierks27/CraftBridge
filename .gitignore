@@ -18,3 +18,7 @@ Thumbs.db
 # Local runtime / test server artifacts
 run/
 *.log
+
+# Python
+__pycache__/
+*.pyc

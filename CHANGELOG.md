@@ -19,9 +19,9 @@ was. The client link is unchanged, so CraftBridge Client 0.4.0 keeps working.
     `<id>.png.mcmeta` to animate it. `<id>.json` is a model of your own (a Blockbench export),
     used as it is; the textures it names as `craftbridge:item/<name>` come from `<name>.png` in the
     same folder. A texture named without a namespace (Blockbench's `item/foo`) is Minecraft's, and
-    the log says to write `craftbridge:item/foo`. Models and animation files are checked as
-    strictly as the client reads them, so one it would refuse is skipped with the reason instead
-    of showing the missing texture.
+    the log says to write `craftbridge:item/foo`. Models and animation files must be strict JSON,
+    and an animation's values are checked the way the client reads them, so a file with those
+    mistakes is skipped with the reason instead of showing the missing texture.
   * Without a model of your own, a flat item is drawn on its base item's own template (a custom
     sword is held like a sword), a block item as a cube, and anything Minecraft draws in a
     special way (tinted items, a bow, a compass, a clock) as a flat picture. A custom item on a

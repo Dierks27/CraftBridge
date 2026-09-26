@@ -75,9 +75,10 @@ Stack the frames on top of each other in one PNG: four 16x16 frames make a 16x64
 
 `frametime` is how many ticks each frame is shown (20 ticks is one second), a whole number of
 at least 1. A strip without an mcmeta is skipped: Minecraft only cuts a strip into frames when
-the mcmeta tells it to. So is an mcmeta Minecraft would refuse: one that is not strict JSON (no
-comments, no trailing commas, every key in double quotes), a `frametime` of 0, or a frame
-`width`/`height` that does not divide the image. An animation has 256 frames at most.
+the mcmeta tells it to. So is an mcmeta with the mistakes Minecraft refuses: one that is not strict JSON
+(no comments, no trailing commas, every key in double quotes), a `frametime` of 0, a frame
+`width`/`height` that does not divide the image, or a `frames` list or `interpolate` that is not
+what Minecraft expects. An animation has 256 frames at most.
 
 ### What the item looks like
 
@@ -294,7 +295,9 @@ Geyser runs on a proxy on the same machine. Restart whatever Geyser runs on afte
 only loads new packs and mappings when it starts.
 
 Custom items with pack art get a Bedrock icon too. The export adds, for each one, its PNG (the
-first frame, when it is animated) as `textures/items/craftbridge/items/<id>.png`, an entry in
+first frame, when it is animated) as `textures/items/craftbridge/items/<id>.png` (an id of 43
+characters or more gets a short hashed file name instead, because consoles cannot load pack paths
+of 80 characters or more), an entry in
 `item_texture.json`, and a mapping on its base item: `minecraft:dried_kelp` whose
 `custom_model_data` string at index 0 is `craftbridge:item/<id>` becomes the Bedrock item
 `craftbridge:item_<id>`. A custom item with only a model of its own and no `<id>.png` gets no
