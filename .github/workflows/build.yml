@@ -24,6 +24,11 @@ jobs:
           distribution: temurin
           java-version: 25
 
+      # The vanilla item table the custom-item art falls back to must be Minecraft's own
+      # definitions, never hand-edited: rebuild it from Mojang's client jars and compare.
+      - name: Check the bundled vanilla item table against Mojang's client jars
+        run: python3 tools/extract_vanilla_items.py --check
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 

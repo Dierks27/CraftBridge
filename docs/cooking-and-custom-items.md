@@ -128,6 +128,43 @@ without `/give` with raw NBT, which is operator-level.
 Custom items do not stack with their plain vanilla counterparts. That is intended — it is
 what keeps the two tellable apart in a chest.
 
+### Give a custom item its own look
+
+A custom item looks like its base item, and it works without a resource pack, for Java and
+Bedrock players alike. Since 0.15 it can also have a texture of its own:
+
+1. Note the item's id on the editor's Save button ("Id: burned_zombie_flesh").
+2. Drop `burned_zombie_flesh.png` (square: 16x16, 32x32, 64x64 or 128x128 pixels) into
+   `plugins/CraftBridge/pack/items/`.
+3. Run `/craftbridge reload`. If players download the pack from `resource-pack.url`, upload the
+   new `plugins/CraftBridge/pack/craftbridge-java.zip` too.
+
+Players who accepted CraftBridge's resource pack see the texture. Players who declined it, and
+Bedrock players, see the plain base item with the same name and lore, and the recipes are the
+same for everyone (`/craftbridge geyser export` can give Bedrock players an icon; untested).
+Animation, Blockbench models, what the pack does to other items of the same type, and how to
+check it all worked are in
+[resourcepack/README.md](../src/main/resources/resourcepack/README.md#give-a-custom-item-its-own-look).
+
+The look rides on a second marker. Every custom item carries `craftbridge:item/<id>` at index 0
+of its `custom_model_data` strings, with or without art, and the pack draws that string. It is
+look only: nothing matches on it, and identity is still the `cb_item` tag. It is on every item so
+that adding art later needs no change to the items already out there.
+
+**Items made before 0.15** do not have the string. They keep working in recipes (see
+[Matching](#matching-predicatechoice-preferred-exactchoice-as-fallback) below), and they get the
+string as players come across them:
+
+* on join: the player's inventory and ender chest;
+* when a player opens a real container (a chest, a barrel, a furnace): that container and the
+  player's own inventory. Never a plugin GUI: its contents are buttons, and changing one could
+  break how that plugin recognises a click;
+* when a player picks one up: their inventory, on the next tick;
+* on `/craftbridge reload`: every online player's inventory and ender chest.
+
+Nothing else about the stack changes. Until an old stack has the string, it does not stack with a
+new one.
+
 ### Recipes reference the id, not a copy
 
 `{custom: burned_zombie_flesh}` as an ingredient, and `result: {custom: ...}` as a result.
@@ -165,10 +202,43 @@ which mode is live.
 > drift-proof matching; until then, treat a custom item that has been renamed, damaged or
 > repaired as no longer matching its own recipe.
 
-### Player heads
+**Since 0.15, a custom-item ingredient in `ExactChoice` mode lists two stacks:** the item as it
+is built now, with the model tag `craftbridge:item/<id>`, and the item exactly as 0.14 built it,
+without. The exact match compares every component, and the model tag is a new one. Listing only
+the new item would have made every custom item made on 0.14 stop matching its recipes the moment
+0.15 loaded, and stacks in hopper lines or chests nobody opens keep the old shape for a long
+time. With both listed, old and new items match. Two side effects:
 
-A head-based custom item cannot be placed as a block or worn in the helmet slot. Both lose the
-item's identity, and neither is what an admin means by "custom item".
+* The recipe book shows the ingredient in turn as its textured and its plain look, because it
+  cycles through both stacks. (JEI's ingredient slots show the plain base item either way: the
+  recipe sync carries only the item type of an exact ingredient. See "What does not survive the
+  wire" in the README.)
+* A furnace whose output slot still holds a custom item result made on 0.14 cannot stack new,
+  tagged results onto it, so it stops until the output is taken or someone opens the furnace
+  (opening it tags what is inside).
+
+`predicateChoice` needs none of this: it only reads the `cb_item` id, which both shapes carry.
+
+### Placing custom items, and player heads
+
+A custom item built on a block (a "Compressed Cobblestone" on cobblestone) cannot be placed.
+Placed, it would be the plain block, and breaking it would drop the plain item: the custom item
+is simply gone. With pack art it would also change its look the moment it lands. The same goes
+for anything else that places a block when used, like string or seeds, and for potting a plant
+or putting a candle on a cake. `custom-items.placeable: true` in `config.yml` allows it, for an
+item that is meant as a decorative block and is fine ending up as the vanilla one. The Linked
+Workbench and Combo Chest place-items carry their own tag, not `cb_item`, and place as always. An
+item whose definition has been deleted is an ordinary item again and places normally.
+
+Custom tools keep working. Paper reports what a tool does to a block (a hoe tilling, an axe
+stripping, flint and steel lighting a fire) as a block place too, with the tool as the item, so
+only items that are block items themselves are refused.
+
+Emptying a bucket, placing an entity (a boat, an armour stand) and dispensers are not covered.
+
+A head-based custom item can never be placed as a block, whatever `custom-items.placeable` says,
+and cannot be worn in the helmet slot. Both lose the item's identity, and neither is what an
+admin means by "custom item".
 
 HomeCraftManagement has head handling of its own (`MiniHeadListener`), but it is a separate
 plugin and a separate jar, and it does the opposite — it *records* placed Minis rather than

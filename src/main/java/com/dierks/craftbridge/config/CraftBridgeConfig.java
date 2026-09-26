@@ -27,7 +27,7 @@ public final class CraftBridgeConfig {
 
     /** Top-level sections the plugin expects; a config from an older version may lack some. */
     private static final List<String> SECTIONS = List.of("features", "sorting", "linked-workbench",
-            "combo-chest", "golem-chests", "resource-pack", "bedrock", "jei");
+            "combo-chest", "golem-chests", "custom-items", "resource-pack", "bedrock", "jei");
 
     public CraftBridgeConfig(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -407,6 +407,22 @@ public final class CraftBridgeConfig {
     /** {@code bedrock.show-displays}: show model displays to Bedrock players (GeyserDisplayEntity). */
     public boolean bedrockShowDisplays() {
         return raw.getBoolean("bedrock.show-displays", false);
+    }
+
+    /**
+     * {@code bedrock.geyser-folder}, trimmed: Geyser's data folder when it runs elsewhere on this
+     * machine (a proxy), where {@code /craftbridge geyser export} copies its files; blank when unset.
+     */
+    public String bedrockGeyserFolder() {
+        String folder = raw.getString("bedrock.geyser-folder", "");
+        return folder == null ? "" : folder.trim();
+    }
+
+    // ---- custom items ----------------------------------------------------------------
+
+    /** {@code custom-items.placeable}: false (the default) refuses to place custom items built on blocks. */
+    public boolean customItemsPlaceable() {
+        return raw.getBoolean("custom-items.placeable", false);
     }
 
     // ---- middle-click sorting --------------------------------------------------------
