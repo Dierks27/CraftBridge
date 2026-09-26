@@ -50,9 +50,10 @@ import java.util.regex.Pattern;
  *   <li>stamps the new version and saves, keeping the file's comments.</li>
  * </ol>
  * When the upgrade only appends list entries, adds settings or sections the file lacks and
- * stamps the version — every upgrade from a 0.13 file — those lines are inserted into the
- * admin's text as it is (a missing setting as the jar's own lines, comments included, just
- * before the next setting the file has), and every other byte stays put: their layout,
+ * stamps the version — every upgrade from a 0.13 or 0.14 file — those lines are inserted into
+ * the admin's text as it is (a missing setting as the jar's own lines, comments included, just
+ * before the next setting the file has, or after the last line of its section when the jar
+ * lists it last there), and every other byte stays put: their layout,
  * flow-style lists and comments inside lists included. The edited text is parsed back and
  * must read exactly like the full migration, or the full save is used.
  * Anything more (whole sections added to a much older file) goes through Paper's YAML writer,
@@ -78,7 +79,7 @@ public final class ConfigMigrator {
      * bump would never reach existing servers. ConfigMigratorTest holds the bundled keys for
      * this version and fails until the number is bumped.
      */
-    public static final int CURRENT_VERSION = 4;
+    public static final int CURRENT_VERSION = 5;
 
     /** Values the admin owns as a whole: added when missing, never merged entry by entry. */
     private static final Set<String> WHOLE_VALUES = Set.of(
@@ -452,8 +453,8 @@ public final class ConfigMigrator {
      * The admin's text with the appended list entries inserted after each list's last item,
      * every missing setting in {@code added} copied in from the jar's text, and the version
      * stamped, or null when that cannot be done safely by hand (a flow-style or nested list, a
-     * map item, mixed line endings, the version key written twice, a missing setting with no
-     * later sibling in the file to place it before, or a file indented differently).
+     * map item, mixed line endings, the version key written twice, a missing top-level setting
+     * with no later sibling in the file to place it before, or a file indented differently).
      */
     static String editInPlace(String original, Map<String, List<String>> appendedTo, List<String> added,
                               String bundledText, List<String> versionBlock) {
@@ -666,7 +667,37 @@ public final class ConfigMigrator {
             lines.addAll(at, block);
             return true;
         }
-        return false;
+        return appendToSection(lines, parent, indent, block);
+    }
+
+    /**
+     * A setting the jar lists last in its section goes after the last line of that section in
+     * the admin's file; trailing comments and blank lines there belong to whatever comes next.
+     *
+     * @return false for a top-level setting, a section the file lacks or writes inline or empty,
+     *         or one whose children are indented differently from the jar's
+     */
+    private static boolean appendToSection(List<String> lines, String[] parent, int indent, List<String> block) {
+        if (parent.length == 0) {
+            return false;
+        }
+        int section = keyLine(lines, parent);
+        if (section < 0) {
+            return false;
+        }
+        int end = endOfBlock(lines, section, indentOf(lines.get(section)));
+        while (end > section + 1 && isBlankOrComment(lines.get(end - 1))) {
+            end--;
+        }
+        int child = section + 1;
+        while (child < end && isBlankOrComment(lines.get(child))) {
+            child++;
+        }
+        if (child >= end || indentOf(lines.get(child)) != indent) {
+            return false;
+        }
+        lines.addAll(end, block);
+        return true;
     }
 
     /** Index of the line holding the key at {@code path}, block style throughout, or -1. */

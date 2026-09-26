@@ -15,14 +15,26 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.function.BooleanSupplier;
+
 /**
- * Keeps player-head custom items out of the world and off players' heads.
+ * Keeps custom items from being placed as the plain block they are built on, and player-head
+ * custom items off players' heads.
  *
  * <p>A head-based custom item is a {@code PLAYER_HEAD}, so vanilla will happily let it be
  * placed as a block or worn in the helmet slot. Both lose the item's identity: a placed skull
  * keeps its texture but the {@code cb_item} stamp only survives on the block entity, and a
  * worn head is a texture with no way back to the definition. Neither is what an admin means
- * when they define a custom item, so both are refused.
+ * when they define a custom item, so both are always refused.
+ *
+ * <p>Any other custom item built on something placeable (cobblestone, string, seeds) has the
+ * same problem without the texture: placed, it is the plain block, and breaking it drops the
+ * plain item. The custom item is simply gone, and with a pack giving it its own look (0.15)
+ * it would also change appearance the moment it lands. Placing those is refused too, unless
+ * the admin sets {@code custom-items.placeable: true} — for an item that is meant to be a
+ * decorative block and is fine ending up as the vanilla one. Only defined, stamped items are
+ * affected: the Linked Workbench and Combo Chest place-items carry their own tag, not
+ * {@code cb_item}, and place as always.
  *
  * <p>HomeCraftManagement has its own head handling ({@code MiniHeadListener}), but it is a
  * separate plugin and a separate jar, and what it does is the opposite of this — it
@@ -34,19 +46,30 @@ import org.bukkit.inventory.ItemStack;
 public final class CustomItemListener implements Listener {
 
     private final CustomItemRegistry registry;
+    /** {@code custom-items.placeable}, read from the live config on each place rather than cached. */
+    private final BooleanSupplier placeable;
 
-    public CustomItemListener(CustomItemRegistry registry) {
+    public CustomItemListener(CustomItemRegistry registry, BooleanSupplier placeable) {
         this.registry = registry;
+        this.placeable = placeable;
     }
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
-        ItemStack inHand = event.getItemInHand();
-        if (!registry.isHeadItem(inHand)) {
+        // An orphaned stamp (definition deleted) is an ordinary item to CraftBridge; it places.
+        CustomItemDef def = registry.get(CustomItemRegistry.idOf(event.getItemInHand()));
+        if (def == null) {
             return;
         }
-        event.setCancelled(true);
-        event.getPlayer().sendMessage(Text.msg("<red>That is a collectible item, not a block."));
+        if (def.base() == Material.PLAYER_HEAD) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage(Text.msg("<red>That is a collectible item, not a block."));
+            return;
+        }
+        if (!placeable.getAsBoolean()) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage(Text.msg("<red>That is a custom item: placed, it would turn into the plain block."));
+        }
     }
 
     /** Right-clicking a head onto a block is a place; catch the interact too for skull-on-wall. */

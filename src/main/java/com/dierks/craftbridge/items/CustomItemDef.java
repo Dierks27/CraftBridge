@@ -6,8 +6,13 @@ import java.util.List;
 
 /**
  * One custom item definition: a vanilla item (or a textured player head) with a display
- * name, lore and a stable id. No resource pack is involved, so Bedrock players see and use
- * these exactly like Java players do.
+ * name, lore and a stable id. The item works without any resource pack, for Java and Bedrock
+ * players alike.
+ *
+ * <p>Its look can optionally come from CraftBridge's pack: every built item carries the model
+ * tag {@code craftbridge:item/<id>} ({@link ModelTags}), which the pack can give its own
+ * texture. Players without the pack, and Bedrock players, see the plain base item; name,
+ * lore, recipes and identity are the same for everyone either way.
  *
  * <p>The id — not the display name — is the identity. It is stamped into the item's
  * {@link CustomItemRegistry#ITEM_ID} PDC key; see that class for why the name is not usable

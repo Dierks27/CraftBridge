@@ -36,7 +36,7 @@ commands:
       /craftbridge workbench|combochest give|list|refresh|display  - block tools
       /craftbridge page next|prev  - turn the nearby-storage page at a Linked Workbench
       /craftbridge jei [resync|dump <recipe>]  - recipe sync state, re-send, or inspect one recipe on the wire
-      /craftbridge pack  - how the block models' resource pack is sent, and who loaded it
+      /craftbridge pack  - the resource pack (block models, custom item art): how it is sent, who loaded it, which items have art
       /craftbridge geyser export  - write the Bedrock pack and Geyser mappings (and copy them into Geyser)
     # No command-level permission: /craftbridge page is for everyone, every other
     # subcommand checks craftbridge.admin itself.

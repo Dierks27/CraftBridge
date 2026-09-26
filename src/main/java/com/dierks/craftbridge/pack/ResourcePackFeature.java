@@ -2,6 +2,8 @@ package com.dierks.craftbridge.pack;
 
 import com.dierks.craftbridge.CraftBridgePlugin;
 import com.dierks.craftbridge.config.CraftBridgeConfig;
+import com.dierks.craftbridge.items.CustomItemDef;
+import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.util.Text;
 import com.dierks.craftbridge.workbench.BlockKind;
 import com.dierks.craftbridge.workbench.DisplayManager;
@@ -12,7 +14,9 @@ import net.kyori.adventure.resource.ResourcePackInfo;
 import net.kyori.adventure.resource.ResourcePackRequest;
 import net.kyori.adventure.resource.ResourcePackStatus;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -28,11 +32,14 @@ import java.io.InputStream;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -40,9 +47,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 /**
- * The resource pack behind {@code display.mode: model}: builds it from the jar, writes it to
- * {@code plugins/CraftBridge/pack/craftbridge-java.zip}, offers it to Java players and decides
- * who sees the model displays.
+ * The resource pack behind {@code display.mode: model} and custom item art: builds it from the
+ * jar and the art folder, writes it to {@code plugins/CraftBridge/pack/craftbridge-java.zip},
+ * offers it to Java players and decides who sees the model displays.
+ *
+ * <p>Custom item art ({@link ItemArt}) comes from {@code plugins/CraftBridge/pack/items/}: a
+ * custom item with {@code <id>.png} there is drawn with it by every client that loaded the
+ * pack, and as its plain base item by everyone else. The pack is sent when a block uses
+ * {@code display.mode: model} or any custom item has art.
  *
  * <p>Delivery is {@code resource-pack.url} (a copy the admin uploaded) or, while that is blank,
  * the built-in web server ({@code resource-pack.host}). Either way the client is sent the SHA-1
@@ -79,6 +91,8 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
     private final Set<UUID> offeredWhileConfiguring = ConcurrentHashMap.newKeySet();
     private volatile Delivery delivery;
     private volatile String sha1 = "";
+    /** Custom item art in the last pack built. */
+    private volatile ItemArt.Result art = ItemArt.Result.none();
     private PackHttpServer server;
     private BedrockPlayers bedrock;
 
@@ -96,18 +110,29 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         CraftBridgeConfig config = plugin.config();
         bedrock = BedrockPlayers.detect(plugin.getClass().getClassLoader(), plugin.getLogger());
         byte[] zip = buildJavaPack();
-        if (!anyModelDisplays(config)) {
-            plugin.getLogger().info("Resource pack: not sent, both blocks use display.mode: head.");
+        boolean blocksNeedIt = anyModelDisplays(config);
+        boolean itemsNeedIt = !art.textured().isEmpty();
+        if (!blocksNeedIt && !itemsNeedIt) {
+            plugin.getLogger().info("Resource pack: not sent, " + (workbenchOn()
+                    ? "both blocks use display.mode: head" : "the Linked Workbench is off")
+                    + " and no custom item has art.");
         } else if (zip != null) {
             delivery = chooseDelivery(config, zip);
             if (delivery == null) {
                 String why = !config.resourcePackEnabled() ? "resource-pack.enabled is false"
                         : config.resourcePackUrl().isEmpty() && !config.resourcePackHostEnabled()
                         ? "no resource-pack.url and resource-pack.host is off" : "see the warning above";
-                plugin.getLogger().info("Resource pack: not sent to players (" + why + "), so the Linked Workbench"
-                        + " and Combo Chest " + (config.resourcePackDeliverable()
-                        ? "models stay hidden and players see the plain blocks."
-                        : "show their heads until resource-pack.url is set and the zip uploaded."));
+                List<String> so = new ArrayList<>();
+                if (blocksNeedIt) {
+                    so.add("the Linked Workbench and Combo Chest " + (config.resourcePackDeliverable()
+                            ? "models stay hidden and players see the plain blocks"
+                            : "show their heads until resource-pack.url is set and the zip uploaded"));
+                }
+                if (itemsNeedIt) {
+                    so.add("custom items keep the look of their base item");
+                }
+                plugin.getLogger().info("Resource pack: not sent to players (" + why + "), so "
+                        + String.join(", and ", so) + ".");
             }
         }
 
@@ -143,12 +168,22 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
 
     // ---- building and serving ------------------------------------------------------------
 
-    /** Build the Java pack from the jar plus overrides, write it to the data folder and log its hash. */
+    /**
+     * Build the Java pack from the jar, the custom item art and the overrides (which win over
+     * both), write it to the data folder and log its hash.
+     */
     private byte[] buildJavaPack() {
         try {
-            SortedMap<String, byte[]> files = PackFiles.overlay(
-                    PackFiles.fromJar(plugin.jarFile().toPath(), PackFiles.JAR_ROOT + "java/"),
-                    PackFiles.fromDirectory(packFolder().resolve("overrides").resolve("java")));
+            SortedMap<String, byte[]> own = PackFiles.fromJar(plugin.jarFile().toPath(), PackFiles.JAR_ROOT + "java/");
+            SortedMap<String, byte[]> overrides = PackFiles.fromDirectory(packFolder().resolve("overrides").resolve("java"));
+            try {
+                art = buildArt(own, overrides.keySet());
+            } catch (IOException | RuntimeException ex) {
+                // The block models do not depend on the art: build the pack without it.
+                art = ItemArt.Result.none();
+                plugin.getLogger().log(Level.WARNING, "Resource pack: custom item art left out, it could not be read", ex);
+            }
+            SortedMap<String, byte[]> files = PackFiles.overlay(PackFiles.overlay(own, art.files()), overrides);
             if (!files.containsKey("pack.mcmeta")) {
                 plugin.getLogger().severe("Resource pack: the jar has no resourcepack/java/pack.mcmeta; nothing is sent.");
                 return null;
@@ -245,7 +280,96 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         return plugin.getDataFolder().toPath().resolve("pack");
     }
 
-    private static boolean anyModelDisplays(CraftBridgeConfig config) {
+    /** {@code plugins/CraftBridge/pack/items/}, where custom item art is dropped. */
+    public Path artFolder() {
+        return packFolder().resolve(ItemArt.FOLDER);
+    }
+
+    /**
+     * The custom item art for this pack: every custom item's id and base, the art folder (made on
+     * first start, with a README), and Minecraft's own item definitions for this server's
+     * version, which every generated item definition falls back to.
+     */
+    private ItemArt.Result buildArt(Map<String, byte[]> own, Set<String> overridden) throws IOException {
+        Path folder = artFolder();
+        if (!Files.isDirectory(folder)) {
+            Files.createDirectories(folder);
+            Files.writeString(folder.resolve("README.txt"), ART_README, StandardCharsets.UTF_8);
+        }
+        RecipeFeature recipes = plugin.feature(RecipeFeature.class);
+        if (recipes == null) {
+            return ItemArt.Result.none();
+        }
+        List<ItemArt.Item> items = new ArrayList<>();
+        for (CustomItemDef def : recipes.customItems().all()) {
+            items.add(new ItemArt.Item(def.id(), def.base().getKey().getKey(), def.base() == Material.PLAYER_HEAD));
+        }
+        SortedMap<String, byte[]> files = PackFiles.fromDirectory(folder);
+        files.keySet().removeIf(name -> name.equalsIgnoreCase("README.txt"));
+        if (files.isEmpty()) {
+            return ItemArt.Result.none();
+        }
+        String minecraft = Bukkit.getMinecraftVersion();
+        ItemArt.Result result = ItemArt.build(items, files, own, overridden, vanillaItems(minecraft), minecraft);
+        for (String warning : result.warnings()) {
+            plugin.getLogger().warning("Resource pack: " + warning);
+        }
+        plugin.getLogger().info("Resource pack: " + result.summary() + ".");
+        return result;
+    }
+
+    /** The bundled vanilla item table for this Minecraft version, or null (with a warning) when there is none. */
+    private VanillaItems vanillaItems(String minecraft) throws IOException {
+        Map<String, byte[]> tables = new TreeMap<>();
+        for (Map.Entry<String, byte[]> file : PackFiles.fromJar(plugin.jarFile().toPath(), VanillaItems.JAR_FOLDER).entrySet()) {
+            String version = VanillaItems.versionOf(file.getKey());
+            if (version != null) {
+                tables.put(version, file.getValue());
+            }
+        }
+        String picked = VanillaItems.pick(minecraft, tables.keySet());
+        if (picked == null) {
+            plugin.getLogger().warning("Resource pack: this CraftBridge has no vanilla item table for Minecraft "
+                    + minecraft + " (it has " + String.join(", ", tables.keySet()) + "), so no custom item gets art"
+                    + " until CraftBridge is updated.");
+            return null;
+        }
+        if (!picked.equals(minecraft)) {
+            plugin.getLogger().info("Resource pack: using the Minecraft " + picked + " item table on " + minecraft + ".");
+        }
+        return VanillaItems.parse(tables.get(picked));
+    }
+
+    private static final String ART_README = """
+            Custom item textures for CraftBridge
+            ====================================
+
+            Name a PNG after a custom item's id and drop it here, then run /craftbridge reload.
+
+              burned_zombie_flesh.png         the texture: square, 16x16 (or 32, 64, 128)
+              burned_zombie_flesh.png.mcmeta  optional: animates a vertical strip of frames
+              burned_zombie_flesh.json        optional: a whole model of your own (e.g. from
+                                              Blockbench); textures it names as
+                                              craftbridge:item/<name> come from <name>.png here
+
+            The id is the one /recipe shows on the item's Save button ("Id: ..."), not its
+            display name. The PNG is drawn by everyone who accepted the resource pack; players
+            who declined it, and Bedrock players, keep seeing the plain base item. Items built on
+            player heads keep their skin. /craftbridge pack lists which items have art, and which
+            files were skipped and why.
+
+            If players download the pack from resource-pack.url, upload the new
+            craftbridge-java.zip after every reload that changed it.
+            """;
+
+    private boolean workbenchOn() {
+        return plugin.feature(WorkbenchFeature.class) != null;
+    }
+
+    private boolean anyModelDisplays(CraftBridgeConfig config) {
+        if (!workbenchOn()) {
+            return false;
+        }
         for (BlockKind kind : BlockKind.values()) {
             if (config.configuredDisplayMode(kind) == CraftBridgeConfig.DisplayMode.MODEL) {
                 return true;
@@ -408,6 +532,32 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         sender.sendMessage(Text.msg("<gray>" + loaded + " of " + (online - bedrockCount) + " Java player(s) online loaded it; "
                 + bedrockCount + " Bedrock player(s) " + (plugin.config().bedrockShowDisplays() ? "see" : "do not see")
                 + " the models."));
+        ItemArt.Result items = art;
+        sender.sendMessage(Text.msg("<gray>Custom item art: <white>" + items.textured().size() + "<gray> item(s) from plugins/"
+                + Text.escape(plugin.getName()) + "/pack/items/" + (items.skipped().isEmpty() ? ""
+                : ", <yellow>" + items.skipped().size() + "<gray> skipped")));
+        for (ItemArt.Textured t : items.textured()) {
+            sender.sendMessage(Text.msg("<dark_gray> - <white>" + t.id() + " <gray>on " + t.base() + ", "
+                    + Text.escape(t.size()) + ", " + (t.customModel() ? "custom model" : "generated model")
+                    + " <dark_gray>(item definition: " + Text.escape(t.definition()) + ")"));
+        }
+        for (ItemArt.Skipped s : items.skipped()) {
+            sender.sendMessage(Text.msg("<dark_gray> - <yellow>" + Text.escape(s.name()) + " <gray>skipped: "
+                    + Text.escape(s.reason())));
+        }
+        for (String warning : items.warnings()) {
+            sender.sendMessage(Text.msg("<dark_gray> ! <gold>" + Text.escape(warning)));
+        }
+    }
+
+    /** Custom item art in the pack last built (empty when none). */
+    public ItemArt.Result art() {
+        return art;
+    }
+
+    /** True while the pack is offered to players at all. */
+    public boolean sent() {
+        return delivery != null;
     }
 
     /** {@code /craftbridge geyser export}. */
@@ -416,11 +566,24 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
             SortedMap<String, byte[]> bedrockPack = PackFiles.overlay(
                     PackFiles.fromJar(plugin.jarFile().toPath(), PackFiles.JAR_ROOT + "bedrock/"),
                     PackFiles.fromDirectory(packFolder().resolve("overrides").resolve("bedrock")));
+            List<GeyserExport.BedrockItem> items = new ArrayList<>();
+            RecipeFeature recipes = plugin.feature(RecipeFeature.class);
+            for (ItemArt.Textured t : art.textured()) {
+                CustomItemDef def = recipes == null ? null : recipes.customItems().get(t.id());
+                if (t.png() == null || def == null) {
+                    continue; // a custom model with no texture of its own has nothing to show as an icon
+                }
+                items.add(new GeyserExport.BedrockItem(t.id(), t.base(),
+                        PlainTextComponentSerializer.plainText().serialize(Text.item(def.name())), t.png()));
+            }
+            String folder = plugin.config().bedrockGeyserFolder();
             List<String> lines = GeyserExport.export(bedrockPack,
                     resource(PackFiles.JAR_ROOT + "geyser/" + GeyserExport.MAPPINGS),
                     resource(PackFiles.JAR_ROOT + "geyser/" + GeyserExport.DISPLAY_MAPPINGS),
+                    items,
                     plugin.getDataFolder().toPath().resolve("geyser"),
-                    plugin.getDataFolder().toPath().getParent());
+                    plugin.getDataFolder().toPath().getParent(),
+                    folder.isEmpty() ? null : Path.of(folder));
             for (String line : lines) {
                 sender.sendMessage(Text.msg("<gray>" + Text.escape(line)));
                 plugin.getLogger().info("[geyser export] " + line);

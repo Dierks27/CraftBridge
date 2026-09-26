@@ -4,12 +4,17 @@ import com.dierks.craftbridge.gui.Icons;
 import com.dierks.craftbridge.gui.Menu;
 import com.dierks.craftbridge.items.CustomItemDef;
 import com.dierks.craftbridge.items.CustomItemIds;
+import com.dierks.craftbridge.pack.ItemArt;
+import com.dierks.craftbridge.pack.ResourcePackFeature;
 import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.util.Items;
 import com.dierks.craftbridge.util.Text;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,10 +31,12 @@ import java.util.List;
  *  row 2:  .  .  [N]  .  .  [f][f][f] [cancel]
  *  row 3:  .  .  .  .  .  .  .  .  [info]
  *  row 4:  .  .  [L]  .  .  .  .  .  .
- *  (row 4 also holds [T] when the base is a player head)
+ *  (row 4 also holds [T])
  * </pre>
- * {@code B} = base material, {@code N} = display name, {@code L} = lore, {@code T} = head
- * texture, {@code P} = the live preview, {@code f} = the orange preview frame.
+ * {@code B} = base material, {@code N} = display name, {@code L} = lore, {@code T} = the head
+ * texture for a player head, else the item's pack art ({@code <id>.png} in
+ * {@code plugins/CraftBridge/pack/items/}), {@code P} = the live preview, {@code f} = the
+ * orange preview frame.
  * Every slot here is a button or decoration — none is editable, so nothing can be taken out.
  *
  * <p>Name and lore are typed in chat rather than an anvil field: the plugin is deliberately
@@ -157,6 +164,8 @@ public final class CustomItemEditorMenu extends Menu {
                 }
                 promptTexture();
             });
+        } else {
+            set(TEXTURE, artIcon(), null);
         }
         CustomItemDef preview = current();
         if (preview != null) {
@@ -262,6 +271,81 @@ public final class CustomItemEditorMenu extends Menu {
         feature.saveItem(def);
         player.sendMessage(Text.msg("<green>Saved custom item <white>" + def.id() + "<green>."));
         new CustomItemBrowseMenu(feature, player, 0).open(player);
+    }
+
+    /**
+     * Whether the item has pack art: its {@code <id>.png} in the art folder, checked the way the
+     * pack build checks it, and whether the pack last built already carries it.
+     */
+    private ItemStack artIcon() {
+        String id = effectiveId();
+        ResourcePackFeature pack = feature.plugin().feature(ResourcePackFeature.class);
+        Path folder = pack != null ? pack.artFolder()
+                : feature.plugin().getDataFolder().toPath().resolve("pack").resolve(ItemArt.FOLDER);
+        String where = "plugins/" + feature.plugin().getName() + "/pack/" + ItemArt.FOLDER + "/";
+        ItemArt.Status status = null;
+        if (!id.isEmpty()) {
+            try {
+                status = ItemArt.status(folder, id);
+            } catch (IOException | RuntimeException ex) {
+                status = new ItemArt.Status(false, "the art folder cannot be read: " + ex.getMessage());
+            }
+        }
+        if (status == null) {
+            return Items.icon(Material.ITEM_FRAME, "<white>No art",
+                    "Drop <white>" + (id.isEmpty() ? Text.escape("<id>") : id) + ".png<gray> into",
+                    "<white>" + where,
+                    "and run <white>/craftbridge reload<gray>.",
+                    "",
+                    "A square PNG, 16x16 (or 32, 64, 128).",
+                    "Players with the resource pack see it;",
+                    "everyone else sees the base item.");
+        }
+        List<String> lines = new ArrayList<>();
+        if (!status.usable()) {
+            for (String line : wrap(status.text(), 38)) {
+                lines.add("<red>" + Text.escape(line));
+            }
+            lines.add("");
+            lines.add("Fix the file in <white>" + where);
+            lines.add("and run <white>/craftbridge reload<gray>.");
+            return Items.icon(Material.BARRIER, "<white>Pack art: <red>not usable", Text.lore(lines));
+        }
+        boolean inPack = pack != null && pack.art().textured().stream().anyMatch(t -> t.id().equals(id));
+        if (!inPack) {
+            lines.add("<yellow>Not in the pack yet: run");
+            lines.add("<white>/craftbridge reload<yellow> to add it.");
+        } else if (!pack.sent()) {
+            lines.add("<yellow>In the pack, but the pack is not");
+            lines.add("<yellow>sent to players: see <white>/craftbridge pack<yellow>.");
+        } else {
+            lines.add("<green>In the pack players get.");
+        }
+        lines.add("");
+        lines.add("Players with the resource pack see it;");
+        lines.add("everyone else sees the base item.");
+        lines.add("Changed the file? Run <white>/craftbridge reload<gray>.");
+        return Items.icon(Material.PAINTING, "<white>Pack art: <green>" + Text.escape(status.text()), Text.lore(lines));
+    }
+
+    /** Break a message into lore-sized lines at spaces. */
+    private static List<String> wrap(String text, int width) {
+        List<String> out = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (String word : text.split(" ")) {
+            if (!line.isEmpty() && line.length() + 1 + word.length() > width) {
+                out.add(line.toString());
+                line.setLength(0);
+            }
+            if (!line.isEmpty()) {
+                line.append(' ');
+            }
+            line.append(word);
+        }
+        if (!line.isEmpty()) {
+            out.add(line.toString());
+        }
+        return out;
     }
 
     /** Strip MiniMessage tags so an id derived from a coloured name is still readable. */
