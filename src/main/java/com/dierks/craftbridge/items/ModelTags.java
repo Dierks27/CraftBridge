@@ -35,14 +35,6 @@ public final class ModelTags {
     }
 
     /**
-     * The custom-model-data strings with {@code tag} at index 0, or null when {@code strings}
-     * already starts with it (nothing to change).
-     *
-     * <p>Only index 0 is ours. A missing tag is added; a wrong one is replaced in place, and
-     * every other entry stays where it was, so whatever another plugin or a hand-made pack put
-     * after it keeps its index. The input is never modified.
-     */
-    /**
      * A {@code custom_model_data} component after a refresh: {@code strings} with the tag at
      * index 0, and the floats, flags and colours exactly as they were.
      */
@@ -59,6 +51,14 @@ public final class ModelTags {
         return tagged == null ? null : new Refreshed<>(List.copyOf(floats), List.copyOf(flags), tagged, List.copyOf(colors));
     }
 
+    /**
+     * The custom-model-data strings with {@code tag} at index 0, or null when {@code strings}
+     * already starts with it (nothing to change).
+     *
+     * <p>Only index 0 is ours. A missing tag is added; a wrong one is replaced in place, and
+     * every other entry stays where it was, so whatever another plugin or a hand-made pack put
+     * after it keeps its index. The input is never modified.
+     */
     public static List<String> withTag(List<String> strings, String tag) {
         if (strings == null || strings.isEmpty()) {
             return List.of(tag);
