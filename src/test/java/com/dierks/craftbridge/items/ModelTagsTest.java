@@ -77,10 +77,29 @@ class ModelTagsTest {
     }
 
     @Test
-    void exactChoiceAcceptsTaggedAndUntaggedStacks() {
-        List<String> stacks = CustomItemChoice.exactMatchStacks("tagged", "before-0.15");
-        assertEquals(List.of("tagged", "before-0.15"), stacks, "the tagged stack is listed first, for display");
-        assertTrue(stacks.contains("tagged"));
-        assertTrue(stacks.contains("before-0.15"));
+    void refreshKeepsTheRestOfTheComponent() {
+        ModelTags.Refreshed<Float, Boolean, String> next = ModelTags.refreshed(List.of(1.5f, 2f), List.of(true),
+                List.of("wrong", "kept"), List.of("#ff0000"), "craftbridge:item/flesh");
+
+        assertEquals(List.of(1.5f, 2f), next.floats());
+        assertEquals(List.of(true), next.flags());
+        assertEquals(List.of("#ff0000"), next.colors());
+        assertEquals(List.of("craftbridge:item/flesh", "kept"), next.strings());
+        assertNull(ModelTags.refreshed(List.of(1f), List.of(), List.of("craftbridge:item/flesh"), List.of(),
+                "craftbridge:item/flesh"), "already tagged: nothing to write");
+        assertEquals(List.of("craftbridge:item/flesh"),
+                ModelTags.refreshed(List.of(), List.of(), List.of(), List.of(), "craftbridge:item/flesh").strings());
+    }
+
+    /**
+     * The policy only: which stacks the exact fallback lists, in which order. Paper's ExactChoice
+     * itself needs a running server to build stacks, so that old items really match is in-game
+     * acceptance test 4.
+     */
+    @Test
+    void theExactFallbackListsTheTaggedStackThenTheOldOne() {
+        assertEquals(List.of("tagged", "before-0.15"), CustomItemChoice.exactMatchStacks("tagged", "before-0.15"),
+                "the tagged stack first, so the recipe book shows it first");
+        assertEquals(List.of("tagged"), CustomItemChoice.exactMatchStacks("tagged", null));
     }
 }

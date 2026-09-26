@@ -621,7 +621,9 @@ public final class ConfigMigrator {
      */
     private static boolean insertFromJar(List<String> lines, List<String> jar, String[] path) {
         int jarKey = keyLine(jar, path);
-        if (jarKey < 0) {
+        if (jarKey < 0 || keyLine(lines, path) >= 0) {
+            // The file has the key already, written with no value (so it reads as missing):
+            // inserting the jar's line would leave the key twice. The YAML writer replaces it.
             return false;
         }
         int indent = indentOf(jar.get(jarKey));

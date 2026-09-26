@@ -141,6 +141,16 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         if (displays != null) {
             displays.viewers(this::seesModels);
         }
+        if (delivery == null) {
+            // A client keeps a server pack until it is told to drop it or leaves. Nothing is sent
+            // any more, so take back the pack sent before this reload: otherwise a texture whose
+            // PNG was just removed stays on screen until the player rejoins.
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (LOADED.remove(player.getUniqueId()) != null) {
+                    player.removeResourcePacks(PACK_ID);
+                }
+            }
+        }
         // Players online through a reload (or a late enable) are brought up to date in game.
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (seesModels(player)) {
@@ -307,38 +317,46 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         }
         SortedMap<String, byte[]> files = PackFiles.fromDirectory(folder);
         files.keySet().removeIf(name -> name.equalsIgnoreCase("README.txt"));
+        ItemArt.Result result;
         if (files.isEmpty()) {
-            return ItemArt.Result.none();
+            result = ItemArt.Result.none();
+        } else {
+            String minecraft = Bukkit.getMinecraftVersion();
+            Map<String, VanillaItems> tables = vanillaTables();
+            String picked = VanillaItems.pick(minecraft, tables.keySet());
+            if (picked == null) {
+                plugin.getLogger().warning("Resource pack: this CraftBridge has no vanilla item table for Minecraft "
+                        + minecraft + " (it has " + String.join(", ", tables.keySet()) + "), so no custom item gets"
+                        + " art until CraftBridge is updated.");
+            } else if (!picked.equals(minecraft)) {
+                plugin.getLogger().info("Resource pack: using the Minecraft " + picked + " item table on " + minecraft + ".");
+            }
+            result = ItemArt.build(items, files, own, overridden, picked == null ? null : tables.get(picked),
+                    VanillaItems.differing(tables.values()), minecraft);
         }
-        String minecraft = Bukkit.getMinecraftVersion();
-        ItemArt.Result result = ItemArt.build(items, files, own, overridden, vanillaItems(minecraft), minecraft);
         for (String warning : result.warnings()) {
             plugin.getLogger().warning("Resource pack: " + warning);
         }
-        plugin.getLogger().info("Resource pack: " + result.summary() + ".");
+        // A skipped item is something the admin meant to have art, so it is a warning.
+        plugin.getLogger().log(result.skipped().isEmpty() ? Level.INFO : Level.WARNING,
+                "Resource pack: " + result.summary() + ".");
         return result;
     }
 
-    /** The bundled vanilla item table for this Minecraft version, or null (with a warning) when there is none. */
-    private VanillaItems vanillaItems(String minecraft) throws IOException {
-        Map<String, byte[]> tables = new TreeMap<>();
+    /**
+     * Every bundled vanilla item table, by Minecraft version. The pack is built with the one for
+     * this server, but it loads on every client version pack.mcmeta allows, so the others say
+     * which items those versions draw differently.
+     */
+    private Map<String, VanillaItems> vanillaTables() throws IOException {
+        Map<String, VanillaItems> tables = new TreeMap<>();
         for (Map.Entry<String, byte[]> file : PackFiles.fromJar(plugin.jarFile().toPath(), VanillaItems.JAR_FOLDER).entrySet()) {
             String version = VanillaItems.versionOf(file.getKey());
             if (version != null) {
-                tables.put(version, file.getValue());
+                tables.put(version, VanillaItems.parse(file.getValue()));
             }
         }
-        String picked = VanillaItems.pick(minecraft, tables.keySet());
-        if (picked == null) {
-            plugin.getLogger().warning("Resource pack: this CraftBridge has no vanilla item table for Minecraft "
-                    + minecraft + " (it has " + String.join(", ", tables.keySet()) + "), so no custom item gets art"
-                    + " until CraftBridge is updated.");
-            return null;
-        }
-        if (!picked.equals(minecraft)) {
-            plugin.getLogger().info("Resource pack: using the Minecraft " + picked + " item table on " + minecraft + ".");
-        }
-        return VanillaItems.parse(tables.get(picked));
+        return tables;
     }
 
     private static final String ART_README = """

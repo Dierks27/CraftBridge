@@ -7,8 +7,11 @@ import com.google.gson.JsonParser;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Minecraft's own item definitions ({@code assets/minecraft/items/*.json}) for one version, as
@@ -94,6 +97,26 @@ public final class VanillaItems {
             }
         }
         return null;
+    }
+
+    /**
+     * The items whose vanilla look differs between the given tables (26.2 and 26.3 disagree on
+     * {@code filled_map} and {@code light}). One pack serves every client version pack.mcmeta
+     * allows, so for these there is no single vanilla definition to fall back to. An item only
+     * some tables have is not listed: a client that does not know it never draws it.
+     */
+    public static Set<String> differing(Collection<VanillaItems> tables) {
+        Set<String> out = new TreeSet<>();
+        Map<String, JsonObject> first = new HashMap<>();
+        for (VanillaItems table : tables) {
+            for (Map.Entry<String, JsonObject> entry : table.entries.entrySet()) {
+                JsonObject seen = first.putIfAbsent(entry.getKey(), entry.getValue());
+                if (seen != null && !seen.equals(entry.getValue())) {
+                    out.add(entry.getKey());
+                }
+            }
+        }
+        return out;
     }
 
     /** The Minecraft version this table was taken from. */

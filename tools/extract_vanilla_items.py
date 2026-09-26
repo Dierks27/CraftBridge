@@ -30,10 +30,12 @@ Plain Python 3, standard library only. Three modes:
 
 import argparse
 import hashlib
+import http.client
 import io
 import json
 import os
 import sys
+import time
 import urllib.request
 import zipfile
 from collections import Counter
@@ -54,21 +56,37 @@ def fail(message):
 
 # ---- reading Mojang's files -----------------------------------------------------------------
 
+RETRY_SECONDS = (2, 5, 15)
+
+
 def fetch(url, sha1=None):
-    try:
-        with urllib.request.urlopen(url, timeout=120) as response:
-            data = response.read()
-    except OSError as e:  # urllib.error.URLError and timeouts are OSErrors
-        fail("could not download %s (%s); offline? use --assets-dir VERSION=DIR" % (url, e))
+    """The URL's bytes; a failed or cut-off download is tried again a few times before giving up."""
+    for attempt in range(len(RETRY_SECONDS) + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as response:
+                data = response.read()
+            break
+        # URLError and timeouts are OSErrors; a body cut short is an HTTPException.
+        except (OSError, http.client.HTTPException) as e:
+            if attempt == len(RETRY_SECONDS):
+                fail("could not download %s (%s); offline? use --assets-dir VERSION=DIR" % (url, e))
+            print("    %s failed (%s), trying again in %ds" % (url, e, RETRY_SECONDS[attempt]))
+            time.sleep(RETRY_SECONDS[attempt])
     if sha1 is not None and hashlib.sha1(data).hexdigest() != sha1:
         fail("%s has SHA-1 %s, but Mojang lists %s; refusing to use it"
              % (url, hashlib.sha1(data).hexdigest(), sha1))
     return data
 
 
+_manifest = None
+
+
 def download_client_jar(version):
     """The version's client jar as an in-memory zip, checked against Mojang's SHA-1."""
-    manifest = json.loads(fetch(MANIFEST_URL))
+    global _manifest
+    if _manifest is None:
+        _manifest = json.loads(fetch(MANIFEST_URL))
+    manifest = _manifest
     entry = next((v for v in manifest["versions"] if v["id"] == version), None)
     if entry is None:
         fail("Minecraft %s is not in Mojang's version manifest" % version)
@@ -200,7 +218,7 @@ def summarize(version, items):
 
 # ---- write / check ---------------------------------------------------------------------------
 
-def check(version, path, text):
+def check(version, path, text, source):
     rel = os.path.relpath(path, ROOT)
     if not os.path.isfile(path):
         print("%s: MISSING %s" % (version, rel))
@@ -208,9 +226,9 @@ def check(version, path, text):
     with open(path, "rb") as f:
         committed = f.read()
     if committed == text.encode("utf-8"):
-        print("%s: OK, %s matches Mojang's client jar" % (version, rel))
+        print("%s: OK, %s matches %s" % (version, rel, source))
         return True
-    print("%s: MISMATCH, %s differs from Mojang's client jar" % (version, rel))
+    print("%s: MISMATCH, %s differs from %s" % (version, rel, source))
     try:
         old = json.loads(committed.decode("utf-8"))
         old_items, new_items = old["items"], json.loads(text)["items"]
@@ -220,8 +238,8 @@ def check(version, path, text):
     if old.get("minecraft_version") != version:
         print("    minecraft_version is %r" % old.get("minecraft_version"))
     same = True
-    for label, ids in (("added (in the jar, not committed)", sorted(set(new_items) - set(old_items))),
-                       ("removed (committed, not in the jar)", sorted(set(old_items) - set(new_items))),
+    for label, ids in (("added (in the source, not committed)", sorted(set(new_items) - set(old_items))),
+                       ("removed (committed, not in the source)", sorted(set(old_items) - set(new_items))),
                        ("changed", sorted(i for i in set(new_items) & set(old_items)
                                           if new_items[i] != old_items[i]))):
         if ids:
@@ -265,7 +283,9 @@ def main():
         text = render(version, items)
         path = os.path.join(OUT_DIR, "items-%s.json" % version)
         if args.check:
-            ok = check(version, path, text) and ok
+            folder = args.dirs.get(version)
+            source = "Mojang's client jar" if folder is None else folder
+            ok = check(version, path, text, source) and ok
         else:
             os.makedirs(OUT_DIR, exist_ok=True)
             with open(path, "wb") as f:

@@ -8,6 +8,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.google.gson.Strictness;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -16,7 +19,9 @@ import javax.imageio.stream.MemoryCacheImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,6 +35,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 
 /**
  * Custom item art: turns the files an admin drops into {@code plugins/CraftBridge/pack/items/}
@@ -157,10 +163,13 @@ public final class ItemArt {
      * @param overridden       every path the admin's {@code pack/overrides/java/} provides
      * @param vanilla          Minecraft's item definitions for this server's version, or null when
      *                         this CraftBridge has none for it (then no item gets art)
+     * @param differing        items the Minecraft versions this pack loads on draw differently
+     *                         ({@link VanillaItems#differing}): no single fallback fits them all
      * @param minecraftVersion the server's Minecraft version, for messages
      */
     public static Result build(Collection<Item> items, Map<String, byte[]> folder, Map<String, byte[]> ownPack,
-                               Set<String> overridden, VanillaItems vanilla, String minecraftVersion) {
+                               Set<String> overridden, VanillaItems vanilla, Set<String> differing,
+                               String minecraftVersion) {
         List<Skipped> skipped = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         Folder art = Folder.read(folder, skipped);
@@ -196,20 +205,26 @@ public final class ItemArt {
                         + item.base()));
                 continue;
             }
+            if (differing.contains(item.base())) {
+                skipped.add(new Skipped(id, "the Minecraft versions this pack loads on draw " + item.base()
+                        + " differently, so there is no one vanilla look for every other " + item.base()
+                        + " to fall back to; build the item on another base item"));
+                continue;
+            }
             byte[] mcmeta = art.mcmeta.get(id);
             Png size = null;
             if (png != null) {
-                String problem = pngProblem(art.name(id + ".png"), png, mcmeta);
-                if (problem != null) {
-                    skipped.add(new Skipped(id, problem));
+                Checked checked = checkPng(art.name(id + ".png"), png, mcmeta);
+                if (checked.problem() != null) {
+                    skipped.add(new Skipped(id, checked.problem()));
                     continue;
                 }
-                size = readPng(png);
+                size = checked.size();
             }
             JsonObject customModel = null;
             if (model != null) {
                 try {
-                    customModel = parseObject(model);
+                    customModel = parseStrictObject(model);
                 } catch (IllegalArgumentException ex) {
                     skipped.add(new Skipped(id, art.name(id + ".json") + " is not a JSON model (" + ex.getMessage() + ")"));
                     continue;
@@ -279,8 +294,11 @@ public final class ItemArt {
             out.putAll(a.files);
             textured.add(new Textured(a.item.id(), a.item.base(), a.size == null ? 0 : a.size.width(),
                     a.size == null ? 0 : a.size.height(), a.customModel != null, definitionOf.get(a.item.id()), a.png));
+        }
+        // After every item's own files are in, so a model may name another item's texture.
+        for (Accepted a : accepted.values()) {
             if (a.customModel != null) {
-                addExtraTextures(a.item.id(), a.customModel, art, out, used, warnings);
+                addExtraTextures(a.item.id(), a.customModel, art, out, ownPack, used, warnings);
             }
         }
 
@@ -310,39 +328,41 @@ public final class ItemArt {
     }
 
     /**
-     * Textures a custom model names as {@code craftbridge:item/<name>} come from
-     * {@code <name>.png} in the art folder. A reference without a namespace is Minecraft's, which
-     * is the usual slip in a Blockbench export, so it is pointed out when the folder has that file.
+     * Textures a custom model names as {@code craftbridge:item/<name>} (or
+     * {@code craftbridge:block/<name>}) come from {@code <name>.png} in the art folder. A
+     * reference without a namespace is Minecraft's, which is the usual slip in a Blockbench
+     * export, so it is pointed out when the folder has that file.
      */
     private static void addExtraTextures(String id, JsonObject model, Folder art, Map<String, byte[]> out,
-                                         Set<String> used, List<String> warnings) {
+                                         Map<String, byte[]> ownPack, Set<String> used, List<String> warnings) {
         JsonElement textures = model.get("textures");
         if (textures == null || !textures.isJsonObject()) {
             return;
         }
         String file = art.name(id + ".json");
         for (Map.Entry<String, JsonElement> texture : textures.getAsJsonObject().entrySet()) {
-            if (!texture.getValue().isJsonPrimitive()) {
+            String ref = spriteOf(texture.getValue());
+            if (ref == null || ref.startsWith("#")) {
                 continue;
             }
-            String ref = texture.getValue().getAsString();
-            if (ref.startsWith("#")) {
-                continue;
-            }
-            if (ref.startsWith(ModelTags.PREFIX)) {
-                String name = ref.substring(ModelTags.PREFIX.length());
+            String folder = ref.startsWith("craftbridge:item/") ? "item" : ref.startsWith("craftbridge:block/") ? "block" : null;
+            if (folder != null) {
+                String name = ref.substring(("craftbridge:" + folder + "/").length());
+                String path = TEXTURES_PATH + folder + "/" + name + ".png";
                 byte[] png = art.png.get(name);
                 if (png == null) {
-                    warnings.add(file + " uses " + ref + ", but pack/items/ has no " + name + ".png.");
+                    if (!out.containsKey(path) && !ownPack.containsKey(path)) {
+                        warnings.add(file + " uses " + ref + ", but pack/items/ has no " + name + ".png.");
+                    }
                     continue;
                 }
+                used.add(name);
                 String problem = pngProblem(art.name(name + ".png"), png, art.mcmeta.get(name));
                 if (problem != null) {
                     warnings.add(file + " uses " + ref + ", which is left out: " + problem);
                     continue;
                 }
-                putTexture(out, "item", name, png, art.mcmeta.get(name));
-                used.add(name);
+                putTexture(out, folder, name, png, art.mcmeta.get(name));
             } else if (!ref.contains(":")) {
                 String name = ref.startsWith("item/") ? ref.substring("item/".length()) : ref;
                 if (art.png.containsKey(name)) {
@@ -351,6 +371,15 @@ public final class ItemArt {
                 }
             }
         }
+    }
+
+    /** A model's texture entry: a plain string, or {@code {"sprite": ..., "force_translucent": ...}}. */
+    private static String spriteOf(JsonElement value) {
+        if (value.isJsonPrimitive()) {
+            return value.getAsString();
+        }
+        JsonElement sprite = value.isJsonObject() ? value.getAsJsonObject().get("sprite") : null;
+        return sprite != null && sprite.isJsonPrimitive() ? sprite.getAsString() : null;
     }
 
     // ---- the JSON ------------------------------------------------------------------------
@@ -454,6 +483,29 @@ public final class ItemArt {
         return element.getAsJsonObject();
     }
 
+    /**
+     * An admin's JSON file, read the way the client reads models and texture metadata: strictly,
+     * so a comment, a trailing comma or an unquoted key is caught here rather than turning the
+     * item into the missing model in game.
+     */
+    static JsonObject parseStrictObject(byte[] bytes) {
+        JsonElement element;
+        try (JsonReader reader = new JsonReader(new StringReader(new String(bytes, StandardCharsets.UTF_8)))) {
+            reader.setStrictness(Strictness.STRICT);
+            element = JsonParser.parseReader(reader);
+            if (reader.peek() != JsonToken.END_DOCUMENT) {
+                throw new IllegalArgumentException("there is more after the JSON object");
+            }
+        } catch (JsonParseException | IOException ex) {
+            Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+            throw new IllegalArgumentException(String.valueOf(cause.getMessage()));
+        }
+        if (!element.isJsonObject()) {
+            throw new IllegalArgumentException("it is not a JSON object");
+        }
+        return element.getAsJsonObject();
+    }
+
     /** Pretty-printed, so an admin can read the pack; the same tree always gives the same bytes. */
     static byte[] json(JsonElement element) {
         return (GSON.toJson(element) + "\n").getBytes(StandardCharsets.UTF_8);
@@ -461,7 +513,16 @@ public final class ItemArt {
 
     // ---- textures ------------------------------------------------------------------------
 
-    /** The size of a PNG, decoded in full so a truncated file is caught; throws with the reason otherwise. */
+    /** A texture check: its size, or what is wrong with it (then {@code size} is null). */
+    record Checked(Png size, String problem) {
+    }
+
+    /**
+     * The size of a PNG, decoded in full so a truncated file is caught; throws with the reason
+     * otherwise. The size is read from the header first, and nothing wider than
+     * {@link #SIZES} allows (or taller than {@link #MAX_FRAMES} frames) is decoded at all:
+     * a 20000-pixel image would stall the server for seconds, on the main thread.
+     */
     public static Png readPng(byte[] png) {
         if (png.length < PNG_SIGNATURE.length || !Arrays.equals(Arrays.copyOf(png, PNG_SIGNATURE.length), PNG_SIGNATURE)) {
             throw new IllegalArgumentException("it is not a PNG file");
@@ -474,6 +535,11 @@ public final class ItemArt {
         // A memory-cached stream: ImageIO's default would cache to a temp file.
         try (ImageInputStream in = new MemoryCacheImageInputStream(new ByteArrayInputStream(png))) {
             reader.setInput(in);
+            int width = reader.getWidth(0);
+            int height = reader.getHeight(0);
+            if (!SIZES.contains(width) || height > width * MAX_FRAMES) {
+                return new Png(width, height); // wrong size: pngProblem says so without decoding it
+            }
             BufferedImage image = reader.read(0);
             return new Png(image.getWidth(), image.getHeight());
         } catch (IOException | RuntimeException ex) {
@@ -483,57 +549,116 @@ public final class ItemArt {
         }
     }
 
+    /** The most frames an animation strip may have. */
+    static final int MAX_FRAMES = 256;
+
     /**
      * Null when the texture is usable: a PNG that decodes, square at 16, 32, 64 or 128 pixels, or
      * a vertical strip of such frames (height a multiple of width) with an {@code .mcmeta}
      * animating it. Otherwise the reason, naming the file.
      */
     public static String pngProblem(String fileName, byte[] png, byte[] mcmeta) {
+        return checkPng(fileName, png, mcmeta).problem();
+    }
+
+    static Checked checkPng(String fileName, byte[] png, byte[] mcmeta) {
         Png size;
         try {
             size = readPng(png);
         } catch (IllegalArgumentException ex) {
-            return fileName + ": " + ex.getMessage();
+            return new Checked(null, fileName + ": " + ex.getMessage());
         }
         int w = size.width();
         int h = size.height();
         String dims = w + "x" + h;
         if (!SIZES.contains(w)) {
-            return fileName + " is " + dims + ": make it 16, 32, 64 or 128 pixels wide";
+            return new Checked(null, fileName + " is " + dims + ": make it 16, 32, 64 or 128 pixels wide");
         }
         if (h != w) {
             if (h < w || h % w != 0) {
-                return fileName + " is " + dims + ": it must be square, or a strip of square frames (height a multiple of width)";
+                return new Checked(null, fileName + " is " + dims
+                        + ": it must be square, or a strip of square frames (height a multiple of width)");
+            }
+            if (h / w > MAX_FRAMES) {
+                return new Checked(null, fileName + " is " + dims + ": an animation may have " + MAX_FRAMES + " frames at most");
             }
             if (mcmeta == null) {
-                return fileName + " is a " + dims + " strip: add " + fileName + ".mcmeta to animate it";
+                return new Checked(null, fileName + " is a " + dims + " strip: add " + fileName + ".mcmeta to animate it");
             }
         }
         if (mcmeta != null) {
-            try {
-                JsonObject meta = parseObject(mcmeta);
-                if (!meta.has("animation") || !meta.get("animation").isJsonObject()) {
-                    return fileName + ".mcmeta has no \"animation\" section";
-                }
-            } catch (IllegalArgumentException ex) {
-                return fileName + ".mcmeta is not valid JSON (" + ex.getMessage() + ")";
+            String problem = animationProblem(mcmeta, w, h);
+            if (problem != null) {
+                return new Checked(null, fileName + ".mcmeta " + problem);
+            }
+        }
+        return new Checked(size, null);
+    }
+
+    /**
+     * What the client would reject in an animation's {@code .mcmeta}, or null: it reads the file
+     * as strict JSON, wants a positive {@code frametime}, and frames that tile the image.
+     */
+    private static String animationProblem(byte[] mcmeta, int width, int height) {
+        JsonObject meta;
+        try {
+            meta = parseStrictObject(mcmeta);
+        } catch (IllegalArgumentException ex) {
+            return "is not valid JSON (" + ex.getMessage() + ")";
+        }
+        if (!(meta.get("animation") instanceof JsonObject animation)) {
+            return "has no \"animation\" section";
+        }
+        String frametime = positiveInt(animation, "frametime");
+        if (frametime != null) {
+            return frametime;
+        }
+        for (String key : List.of("width", "height")) {
+            String problem = positiveInt(animation, key);
+            if (problem != null) {
+                return problem;
+            }
+            if (animation.has(key) && (key.equals("width") ? width : height) % animation.get(key).getAsInt() != 0) {
+                return "has a frame " + key + " of " + animation.get(key).getAsInt() + ", which does not divide the "
+                        + width + "x" + height + " image";
             }
         }
         return null;
+    }
+
+    /** Null when the key is absent or a whole number of at least 1, else the complaint. */
+    private static String positiveInt(JsonObject object, String key) {
+        JsonElement value = object.get(key);
+        if (value == null) {
+            return null;
+        }
+        if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()) {
+            double number = value.getAsDouble();
+            if (number >= 1 && number == Math.floor(number) && number <= Integer.MAX_VALUE) {
+                return null;
+            }
+        }
+        return "has \"" + key + "\": " + value + ", but it must be a whole number of at least 1";
     }
 
     // ---- the editor's line ---------------------------------------------------------------
 
     /**
      * One item's art as the custom item editor shows it: null when the folder has none for it,
-     * else {@code found (16x16)}, {@code custom model <id>.json}, or what is wrong.
+     * else {@code found (16x16)}, {@code custom model <id>.json}, or what is wrong. Reads only
+     * that item's files.
      */
     public static Status status(Path folder, String id) throws IOException {
         Map<String, byte[]> files = new TreeMap<>();
-        for (Map.Entry<String, byte[]> file : PackFiles.fromDirectory(folder).entrySet()) {
-            String lower = file.getKey().toLowerCase(Locale.ROOT);
-            if (lower.equals(id + ".png") || lower.equals(id + ".png.mcmeta") || lower.equals(id + ".json")) {
-                files.putIfAbsent(lower, file.getValue());
+        if (Files.isDirectory(folder)) {
+            try (Stream<Path> list = Files.list(folder)) {
+                for (Path file : (Iterable<Path>) list.sorted()::iterator) {
+                    String lower = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                    if ((lower.equals(id + ".png") || lower.equals(id + ".png.mcmeta") || lower.equals(id + ".json"))
+                            && Files.isRegularFile(file) && !files.containsKey(lower)) {
+                        files.put(lower, Files.readAllBytes(file));
+                    }
+                }
             }
         }
         byte[] png = files.get(id + ".png");
@@ -541,23 +666,24 @@ public final class ItemArt {
         if (png == null && model == null) {
             return null;
         }
+        Png size = null;
         if (png != null) {
-            String problem = pngProblem(id + ".png", png, files.get(id + ".png.mcmeta"));
-            if (problem != null) {
-                return new Status(false, problem);
+            Checked checked = checkPng(id + ".png", png, files.get(id + ".png.mcmeta"));
+            if (checked.problem() != null) {
+                return new Status(false, checked.problem());
             }
+            size = checked.size();
         }
         if (model != null) {
             try {
-                parseObject(model);
+                parseStrictObject(model);
             } catch (IllegalArgumentException ex) {
                 return new Status(false, id + ".json is not a JSON model (" + ex.getMessage() + ")");
             }
         }
-        if (png == null) {
+        if (size == null) {
             return new Status(true, "custom model " + id + ".json");
         }
-        Png size = readPng(png);
         String text = "found (" + size.width() + "x" + size.height() + (size.height() > size.width() ? ", animated" : "") + ")";
         return new Status(true, model == null ? text : text + " with model " + id + ".json");
     }

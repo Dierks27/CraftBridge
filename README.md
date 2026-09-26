@@ -241,8 +241,8 @@ as vanilla datapacks model them. Custom items are vanilla items with a name, lor
 them — and recipes match the tag rather than the display name, which an anvil can forge. A custom
 item can also have a texture of its own: drop `<id>.png` into `plugins/CraftBridge/pack/items/`
 and run `/craftbridge reload` (see [Custom block models](#custom-block-models)). A custom item
-built on a block cannot be placed, because it would turn into the plain block;
-`custom-items.placeable: true` allows it.
+built on a block (or on seeds, string and the like) cannot be placed, because it would turn into
+the plain block; `custom-items.placeable: true` allows it. Custom tools still work.
 
 Full write-up, including the Bedrock/Geyser findings, the furnace recipe-cache caveat and
 the `/craftbridge spike` diagnostic: **[docs/cooking-and-custom-items.md](docs/cooking-and-custom-items.md)**.

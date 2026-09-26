@@ -11,6 +11,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -99,6 +100,7 @@ public final class GeyserExport {
                 done.add("bedrock.geyser-folder is " + geyserFolder + ", which is not a folder, so nothing was copied"
                         + " into Geyser: fix the path, or copy " + MCPACK + " into Geyser's packs/ folder and " + MAPPINGS
                         + " into its custom_mappings/ folder yourself.");
+                done.add(RESTART_AFTER_COPY);
                 return done;
             }
             copyInto(geyserFolder, geyserFolder.toString(), mcpack, mappings, displayMappings, done);
@@ -111,6 +113,7 @@ public final class GeyserExport {
             done.add("No " + GEYSER_FOLDER + " folder here (Geyser may run on the proxy): copy " + MCPACK
                     + " into Geyser's packs/ folder and " + MAPPINGS + " into its custom_mappings/ folder yourself,"
                     + " or set bedrock.geyser-folder to Geyser's folder.");
+            done.add(RESTART_AFTER_COPY);
             return done;
         }
         copyInto(geyser, GEYSER_FOLDER, mcpack, mappings, displayMappings, done);
@@ -118,6 +121,10 @@ public final class GeyserExport {
                 + " enable-custom-content: true.");
         return done;
     }
+
+    private static final String RESTART_AFTER_COPY = "After copying, restart the server or proxy Geyser runs on:"
+            + " Geyser only loads new packs and mappings when it starts. Geyser's config needs"
+            + " enable-custom-content: true.";
 
     private static void copyInto(Path geyser, String name, byte[] mcpack, byte[] mappings, byte[] displayMappings,
                                  List<String> done) throws IOException {
@@ -161,7 +168,7 @@ public final class GeyserExport {
                 done.add(item.id() + ": its PNG cannot be read (" + ex.getMessage() + "), so Bedrock players see the base item.");
                 continue;
             }
-            String path = ICONS + item.id();
+            String path = iconPath(item.id());
             pack.put(path + ".png", icon);
             JsonObject texture = new JsonObject();
             JsonArray paths = new JsonArray();
@@ -183,6 +190,21 @@ public final class GeyserExport {
         }
         return ItemArt.json(mapping);
     }
+
+    /**
+     * Where an item's icon goes, without {@code .png}. Consoles cannot load a path of 80
+     * characters or more from a pack, and an id may have 64, so a long id gets a short name.
+     */
+    static String iconPath(String id) {
+        String path = ICONS + id;
+        if (path.length() + ".png".length() < MAX_PATH) {
+            return path;
+        }
+        return ICONS + PackFiles.sha1(id.getBytes(StandardCharsets.UTF_8)).substring(0, 16);
+    }
+
+    /** Geyser warns that a pack path this long or longer fails on some Bedrock platforms. */
+    static final int MAX_PATH = 80;
 
     /** A Geyser v2 definition: the base item with our string at index 0 becomes the Bedrock item. */
     static JsonObject definition(BedrockItem item) {
@@ -225,7 +247,8 @@ public final class GeyserExport {
     static byte[] versioned(SortedMap<String, byte[]> pack) {
         SortedMap<String, byte[]> content = new TreeMap<>(pack);
         content.remove("manifest.json");
-        int patch = 1 + Integer.parseInt(PackFiles.sha1(PackFiles.zip(content)).substring(0, 6), 16);
+        // Bedrock keeps each part of a version in 16 bits: 1..65535, never the jar's 0.
+        int patch = 1 + Integer.parseInt(PackFiles.sha1(PackFiles.zip(content)).substring(0, 4), 16) % 65535;
         JsonObject manifest = ItemArt.parseObject(pack.get("manifest.json"));
         setPatch(manifest.getAsJsonObject("header"), patch);
         JsonElement modules = manifest.get("modules");

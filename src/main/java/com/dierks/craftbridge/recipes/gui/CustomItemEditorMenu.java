@@ -311,10 +311,23 @@ public final class CustomItemEditorMenu extends Menu {
             lines.add("and run <white>/craftbridge reload<gray>.");
             return Items.icon(Material.BARRIER, "<white>Pack art: <red>not usable", Text.lore(lines));
         }
-        boolean inPack = pack != null && pack.art().textured().stream().anyMatch(t -> t.id().equals(id));
-        if (!inPack) {
+        ItemArt.Textured inPack = pack == null ? null
+                : pack.art().textured().stream().filter(t -> t.id().equals(id)).findFirst().orElse(null);
+        ItemArt.Skipped skipped = pack == null || inPack != null ? null
+                : pack.art().skipped().stream().filter(s -> s.name().equals(id)).findFirst().orElse(null);
+        if (skipped != null) {
+            // The last build left it out for a reason the file check cannot see (the base item,
+            // the Minecraft version): say why, since a reload alone would not change it.
+            lines.add("<yellow>Left out of the pack:");
+            for (String line : wrap(skipped.reason(), 38)) {
+                lines.add("<yellow>" + Text.escape(line));
+            }
+        } else if (inPack == null) {
             lines.add("<yellow>Not in the pack yet: run");
             lines.add("<white>/craftbridge reload<yellow> to add it.");
+        } else if (!inPack.base().equals(base.getKey().getKey())) {
+            lines.add("<yellow>In the pack on " + inPack.base() + ": save, then");
+            lines.add("<yellow>run <white>/craftbridge reload<yellow> to move it.");
         } else if (!pack.sent()) {
             lines.add("<yellow>In the pack, but the pack is not");
             lines.add("<yellow>sent to players: see <white>/craftbridge pack<yellow>.");

@@ -59,7 +59,7 @@ Windows saved as `Burned_Zombie_Flesh.PNG` works.
 | `<id>.png` | The texture. Square: 16x16, 32x32, 64x64 or 128x128 pixels. Or a vertical strip of square frames, for an animation. |
 | `<id>.png.mcmeta` | Optional. Animates the texture. A strip needs one. |
 | `<id>.json` | Optional. A whole model of your own, for example a Blockbench export. Used exactly as it is. |
-| any other `.png` | An extra texture for a `<id>.json` model, which names it as `craftbridge:item/<name>`. |
+| any other `.png` | An extra texture for a `<id>.json` model, which names it as `craftbridge:item/<name>` (or `craftbridge:block/<name>`). |
 
 File names may only use letters, digits, `_`, `-` and `.`. A file that belongs to no custom item
 is listed as skipped ("no custom item has the id ..."). That is usually a typo in the name.
@@ -73,8 +73,11 @@ Stack the frames on top of each other in one PNG: four 16x16 frames make a 16x64
 { "animation": { "frametime": 4 } }
 ```
 
-`frametime` is how many ticks each frame is shown (20 ticks is one second). A strip without an
-mcmeta is skipped: Minecraft only cuts a strip into frames when the mcmeta tells it to.
+`frametime` is how many ticks each frame is shown (20 ticks is one second), a whole number of
+at least 1. A strip without an mcmeta is skipped: Minecraft only cuts a strip into frames when
+the mcmeta tells it to. So is an mcmeta Minecraft would refuse: one that is not strict JSON (no
+comments, no trailing commas, every key in double quotes), a `frametime` of 0, or a frame
+`width`/`height` that does not divide the image. An animation has 256 frames at most.
 
 ### What the item looks like
 
@@ -87,6 +90,10 @@ Without a model of your own, CraftBridge makes one from the base item:
   that change with their state (a bow, a compass, a clock), and items with their own renderer
   (chests, shields, banners). These get a plain flat picture. A custom item on a bow shows your
   picture and no pull animation.
+* **A filled map or a light block** gets no art at all. Minecraft 26.2 and 26.3 draw those two
+  differently, and the same pack goes to clients of both versions (through ViaVersion, for
+  example), so there is no one vanilla look for every other map to fall back to. The log says so;
+  pick another base item.
 
 If that is not what you want, make a model of your own.
 
@@ -104,7 +111,10 @@ namespace:
 ```
 
 `craftbridge:item/flesh_side` is `flesh_side.png` in the same folder, and `<id>.png` is
-`craftbridge:item/<id>`.
+`craftbridge:item/<id>`. A texture named `craftbridge:block/<name>` also comes from `<name>.png`
+(a cube-shaped model usually uses the blocks atlas), and the `{"sprite": ..., "force_translucent":
+true}` form works too. The model must be strict JSON, as Blockbench writes it: Minecraft does not
+load a model with comments or trailing commas, so CraftBridge skips one and says why.
 
 **Watch the namespace.** Blockbench writes `item/flesh_side`, without one. Minecraft reads that
 as `minecraft:item/flesh_side`, a texture that does not exist, so the item shows the purple and
@@ -132,19 +142,20 @@ still dried kelp, with or without the pack ([How it works](#how-it-works) says w
 
 * **The log**, on start and after `/craftbridge reload`, has one line such as
   `Resource pack: 2 custom items have art (burned_zombie_flesh, wither_dust), 1 skipped (Flesh.png: no custom item has the id flesh)`,
-  plus one warning line for each problem. The line only appears when the folder has files in it.
+  plus one warning line for each problem. The line is a warning when something was skipped.
 * **`/craftbridge pack`** lists each item that has art (its id, base item, texture size, whether
   the model is generated or your own, and where the base item's definition comes from), and each
   skipped item or file with the reason.
 * **The custom item editor** in `/recipe` has a button that says `Pack art: found (16x16)`, or
   `No art` with where to drop the file, or what is wrong with the file. It also says whether the
-  pack already has the art (`Not in the pack yet: run /craftbridge reload`). Items on a player
-  head show their head texture button there instead.
+  pack already has the art (`Not in the pack yet: run /craftbridge reload`), or why the last
+  build left it out. Items on a player head show their head texture button there instead.
 
 ### Uploading the zip
 
 The pack is sent to players when either block uses `display.mode: model` or at least one custom
-item has art.
+item has art. When a reload leaves nothing that needs it, players online are told to drop it, so
+removed art goes back to the base look at once.
 
 If players download it from `resource-pack.url`, the zip changes whenever you add, change or
 remove art. The `/craftbridge reload` that picks up the change builds a new

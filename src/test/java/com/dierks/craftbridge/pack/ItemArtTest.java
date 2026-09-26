@@ -67,6 +67,7 @@ class ItemArtTest {
     static ItemArt.Result build(List<ItemArt.Item> items, Map<String, byte[]> folder, Set<String> overridden,
                                 VanillaItems vanilla) throws IOException {
         return ItemArt.build(items, folder, PackFiles.fromDirectory(JAVA_PACK), overridden, vanilla,
+                VanillaItems.differing(List.of(vanilla("26.2"), vanilla("26.3"))),
                 vanilla == null ? "99.9" : vanilla.version());
     }
 
@@ -117,15 +118,20 @@ class ItemArtTest {
             JsonObject table = parse(Files.readAllBytes(VANILLA.resolve("items-" + version + ".json")));
             List<ItemArt.Item> items = new ArrayList<>();
             Map<String, byte[]> folder = new TreeMap<>();
+            Set<String> differing = VanillaItems.differing(List.of(vanilla("26.2"), vanilla("26.3")));
             for (String base : table.getAsJsonObject("items").keySet()) {
                 items.add(item("x_" + base, base));
                 folder.put("x_" + base + ".png", PNG16);
             }
             ItemArt.Result result = build(items, folder, Set.of(), vanilla);
 
-            assertEquals(List.of(), result.skipped(), version);
-            assertEquals(items.size(), result.textured().size(), version);
+            assertEquals(differing.size(), result.skipped().size(), version + ": " + result.skipped());
+            assertEquals(items.size() - differing.size(), result.textured().size(), version);
             for (String base : table.getAsJsonObject("items").keySet()) {
+                if (differing.contains(base)) {
+                    assertFalse(result.files().containsKey("assets/minecraft/items/" + base + ".json"), base);
+                    continue;
+                }
                 JsonObject definition = file(result, "assets/minecraft/items/" + base + ".json");
                 JsonObject original = vanilla.definition(base);
                 assertEquals(List.copyOf(original.keySet()), List.copyOf(definition.keySet()), version + " " + base);
@@ -369,6 +375,58 @@ class ItemArtTest {
                 result.summary());
     }
 
+    @Test
+    void anItemTheTwoVersionsDrawDifferentlyGetsNoArt() throws IOException {
+        assertEquals(Set.of("filled_map", "light"), VanillaItems.differing(List.of(vanilla("26.2"), vanilla("26.3"))),
+                "the only definitions 26.2 and 26.3 disagree on");
+        for (String version : List.of("26.2", "26.3")) {
+            ItemArt.Result result = build(List.of(item("treasure_map", "filled_map")),
+                    Map.of("treasure_map.png", PNG16), Set.of(), vanilla(version));
+
+            assertTrue(result.files().isEmpty(), "the pack serves 26.2 and 26.3 clients alike, so neither fallback fits both");
+            assertTrue(result.skipped().get(0).reason().contains("draw filled_map differently"), result.skipped().toString());
+        }
+    }
+
+    @Test
+    void modelsAndAnimationsAreCheckedAsStrictlyAsTheClientReadsThem() throws IOException {
+        byte[] commented = "{\"parent\": \"minecraft:item/handheld\", // from Blockbench\n \"textures\": {}}"
+                .getBytes(StandardCharsets.UTF_8);
+        ItemArt.Result result = build(List.of(item("sword", "iron_sword"), item("wave", "paper"), item("tick", "paper")),
+                Map.of("sword.json", commented,
+                        "wave.png", png(16, 32), "wave.png.mcmeta", "{animation: {frametime: 2}}".getBytes(StandardCharsets.UTF_8),
+                        "tick.png", png(16, 32), "tick.png.mcmeta", "{\"animation\": {\"frametime\": 0}}".getBytes(StandardCharsets.UTF_8)),
+                Set.of(), vanilla("26.2"));
+
+        assertTrue(result.files().isEmpty(), result.files().keySet().toString());
+        Map<String, String> reasons = new TreeMap<>();
+        result.skipped().forEach(s -> reasons.put(s.name(), s.reason()));
+        assertTrue(reasons.get("sword").contains("not a JSON model"), reasons.toString());
+        assertTrue(reasons.get("wave").contains("not valid JSON"), reasons.toString());
+        assertTrue(reasons.get("tick").contains("whole number of at least 1"), reasons.toString());
+        assertTrue(ItemArt.pngProblem("a.png", png(16, 64), "{\"animation\": {\"height\": 24}}".getBytes(StandardCharsets.UTF_8))
+                .contains("does not divide"));
+        assertNull(ItemArt.pngProblem("a.png", png(16, 64), "{\"animation\": {\"frametime\": 3, \"height\": 16}}"
+                .getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void aCustomModelMayNameItsTexturesInEveryFormTheClientAccepts() throws IOException {
+        byte[] model = ("{\"parent\": \"minecraft:block/cube_all\", \"textures\": {"
+                + "\"all\": {\"sprite\": \"craftbridge:item/glass_blade\", \"force_translucent\": true},"
+                + " \"particle\": \"craftbridge:block/marble\", \"side\": \"craftbridge:item/cracked\"}}")
+                .getBytes(StandardCharsets.UTF_8);
+        ItemArt.Result result = build(List.of(item("fancy", "stone")),
+                Map.of("fancy.json", model, "glass_blade.png", PNG16, "marble.png", PNG16, "cracked.png", png(17, 17)),
+                Set.of(), vanilla("26.2"));
+
+        assertTrue(result.files().containsKey("assets/craftbridge/textures/item/glass_blade.png"), "the object form");
+        assertTrue(result.files().containsKey("assets/craftbridge/textures/block/marble.png"), "a block texture");
+        assertFalse(result.files().containsKey("assets/craftbridge/textures/item/cracked.png"));
+        assertTrue(result.warnings().stream().anyMatch(w -> w.contains("cracked.png is 17x17")), result.warnings().toString());
+        assertEquals(List.of(), result.skipped(), "a named texture that is left out is not also reported as an unused file");
+    }
+
     // ---- textures ----------------------------------------------------------------------
 
     @Test
@@ -387,6 +445,14 @@ class ItemArtTest {
                 .contains("no \"animation\" section"));
         assertTrue(ItemArt.pngProblem("a.png", png(16, 32), "{oops".getBytes(StandardCharsets.UTF_8))
                 .contains("not valid JSON"));
+        assertTrue(ItemArt.pngProblem("a.png", png(16, 16 * 257), ANIMATION).contains("256 frames at most"));
+    }
+
+    @Test
+    void anOversizedImageIsRefusedByTheSizeInItsHeader() {
+        byte[] huge = png(4096, 4096);
+        assertEquals(new ItemArt.Png(4096, 4096), ItemArt.readPng(huge));
+        assertTrue(ItemArt.pngProblem("huge.png", huge, null).contains("16, 32, 64 or 128"));
     }
 
     @Test

@@ -19,7 +19,9 @@ was. The client link is unchanged, so CraftBridge Client 0.4.0 keeps working.
     `<id>.png.mcmeta` to animate it. `<id>.json` is a model of your own (a Blockbench export),
     used as it is; the textures it names as `craftbridge:item/<name>` come from `<name>.png` in the
     same folder. A texture named without a namespace (Blockbench's `item/foo`) is Minecraft's, and
-    the log says to write `craftbridge:item/foo`.
+    the log says to write `craftbridge:item/foo`. Models and animation files are checked as
+    strictly as the client reads them, so one it would refuse is skipped with the reason instead
+    of showing the missing texture.
   * Without a model of your own, a flat item is drawn on its base item's own template (a custom
     sword is held like a sword), a block item as a cube, and anything Minecraft draws in a
     special way (tinted items, a bow, a compass, a clock) as a flat picture. A custom item on a
@@ -37,17 +39,22 @@ was. The client link is unchanged, so CraftBridge Client 0.4.0 keeps working.
   * If another resource pack (the clock pack, say) also changes the base item, only the pack
     higher in the player's list wins. Build textured custom items on an item no other pack
     changes.
+  * Filled maps and light blocks cannot be a textured item's base: 26.2 and 26.3 draw them
+    differently and the pack serves both.
+  * When a reload leaves nothing that needs the pack (the last PNG removed while both blocks use
+    `display.mode: head`), players online are told to drop it, so the art goes at once.
   * The look in game is untested.
 * **Seeing what happened.** Start and reload log
-  `Resource pack: N custom items have art (...), M skipped (...)` when the art folder has files,
-  plus one warning per problem. `/craftbridge pack` lists each textured item (base item, size,
+  `Resource pack: N custom items have art (...), M skipped (...)` (a warning when something was
+  skipped), plus one warning per problem. `/craftbridge pack` lists each textured item (base item, size,
   generated or custom model, where the item definition comes from) and each skipped item or file
   with the reason. The custom item editor shows `Pack art: found (16x16)` or `No art` with where
-  to drop the file, and whether the pack already has it ("Not in the pack yet: run /craftbridge
-  reload").
+  to drop the file, whether the pack already has it ("Not in the pack yet: run /craftbridge
+  reload"), and why the last build left it out.
 * **Bedrock icons for custom items.** `/craftbridge geyser export` adds each textured item's PNG
   (the first frame of an animation) to the Bedrock pack and a Geyser mapping on its base item, so
-  Bedrock players see the icon. A custom item with only a model of its own and no PNG gets no icon.
+  Bedrock players see the icon. A custom item with only a model of its own and no PNG gets no icon,
+  and an icon whose path would reach 80 characters (consoles cannot load those) gets a short name.
   When items are included, the Bedrock pack's manifest version follows its content, because
   Bedrock clients never download a pack again while they have one with the same version cached.
   Untested, like the rest of the Bedrock side.
@@ -80,9 +87,11 @@ was. The client link is unchanged, so CraftBridge Client 0.4.0 keeps working.
     new results onto it, and stops until the output is taken or the furnace is opened (opening it
     tags the result).
 * **Custom items built on blocks can no longer be placed.** Placed, they turn into the plain block
-  and the custom item is gone. The new `custom-items.placeable: true` allows it. Heads are never
-  placed either way, and the Linked Workbench and Combo Chest place-items are unaffected. Emptying
-  a bucket, placing an entity and dispensers are not covered.
+  and the custom item is gone. That covers anything that places a block of its own (seeds,
+  string), potting a plant and putting a candle on a cake. The new `custom-items.placeable: true`
+  allows it. Custom tools keep working (tilling, stripping, lighting). Heads are never placed
+  either way, and the Linked Workbench and Combo Chest place-items are unaffected. Emptying a
+  bucket, placing an entity and dispensers are not covered.
 * **The resource pack also runs with only `features.recipes` on.** It used to need
   `features.linked-workbench`. Delivery, the hash check and the re-offer after a reload are
   unchanged.

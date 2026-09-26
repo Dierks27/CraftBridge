@@ -193,9 +193,11 @@ golem-chests:
 # -----------------------------------------------------------------------------
 custom-items:
   # A custom item built on a block (a "Compressed Cobblestone" on cobblestone, say) turns
-  # into the plain block when placed, and the custom item is gone. false refuses to place
-  # them; true lets players place them as the plain block. Custom items built on player
-  # heads are never placed either way.
+  # into the plain block when placed, and the custom item is gone. The same goes for items
+  # that place a block of their own: seeds, string, carrots, and plants put in a flower pot.
+  # false refuses to place them; true lets players place them as the plain block. Custom
+  # tools still work (tilling, stripping, lighting). Custom items built on player heads are
+  # never placed either way.
   placeable: false
 
 # -----------------------------------------------------------------------------
@@ -246,7 +248,7 @@ bedrock:
   # /craftbridge geyser export then copies the Bedrock pack and mappings there as well.
   # Blank looks for plugins/Geyser-Spigot next to CraftBridge. Geyser only loads new packs
   # and mappings when it starts, so restart the proxy after an export.
-  geyser-folder: ""
+  geyser-folder: ''
 
 # -----------------------------------------------------------------------------
 # JEI (Feature 1 lives under features.jei-transfer; this is the recipe sync)

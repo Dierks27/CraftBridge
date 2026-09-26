@@ -42,6 +42,23 @@ public final class ModelTags {
      * every other entry stays where it was, so whatever another plugin or a hand-made pack put
      * after it keeps its index. The input is never modified.
      */
+    /**
+     * A {@code custom_model_data} component after a refresh: {@code strings} with the tag at
+     * index 0, and the floats, flags and colours exactly as they were.
+     */
+    public record Refreshed<F, B, C>(List<F> floats, List<B> flags, List<String> strings, List<C> colors) {
+    }
+
+    /**
+     * The whole component after a refresh, or null when its strings already start with
+     * {@code tag}. Generic over the float, flag and colour types so it is tested without a server.
+     */
+    public static <F, B, C> Refreshed<F, B, C> refreshed(List<F> floats, List<B> flags, List<String> strings,
+                                                         List<C> colors, String tag) {
+        List<String> tagged = withTag(strings, tag);
+        return tagged == null ? null : new Refreshed<>(List.copyOf(floats), List.copyOf(flags), tagged, List.copyOf(colors));
+    }
+
     public static List<String> withTag(List<String> strings, String tag) {
         if (strings == null || strings.isEmpty()) {
             return List.of(tag);

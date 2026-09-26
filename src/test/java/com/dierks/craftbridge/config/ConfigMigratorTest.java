@@ -551,7 +551,7 @@ class ConfigMigratorTest {
         String jar = bundledText();
         String header = "# -----------------------------------------------------------------------------\n";
         String customItems = jar.substring(jar.indexOf(header + "# Custom items"), jar.indexOf(header + "# Resource pack"));
-        String folderKey = "  geyser-folder: \"\"\n";
+        String folderKey = "  geyser-folder: ''\n";
         String geyserFolder = jar.substring(jar.indexOf("  # Geyser's own folder"), jar.indexOf(folderKey) + folderKey.length());
         String expected = original.replace("config-version: 4\n", "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n")
                 .replace(header + "# Resource pack", customItems + header + "# Resource pack")
@@ -564,6 +564,18 @@ class ConfigMigratorTest {
         assertEquals("<gray>CraftBridge adds 3D models for the Linked Workbench and Combo Chest.",
                 after.getString("resource-pack.prompt"), "an existing prompt is the admin's and stays");
         assertTrue(Files.isRegularFile(dir.resolve("config.yml.bak-v4")));
+    }
+
+    @Test
+    void aKeyWrittenWithNoValueIsNotAddedASecondTime() throws IOException {
+        Files.writeString(config, fixture("config-v4.yml").replace("  show-displays: false\n",
+                "  show-displays: false\n  geyser-folder:\n"));
+
+        migrate();
+
+        String text = Files.readString(config);
+        assertEquals(1, text.lines().filter(l -> l.trim().startsWith("geyser-folder:")).count(), text);
+        assertEquals("", reload().getString("bedrock.geyser-folder", ""));
     }
 
     // ---- files that must not be touched ---------------------------------------------

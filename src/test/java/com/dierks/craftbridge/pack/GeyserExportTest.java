@@ -49,7 +49,7 @@ class GeyserExportTest {
         assertTrue(Files.isRegularFile(out.resolve(GeyserExport.MAPPINGS)));
         assertTrue(Files.isRegularFile(out.resolve(GeyserExport.DISPLAY_MAPPINGS)));
         assertFalse(Files.exists(plugins.resolve("Geyser-Spigot")), "never creates Geyser's folder");
-        assertTrue(lines.get(lines.size() - 1).contains("copy"), lines.toString());
+        assertTrue(lines.get(lines.size() - 2).contains("copy"), lines.toString());
     }
 
     @Test
@@ -168,7 +168,32 @@ class GeyserExportTest {
         assertEquals(jarManifest.getAsJsonObject("header").get("uuid"), manifest.getAsJsonObject("header").get("uuid"));
         assertEquals(manifest.getAsJsonObject("header").get("version"),
                 manifest.getAsJsonArray("modules").get(0).getAsJsonObject().get("version"));
+        for (JsonElement part : manifest.getAsJsonObject("header").getAsJsonArray("version")) {
+            assertTrue(part.getAsInt() >= 0 && part.getAsInt() <= 65535, "Bedrock keeps version parts in 16 bits: " + part);
+        }
         assertTrue(lines.stream().anyMatch(l -> l.contains("burned_zombie_flesh, fancy_table")), lines.toString());
+    }
+
+    @Test
+    void everyPathInTheBedrockPackStaysShortEnoughForConsoles() throws IOException {
+        String longId = "a".repeat(64);
+        GeyserExport.export(PackFiles.fromDirectory(BEDROCK_PACK),
+                Files.readAllBytes(GEYSER.resolve(GeyserExport.MAPPINGS)),
+                Files.readAllBytes(GEYSER.resolve(GeyserExport.DISPLAY_MAPPINGS)),
+                List.of(new GeyserExport.BedrockItem(longId, "paper", "Long", ItemArtTest.png(16, 16))),
+                plugins.resolve("CraftBridge/geyser"), plugins, null);
+
+        Map<String, byte[]> pack = unzip(Files.readAllBytes(plugins.resolve("CraftBridge/geyser").resolve(GeyserExport.MCPACK)));
+        assertTrue(pack.keySet().stream().allMatch(p -> p.length() < 80), pack.keySet().toString());
+        JsonObject atlas = json(pack.get("textures/item_texture.json")).getAsJsonObject("texture_data");
+        String path = atlas.getAsJsonObject("craftbridge.item." + longId).getAsJsonArray("textures").get(0).getAsString();
+        assertTrue(pack.containsKey(path + ".png"), path);
+    }
+
+    @Test
+    void copyingByHandStillSaysToRestartGeyser() throws IOException {
+        List<String> lines = export();
+        assertTrue(lines.get(lines.size() - 1).contains("restart"), lines.toString());
     }
 
     @Test
@@ -200,7 +225,7 @@ class GeyserExportTest {
         List<String> lines = exportWithItems(missing);
 
         assertFalse(Files.exists(missing));
-        assertTrue(lines.get(lines.size() - 1).contains("not a folder"), lines.toString());
+        assertTrue(lines.get(lines.size() - 2).contains("not a folder"), lines.toString());
         assertTrue(Files.isRegularFile(plugins.resolve("CraftBridge/geyser").resolve(GeyserExport.MCPACK)));
     }
 }

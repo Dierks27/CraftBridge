@@ -9,6 +9,7 @@ import io.papermc.paper.datacomponent.DataComponentTypes;
 import io.papermc.paper.datacomponent.item.CustomModelData;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
@@ -190,15 +191,15 @@ public final class CustomItemRegistry {
             return false;
         }
         CustomModelData current = stack.getData(DataComponentTypes.CUSTOM_MODEL_DATA);
-        List<String> strings = ModelTags.withTag(current == null ? List.of() : current.strings(), tag);
-        if (strings == null) {
+        ModelTags.Refreshed<Float, Boolean, Color> next = current == null
+                ? ModelTags.refreshed(List.of(), List.of(), List.of(), List.of(), tag)
+                : ModelTags.refreshed(current.floats(), current.flags(), current.strings(), current.colors(), tag);
+        if (next == null) {
             return false;
         }
-        CustomModelData.Builder rebuilt = CustomModelData.customModelData().addStrings(strings);
-        if (current != null) {
-            rebuilt.addFloats(current.floats()).addFlags(current.flags()).addColors(current.colors());
-        }
-        stack.setData(DataComponentTypes.CUSTOM_MODEL_DATA, rebuilt.build());
+        stack.setData(DataComponentTypes.CUSTOM_MODEL_DATA, CustomModelData.customModelData()
+                .addFloats(next.floats()).addFlags(next.flags()).addStrings(next.strings()).addColors(next.colors())
+                .build());
         return true;
     }
 

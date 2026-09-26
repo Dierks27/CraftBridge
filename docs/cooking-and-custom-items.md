@@ -224,14 +224,17 @@ time. With both listed, old and new items match. Two side effects:
 A custom item built on a block (a "Compressed Cobblestone" on cobblestone) cannot be placed.
 Placed, it would be the plain block, and breaking it would drop the plain item: the custom item
 is simply gone. With pack art it would also change its look the moment it lands. The same goes
-for anything else that places a block when used, like string or seeds.
-`custom-items.placeable: true` in `config.yml` allows it, for an item that is meant as a
-decorative block and is fine ending up as the vanilla one. The Linked Workbench and Combo Chest
-place-items carry their own tag, not `cb_item`, and place as always. An item whose definition has
-been deleted is an ordinary item again and places normally.
+for anything else that places a block when used, like string or seeds, and for potting a plant
+or putting a candle on a cake. `custom-items.placeable: true` in `config.yml` allows it, for an
+item that is meant as a decorative block and is fine ending up as the vanilla one. The Linked
+Workbench and Combo Chest place-items carry their own tag, not `cb_item`, and place as always. An
+item whose definition has been deleted is an ordinary item again and places normally.
 
-Only a player placing a block is covered. Emptying a bucket, placing an entity (a boat, an
-armour stand) and dispensers are not.
+Custom tools keep working. Paper reports what a tool does to a block (a hoe tilling, an axe
+stripping, flint and steel lighting a fire) as a block place too, with the tool as the item, so
+only items that are block items themselves are refused.
+
+Emptying a bucket, placing an entity (a boat, an armour stand) and dispensers are not covered.
 
 A head-based custom item can never be placed as a block, whatever `custom-items.placeable` says,
 and cannot be worn in the helmet slot. Both lose the item's identity, and neither is what an
