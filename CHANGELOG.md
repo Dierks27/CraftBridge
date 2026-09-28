@@ -24,7 +24,8 @@ client link is unchanged, so CraftBridge Client 0.4.0 keeps working.
   * Tables and Combo Chests placed before 0.16 are converted as their chunks load; the startup
     log counts them. Anything a Combo Chest's barrel held is dropped at the block first.
   * `display.invisible-block: false` (per block) goes back to the real crafting table or barrel;
-    switching it converts the placed blocks back.
+    switching it converts the placed blocks back. Do that before removing CraftBridge: without
+    it, a barrier stays an invisible block survival players cannot break.
   * Bedrock players see nothing where the block stands unless Geyser has the GeyserDisplayEntity
     extension; the block still works for them. Use `invisible-block: false` on a server where
     that matters.

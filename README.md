@@ -684,7 +684,12 @@ around it. The barrier is the hitbox, a full block whatever the model's shape. P
 the pack see the display draw a plain crafting table or barrel instead. `display.invisible-block:
 false` (per block) puts the real crafting table or barrel back under the display, as before 0.16;
 the model must then cover the whole block, and players without the pack see the real block.
-Changing it converts the blocks already placed as their chunks load. The same pack can give custom items from
+Changing it converts the blocks already placed as their chunks load.
+
+**Before removing CraftBridge** (or switching `features.linked-workbench` off), set
+`invisible-block: false` for both blocks and run `/craftbridge reload` with every area that has
+one loaded, or visit them: without CraftBridge a barrier stays a barrier, invisible and
+unbreakable in survival. The real crafting tables and barrels it turns back into stay usable. The same pack can give custom items from
 `/recipe` a texture of their own (*Custom item art* below).
 
 **How it works.** In `display.mode: model` (the default, per block under

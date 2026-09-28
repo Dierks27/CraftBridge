@@ -103,7 +103,12 @@ public final class SessionManager {
         }
         for (LinkedSession session : new java.util.ArrayList<>(sessions.values())) {
             Player player = plugin.getServer().getPlayer(session.player());
-            if (player != null && !reachable(player, session.record())) {
+            if (player == null) {
+                continue;
+            }
+            if (!isLinkedView(player, player.getOpenInventory())) {
+                end(player, true); // its menu is gone already: never close whatever is open now
+            } else if (!reachable(player, session.record())) {
                 player.closeInventory();
             }
         }
@@ -112,6 +117,9 @@ public final class SessionManager {
     private boolean reachable(Player player, WorkbenchRecord record) {
         if (store.byKey(record.key()) == null || !player.getWorld().getName().equals(record.world())) {
             return false;
+        }
+        if (record.chunkLoaded() && !record.kind().standsOn(record.block().getType())) {
+            return false; // wiped by WorldEdit or a regen before the sweep noticed
         }
         Location eyes = player.getEyeLocation();
         double dx = eyes.getX() - (record.x() + 0.5);

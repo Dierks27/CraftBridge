@@ -232,7 +232,7 @@ of their base item; the block models are not affected.
 
 You do not have to rebuild the plugin to try a change. Copy the changed files, with the same
 folders below `java/`, into `plugins/CraftBridge/pack/overrides/java/` on the server, e.g.
-`plugins/CraftBridge/pack/overrides/java/assets/craftbridge/textures/block/linked_workbench_top.png`,
+`plugins/CraftBridge/pack/overrides/java/assets/craftbridge/textures/block/combo_chest_top.png`,
 and run `/craftbridge reload`. The plugin builds a new `plugins/CraftBridge/pack/craftbridge-java.zip`
 and logs its new SHA-1. If players download the pack from `resource-pack.url`, upload the new
 zip there; clients refuse a file whose hash does not match, so a forgotten upload shows the plain

@@ -114,7 +114,8 @@ linked-workbench:
     #       crafting table, drawn by the display. Left-click picks it up. Bedrock players see
     #       nothing there unless Geyser has the GeyserDisplayEntity extension (see bedrock).
     # false: a real crafting table under the display, as before 0.16; the model has to cover
-    #        the whole block. Changing this converts the tables already placed.
+    #        the whole block. Changing this converts the tables already placed. Set it to
+    #        false and reload before removing CraftBridge: a barrier left behind stays one.
     invisible-block: true
     # The settings below shape the head (mode: head) only.
     transform: NONE
