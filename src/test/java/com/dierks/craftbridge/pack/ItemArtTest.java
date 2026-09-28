@@ -329,11 +329,11 @@ class ItemArtTest {
 
     @Test
     void anIdThatWouldOverwriteOurOwnTextureIsRefused() throws IOException {
-        ItemArt.Result result = build(List.of(item("linked_workbench_top", "cobblestone")),
-                Map.of("linked_workbench_top.png", PNG16), Set.of(), vanilla("26.2"));
+        ItemArt.Result result = build(List.of(item("combo_chest_top", "cobblestone")),
+                Map.of("combo_chest_top.png", PNG16), Set.of(), vanilla("26.2"));
 
         assertTrue(result.files().isEmpty());
-        assertTrue(result.skipped().get(0).reason().contains("textures/block/linked_workbench_top.png"),
+        assertTrue(result.skipped().get(0).reason().contains("textures/block/combo_chest_top.png"),
                 result.skipped().toString());
     }
 
@@ -478,12 +478,12 @@ class ItemArtTest {
 
     @Test
     void aCustomModelCannotReplaceOurOwnBlockTextures() throws IOException {
-        byte[] model = "{\"parent\": \"minecraft:block/cube_all\", \"textures\": {\"all\": \"craftbridge:block/linked_workbench_top\"}}"
+        byte[] model = "{\"parent\": \"minecraft:block/cube_all\", \"textures\": {\"all\": \"craftbridge:block/combo_chest_top\"}}"
                 .getBytes(StandardCharsets.UTF_8);
         ItemArt.Result result = build(List.of(item("fancy_table", "stone")),
-                Map.of("fancy_table.json", model, "linked_workbench_top.png", PNG16), Set.of(), vanilla("26.2"));
+                Map.of("fancy_table.json", model, "combo_chest_top.png", PNG16), Set.of(), vanilla("26.2"));
 
-        assertFalse(result.files().containsKey("assets/craftbridge/textures/block/linked_workbench_top.png"));
+        assertFalse(result.files().containsKey("assets/craftbridge/textures/block/combo_chest_top.png"));
         assertTrue(result.warnings().stream().anyMatch(w -> w.contains("would replace CraftBridge's own")), result.warnings().toString());
         assertEquals(List.of(), result.skipped());
     }

@@ -44,7 +44,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         this.displays = new DisplayManager(plugin, store, items);
         this.scanner = new StorageScanner(plugin);
         this.scanner.terminals(() -> store.keysOf(BlockKind.COMBO_CHEST));
-        this.sessions = new SessionManager(plugin);
+        this.sessions = new SessionManager(plugin, store);
     }
 
     @Override
@@ -57,7 +57,9 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         store.load();
         int[] swept = displays.sweep();
         plugin.getLogger().info("Linked Workbench: " + store.all().size() + " placed; startup sweep removed "
-                + swept[0] + " orphaned display(s), respawned " + swept[1] + ".");
+                + swept[0] + " orphaned display(s), respawned " + swept[1] + "."
+                + (swept[2] == 0 ? "" : " Swapped the block under " + swept[2] + " of them for what"
+                        + " display.invisible-block asks for."));
         for (BlockKind kind : BlockKind.values()) {
             registerRecipe(kind);
         }
@@ -168,7 +170,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
 
     /** Turn {@code block} into a {@code kind} block facing {@code player}. */
     public void place(Block block, Player player, BlockKind kind) {
-        block.setType(kind.block());
+        block.setType(plugin.config().worldBlock(kind));
         float yaw = snapYaw(player.getLocation().getYaw() + 180f);
         WorkbenchRecord record = new WorkbenchRecord(kind, block.getWorld().getName(), block.getX(), block.getY(), block.getZ(),
                 null, player.getUniqueId(), yaw);

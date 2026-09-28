@@ -105,6 +105,12 @@ class ResourcePackAssetsTest {
                 }
             }
             for (Object texture : textures.values()) {
+                if (((String) texture).startsWith("minecraft:")) {
+                    // Minecraft's own texture, which every client has: not in our pack.
+                    assertTrue(VANILLA_TEXTURES.contains(texture), name + " uses " + texture
+                            + ": add it to VANILLA_TEXTURES once you have checked the name exists in Minecraft");
+                    continue;
+                }
                 Path png = javaAsset((String) texture, "textures", ".png");
                 assertTrue(Files.isRegularFile(png), png.toString());
                 int[] size = pngSize(png);
@@ -113,6 +119,11 @@ class ResourcePackAssetsTest {
             }
         }
     }
+
+    /** Minecraft textures our models borrow; vanilla 26.2 and 26.3 block models use each of them, so they exist. */
+    private static final java.util.Set<String> VANILLA_TEXTURES = java.util.Set.of(
+            "minecraft:block/stripped_oak_log", "minecraft:block/diamond_block", "minecraft:block/acacia_log_top",
+            "minecraft:block/anvil", "minecraft:block/black_concrete");
 
     private static Path javaAsset(String id, String folder, String extension) {
         String[] parts = id.split(":", 2);

@@ -12,6 +12,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.MenuType;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,12 +21,19 @@ import java.util.UUID;
 /** Opens linked crafting views and tracks the per-player {@link LinkedSession}. */
 public final class SessionManager {
 
+    /** How far from the table's centre (from the eyes) a player may walk before the menu closes. */
+    static final double REACH = 8.0;
+
     private final CraftBridgePlugin plugin;
+    private final WorkbenchStore store;
     private final Map<UUID, LinkedSession> sessions = new HashMap<>();
     private PhantomManager phantoms;
+    /** Runs while any session is open: see {@link #closeUnreachable()}. */
+    private BukkitTask watch;
 
-    public SessionManager(CraftBridgePlugin plugin) {
+    public SessionManager(CraftBridgePlugin plugin, WorkbenchStore store) {
         this.plugin = plugin;
+        this.store = store;
     }
 
     void setPhantoms(PhantomManager phantoms) {
@@ -37,9 +45,11 @@ public final class SessionManager {
     }
 
     /**
-     * Open a real vanilla crafting menu attached to the table (so it closes when the
-     * player walks more than 8 blocks away or the table is gone, and so JEI recognises it
-     * as MenuType.CRAFTING) and start the session.
+     * Open a real vanilla crafting menu attached to the table (so JEI recognises it as
+     * MenuType.CRAFTING) and start the session. It closes when the player walks more than
+     * {@link #REACH} blocks away or the table is gone: vanilla sees to that at a real crafting
+     * table, {@link #closeUnreachable()} everywhere, including over the invisible barrier, where
+     * vanilla's check (is this still a crafting table?) would close the menu at once.
      *
      * @return the session, or null when the menu did not open (another plugin cancelled the
      *         InventoryOpenEvent, or the player cannot be shown a menu right now)
@@ -47,9 +57,11 @@ public final class SessionManager {
     public LinkedSession open(Player player, WorkbenchRecord record) {
         end(player, false);
         Location loc = record.location();
+        Block block = record.block();
+        boolean realTable = block != null && block.getType() == record.kind().block();
         InventoryView view = MenuType.CRAFTING.builder()
                 .location(loc)
-                .checkReachable(true)
+                .checkReachable(realTable)
                 .title(Component.text("Linked Workbench"))
                 .build(player);
         player.openInventory(view);
@@ -65,11 +77,47 @@ public final class SessionManager {
         }
         LinkedSession session = new LinkedSession(player.getUniqueId(), record, view);
         sessions.put(player.getUniqueId(), session);
+        watch();
         if (phantoms != null) {
             phantoms.start(player); // a no-op for a player whose own client shows them storage
         }
         link(link -> link.sessionOpened(player));
         return session;
+    }
+
+    private void watch() {
+        if (watch == null && plugin.isEnabled()) {
+            watch = plugin.getServer().getScheduler().runTaskTimer(plugin, this::closeUnreachable, 10L, 10L);
+        }
+    }
+
+    /**
+     * Twice a second: close the menu of every player who walked off, changed worlds, or whose
+     * table is gone. Closing ends the session the usual way (items back to their chests).
+     */
+    private void closeUnreachable() {
+        if (sessions.isEmpty()) {
+            watch.cancel();
+            watch = null;
+            return;
+        }
+        for (LinkedSession session : new java.util.ArrayList<>(sessions.values())) {
+            Player player = plugin.getServer().getPlayer(session.player());
+            if (player != null && !reachable(player, session.record())) {
+                player.closeInventory();
+            }
+        }
+    }
+
+    private boolean reachable(Player player, WorkbenchRecord record) {
+        if (store.byKey(record.key()) == null || !player.getWorld().getName().equals(record.world())) {
+            return false;
+        }
+        Location eyes = player.getEyeLocation();
+        double dx = eyes.getX() - (record.x() + 0.5);
+        double dy = eyes.getY() - (record.y() + 0.5);
+        double dz = eyes.getZ() - (record.z() + 0.5);
+        return dx * dx + dy * dy + dz * dz <= REACH * REACH;
     }
 
     /** Is this view the player's linked crafting view? */
@@ -211,6 +259,10 @@ public final class SessionManager {
     }
 
     public void endAll() {
+        if (watch != null) {
+            watch.cancel();
+            watch = null;
+        }
         for (UUID id : new java.util.ArrayList<>(sessions.keySet())) {
             Player p = plugin.getServer().getPlayer(id);
             if (p != null) {

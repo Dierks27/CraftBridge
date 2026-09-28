@@ -175,6 +175,39 @@ public final class WorkbenchListener implements Listener {
         }
     }
 
+    /**
+     * A barrier cannot be mined, so a left-click on the barrier under one of ours picks the block
+     * up at once, the way a painting or an armour stand comes off. It goes through a
+     * {@link BlockBreakEvent} like any break, so protection plugins decide as usual and
+     * {@link #onBreak} forgets the block and drops its item; then it breaks with the vanilla
+     * block's particles and sound instead of the barrier's.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPunch(PlayerInteractEvent event) {
+        if (ContainerAccess.isSynthetic() || event.getAction() != Action.LEFT_CLICK_BLOCK) {
+            return;
+        }
+        Block block = event.getClickedBlock();
+        if (block == null || block.getType() != Material.BARRIER) {
+            return;
+        }
+        WorkbenchRecord record = feature.store().at(block);
+        if (record == null) {
+            return;
+        }
+        event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (player.getGameMode() == GameMode.ADVENTURE || player.getGameMode() == GameMode.SPECTATOR) {
+            return;
+        }
+        if (!new BlockBreakEvent(block, player).callEvent()) {
+            return; // a protection plugin said no
+        }
+        feature.unplace(block, player.getGameMode() != GameMode.CREATIVE); // a no-op once onBreak ran
+        block.setType(Material.AIR);
+        block.getWorld().playEffect(block.getLocation(), org.bukkit.Effect.STEP_SOUND, record.kind().block().createBlockData());
+    }
+
     // ---- using ---------------------------------------------------------------------
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -184,11 +217,11 @@ public final class WorkbenchListener implements Listener {
             return;
         }
         Block block = event.getClickedBlock();
-        if (block == null || (block.getType() != Material.CRAFTING_TABLE && block.getType() != Material.BARREL)) {
+        if (block == null) {
             return;
         }
         WorkbenchRecord record = feature.store().at(block);
-        if (record == null || record.kind().block() != block.getType()) {
+        if (record == null || !record.kind().standsOn(block.getType())) {
             return;
         }
         if (event.useInteractedBlock() == Event.Result.DENY) {

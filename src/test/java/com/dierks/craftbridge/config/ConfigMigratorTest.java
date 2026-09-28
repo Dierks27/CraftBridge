@@ -486,7 +486,8 @@ class ConfigMigratorTest {
                 "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n"));
         assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
         assertEquals(List.of("added linked-workbench.display.mode, linked-workbench.display.model-scale,"
-                + " combo-chest.display.mode, combo-chest.display.model-scale, custom-items, resource-pack, bedrock"),
+                + " linked-workbench.display.invisible-block, combo-chest.display.mode, combo-chest.display.model-scale,"
+                + " combo-chest.display.invisible-block, custom-items, resource-pack, bedrock"),
                 result.changes());
 
         YamlConfiguration after = reload();
@@ -520,7 +521,8 @@ class ConfigMigratorTest {
         assertEquals(3.5, after.getDouble("linked-workbench.display.scale"), 1e-9, "admin value untouched");
         assertEquals(2.02, after.getDouble("combo-chest.display.scale"), 1e-9);
         assertEquals("model", after.getString("linked-workbench.display.mode"));
-        assertEquals(List.of("mode", "model-scale", "transform", "scale", "offset-x", "offset-y", "offset-z", "yaw-offset"),
+        assertEquals(List.of("mode", "model-scale", "invisible-block", "transform", "scale", "offset-x", "offset-y",
+                        "offset-z", "yaw-offset"),
                 new ArrayList<>(after.getConfigurationSection("linked-workbench.display").getKeys(false)));
     }
 
@@ -547,13 +549,15 @@ class ConfigMigratorTest {
         ConfigMigrator.Result result = migrate();
 
         assertEquals(4, result.from());
-        assertEquals(List.of("added custom-items, bedrock.geyser-folder"), result.changes());
+        assertEquals(List.of("added linked-workbench.display.invisible-block, combo-chest.display.invisible-block,"
+                + " custom-items, bedrock.geyser-folder"), result.changes());
         String jar = bundledText();
         String header = "# -----------------------------------------------------------------------------\n";
         String customItems = jar.substring(jar.indexOf(header + "# Custom items"), jar.indexOf(header + "# Resource pack"));
         String folderKey = "  geyser-folder: ''\n";
         String geyserFolder = jar.substring(jar.indexOf("  # Geyser's own folder"), jar.indexOf(folderKey) + folderKey.length());
-        String expected = original.replace("config-version: 4\n", "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n")
+        String expected = withInvisibleBlock(original.replace("config-version: 4\n",
+                        "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n"))
                 .replace(header + "# Resource pack", customItems + header + "# Resource pack")
                 .replace("bedrock:\n  show-displays: false\n", "bedrock:\n  show-displays: false\n" + geyserFolder);
         assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
@@ -564,6 +568,28 @@ class ConfigMigratorTest {
         assertEquals("<gray>CraftBridge adds 3D models for the Linked Workbench and Combo Chest.",
                 after.getString("resource-pack.prompt"), "an existing prompt is the admin's and stays");
         assertTrue(Files.isRegularFile(dir.resolve("config.yml.bak-v4")));
+    }
+
+    // ---- a v5 file (0.15.0: custom item art, before the invisible block) --------------
+
+    @Test
+    void aV5FileGainsTheInvisibleBlockSettingInBothDisplaySectionsAndNothingElse() throws IOException {
+        String original = fixture("config-v5.yml");
+        Files.writeString(config, original);
+
+        ConfigMigrator.Result result = migrate();
+
+        assertEquals(5, result.from());
+        assertEquals(List.of("added linked-workbench.display.invisible-block, combo-chest.display.invisible-block"),
+                result.changes());
+        String expected = withInvisibleBlock(original.replace("config-version: 5\n",
+                "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n"));
+        assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
+
+        YamlConfiguration after = reload();
+        assertTrue(after.getBoolean("linked-workbench.display.invisible-block"));
+        assertTrue(after.getBoolean("combo-chest.display.invisible-block"));
+        assertTrue(Files.isRegularFile(dir.resolve("config.yml.bak-v5")));
     }
 
     @Test
@@ -703,9 +729,10 @@ class ConfigMigratorTest {
     }
 
     /**
-     * A v3 file's text as the v4 and v5 upgrades leave it: display.mode and display.model-scale
-     * in both block sections (just before transform), and the custom-items, resource-pack and
-     * bedrock sections just before the JEI section, all as the jar writes them.
+     * A v3 file's text as the v4, v5 and v6 upgrades leave it: display.mode, display.model-scale
+     * and display.invisible-block in both block sections (just before the head settings), and the
+     * custom-items, resource-pack and bedrock sections just before the JEI section, all as the jar
+     * writes them.
      */
     private static String withV4AndV5Settings(String text) throws IOException {
         String jar = bundledText();
@@ -725,6 +752,25 @@ class ConfigMigratorTest {
         String sections = jar.substring(jar.indexOf(header + "# Custom items"), jar.indexOf(header + "# JEI"));
         int at = text.indexOf(header + "# JEI");
         return text.substring(0, at) + sections + text.substring(at);
+    }
+
+    /**
+     * A v4 or v5 file's text with display.invisible-block (v6) in both block sections, its comment
+     * included, just after model-scale, as the jar writes it.
+     */
+    private static String withInvisibleBlock(String text) throws IOException {
+        String jar = bundledText();
+        String scale = "    model-scale: 1.002\n";
+        int from = 0;
+        for (String block : List.of("linked-workbench:", "combo-chest:")) {
+            int jarScale = jar.indexOf(scale, jar.indexOf("\n" + block + "\n")) + scale.length();
+            String added = jar.substring(jarScale, jar.indexOf("    invisible-block: true\n", jarScale)
+                    + "    invisible-block: true\n".length());
+            int at = text.indexOf(scale, text.indexOf("\n" + block + "\n", from)) + scale.length();
+            text = text.substring(0, at) + added + text.substring(at);
+            from = at;
+        }
+        return text;
     }
 
     private static String bundledText() throws IOException {

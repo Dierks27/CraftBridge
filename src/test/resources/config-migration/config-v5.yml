@@ -109,13 +109,6 @@ linked-workbench:
     mode: model
     # Size of the model over the table; a hair over 1 so the real block never shows through.
     model-scale: 1.002
-    # true: the block under the display is an invisible barrier, so the model can be any
-    #       shape (a small table with room around it). Players without the pack see a plain
-    #       crafting table, drawn by the display. Left-click picks it up. Bedrock players see
-    #       nothing there unless Geyser has the GeyserDisplayEntity extension (see bedrock).
-    # false: a real crafting table under the display, as before 0.16; the model has to cover
-    #        the whole block. Changing this converts the tables already placed.
-    invisible-block: true
     # The settings below shape the head (mode: head) only.
     transform: NONE
     scale: 2.02
@@ -153,9 +146,6 @@ combo-chest:
     # model or head, as for the Linked Workbench. Without the pack a player sees the barrel.
     mode: model
     model-scale: 1.002
-    # An invisible barrier under the display (true), or a real barrel as before 0.16 (false),
-    # as for the Linked Workbench.
-    invisible-block: true
     # The settings below shape the head (mode: head) only.
     transform: NONE
     scale: 2.02
@@ -245,12 +235,10 @@ resource-pack:
     public-address: ""
 
 # -----------------------------------------------------------------------------
-# Bedrock players (Geyser / Floodgate). Geyser does not draw item displays, so over the
-# invisible block (display.invisible-block) they see nothing where a Linked Workbench or Combo
-# Chest stands, unless Geyser has the GeyserDisplayEntity extension; the block still works.
-# Over a real crafting table or barrel, model displays are hidden from them and they see the
-# plain block; set show-displays to true only when Geyser has GeyserDisplayEntity and
-# CraftBridge's Bedrock pack and mappings (see /craftbridge geyser export and the README).
+# Bedrock players (Geyser / Floodgate). They cannot load a Java pack, so model displays are
+# hidden from them and they see the plain block. Set this to true only when Geyser has the
+# GeyserDisplayEntity extension and CraftBridge's Bedrock pack and mappings (see
+# /craftbridge geyser export and the README).
 # -----------------------------------------------------------------------------
 bedrock:
   show-displays: false
@@ -291,4 +279,4 @@ jei:
 # the current one: settings added since are filled in with their defaults, entries new
 # in a release are added to lists once, and nothing you have set is changed. The file
 # as it was is kept beside it as config.yml.bak-v<old version>. Leave this number alone.
-config-version: 6
+config-version: 5

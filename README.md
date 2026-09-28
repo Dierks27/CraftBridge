@@ -409,26 +409,31 @@ disables itself, and the rest of the plugin is unaffected. Names it depends on:
 
 A crafting table that can pull ingredients from the chests around it.
 
-**The block.** Physically a normal `CRAFTING_TABLE`, so vanilla interaction, breaking,
-Towny/WorldGuard checks and the vanilla crafting menu (which JEI knows how to fill) all
-keep working. It is placed from a special item — a crafting table carrying the model (see
+**The block.** Physically an invisible `BARRIER` under the display (since 0.16, so the model
+can be any shape), or with `linked-workbench.display.invisible-block: false` a normal
+`CRAFTING_TABLE` as before. Either way right-clicking it opens the vanilla crafting menu (which
+JEI knows how to fill), and breaking it goes through a normal block break, so Towny/WorldGuard
+checks keep working. A barrier cannot be mined, so a left-click picks the block up at once,
+with the crafting table's particles and sound. The menu closes when the player walks more than
+8 blocks away or the block is gone. It is placed from a special item — a crafting table carrying the model (see
 [Custom block models](#custom-block-models)), or in `display.mode: head` a player head wearing
 the configured texture, named *Linked Workbench*, PDC-tagged `craftbridge:linked_workbench` — and
 tracked in `plugins/CraftBridge/linked-workbenches.yml` (`type` + world + xyz + display UUID +
-owner + yaw; the same file holds Combo Chests). Breaking it drops the head item back; burning or exploding it does too;
-pistons cannot move it. Craftable (`craftbridge:linked_workbench`, shape and
+owner + yaw; the same file holds Combo Chests). Breaking it drops the place-item back; burning or exploding a crafting table does too (a barrier
+does neither); pistons cannot move it. Craftable (`craftbridge:linked_workbench`, shape and
 ingredients in `linked-workbench.recipe`; default: crafting table in the middle, 4
 chests in the corners, 3 copper ingots, 1 ender pearl at the bottom).
 Admins: `/craftbridge workbench give`.
 
 **The look.** By default (`display.mode: model`) the display shows the block's model from
-CraftBridge's resource pack, to players who loaded it; see
+CraftBridge's resource pack to players who loaded it, and a plain crafting table to everyone
+else; see
 [Custom block models](#custom-block-models). The rest of this paragraph is `display.mode: head`.
 On placement an `ItemDisplay` holding the head is spawned at the block,
 scaled ≈ 2.02 so the half-block head model covers the table with a hair of overlap,
 rotated to face the player who placed it (yaw snapped to 90°), persistent, tagged
 `craftbridge:linked_display` = the table key, with its UUID stored on the record. It
-has no hitbox, so the real table underneath stays the interaction target.
+has no hitbox, so the block underneath stays the interaction target.
 `transform`, `scale`, the offsets and `yaw-offset` live in `config.yml` and can be
 dialled in live with `/craftbridge workbench display <scale|x|y|z|yaw|transform>
 <value>` (saves config + respawns every loaded display) — the defaults (`NONE`, 2.02,
@@ -440,11 +445,13 @@ half-size and rotated 180°, so it needs scale ≈ 4.04 and `yaw-offset: 180`.
 A startup sweep (and a sweep whenever a chunk's entities load) removes any tagged
 display whose table is gone (WorldEdit / Towny regen) and respawns missing displays for
 tables that still exist, or whose look (mode, item, geometry) no longer matches `config.yml`.
-A record whose block is no longer a crafting table is
-forgotten — the place-item is not refunded in that case. Bedrock/Geyser players may see
-a head display as a generic head or not at all; model displays are hidden from them unless
-`bedrock.show-displays` is on. The block still works for them because it is a real crafting
-table.
+The same sweep swaps the block underneath when `invisible-block` changed: tables placed before
+0.16 become barriers as their chunks load (or back, when it is switched off). A record whose block
+is no longer a barrier or a crafting table is forgotten — the place-item is not refunded in that
+case. Geyser does not draw item displays, so over a barrier Bedrock players see nothing unless
+Geyser has the GeyserDisplayEntity extension; the block still works for them. Over a real
+crafting table they see the table (model displays are hidden from them unless
+`bedrock.show-displays` is on), or a head display as a generic head or not at all.
 
 **Nearby storage** = every chest, trapped chest, double chest (counted once), barrel and
 placed shulker box within `linked-workbench.radius` (8) blocks that the player may use:
@@ -559,8 +566,10 @@ future 26.x build disables just this feature with one WARN.
 A storage terminal: one block that shows everything in every chest around it, hands it
 out, and takes deposits — no activation, no modes, and no sneak-clicking.
 
-**The block.** Physically a `BARREL` (so Towny/WorldGuard/vanilla break-and-drop rules
-apply unchanged) placed from a PDC-tagged item (`craftbridge:combo_chest`) and tracked
+**The block.** Physically an invisible `BARRIER` under the display, or with
+`combo-chest.display.invisible-block: false` a `BARREL` as before 0.16; breaking goes through a
+normal block break either way, so Towny/WorldGuard rules apply, and a left-click picks up the
+barrier at once. Placed from a PDC-tagged item (`craftbridge:combo_chest`) and tracked
 in the same `linked-workbenches.yml` as the workbench, with `type: combo_chest`. An
 `ItemDisplay` sits on the barrel: the Combo Chest model from the resource pack (see
 [Custom block models](#custom-block-models)), or in `display.mode: head` the head from
@@ -667,8 +676,15 @@ chest or barrel that CraftBridge never takes the last item of any slot from.
 
 The Linked Workbench and the Combo Chest look like themselves, not like a crafting table and
 a barrel, for every player whose client loads CraftBridge's resource pack. Everyone else sees
-the plain vanilla block, and the blocks work the same for everyone: underneath the model the
-real crafting table and barrel are still there. The same pack can give custom items from
+the plain vanilla block, and the blocks work the same for everyone.
+
+**Any shape (0.16).** Under each display is an invisible barrier, so a model does not have to
+fill the block: the Linked Workbench is a small table with a tool rack and a screen, with room
+around it. The barrier is the hitbox, a full block whatever the model's shape. Players without
+the pack see the display draw a plain crafting table or barrel instead. `display.invisible-block:
+false` (per block) puts the real crafting table or barrel back under the display, as before 0.16;
+the model must then cover the whole block, and players without the pack see the real block.
+Changing it converts the blocks already placed as their chunks load. The same pack can give custom items from
 `/recipe` a texture of their own (*Custom item art* below).
 
 **How it works.** In `display.mode: model` (the default, per block under
@@ -678,7 +694,9 @@ vanilla `crafting_table` / `barrel` item whose `custom_model_data` string is
 `assets/minecraft/items/crafting_table.json` and `barrel.json` draw that string as CraftBridge's
 model and every other crafting table and barrel as vanilla. The display is hidden by default
 and shown to one player at a time, once their client reports the pack loaded; declining the
-pack, a failed download, or the pack being removed hides it again. The place-item (recipe,
+pack, a failed download, or the pack being removed hides it again. Over a barrier (the default)
+the display is shown to everyone instead: the pack draws the model, a client without it the
+vanilla block. The place-item (recipe,
 `/craftbridge give`) is the same tagged block item, so it shows the model in hands and
 inventories too; place-items handed out before the update (heads) keep working.
 Until the pack can be sent (`resource-pack.url` set, or the built-in host on), model mode
