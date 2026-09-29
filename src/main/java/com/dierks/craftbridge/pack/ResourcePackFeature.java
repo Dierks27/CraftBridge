@@ -186,6 +186,11 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         try {
             SortedMap<String, byte[]> own = PackFiles.fromJar(plugin.jarFile().toPath(), PackFiles.JAR_ROOT + "java/");
             SortedMap<String, byte[]> overrides = PackFiles.fromDirectory(packFolder().resolve("overrides").resolve("java"));
+            // A block's _active and _lid models (in the jar or the overrides) get their cases.
+            java.util.Set<String> present = new java.util.HashSet<>(own.keySet());
+            present.addAll(overrides.keySet());
+            own = BlockVariants.withVariantCases(own, present,
+                    java.util.Map.of("linked_workbench", "crafting_table", "combo_chest", "barrel"));
             try {
                 art = buildArt(own, overrides.keySet());
             } catch (IOException | RuntimeException ex) {

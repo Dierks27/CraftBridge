@@ -55,6 +55,19 @@ public final class DisplayManager {
      * respawned by the sweeps.
      */
     public static final NamespacedKey DISPLAY_LOOK = Keys.key("display_look");
+    /** On a lid's display: the key of the block it belongs to (see {@link Variants}). */
+    public static final NamespacedKey LID_OF = Keys.key("lid_of");
+    /** How long a lid takes to swing open or shut, in ticks (a chest's is about as quick). */
+    static final int LID_TICKS = 8;
+
+    /**
+     * The extra models a kind's pack has ({@link com.dierks.craftbridge.pack.BlockVariants}): an
+     * {@code _active} look for while it is in use, and a lid with the hinge it swings on (pixels),
+     * null when there is none.
+     */
+    public record Variants(boolean active, double[] lidHinge) {
+        public static final Variants NONE = new Variants(false, null);
+    }
 
     private final CraftBridgePlugin plugin;
     private final WorkbenchStore store;
@@ -65,6 +78,9 @@ public final class DisplayManager {
     private int converted;
     /** Who sees model displays; nobody until the resource-pack feature says otherwise. */
     private Predicate<Player> viewers = player -> false;
+    private java.util.Map<BlockKind, Variants> variants = java.util.Map.of();
+    /** Who has each block open (its menu), by block key: in use while this is not empty. */
+    private final java.util.Map<String, java.util.Set<UUID>> users = new java.util.HashMap<>();
 
     public DisplayManager(CraftBridgePlugin plugin, WorkbenchStore store, WorkbenchItems items) {
         this.plugin = plugin;
@@ -79,10 +95,13 @@ public final class DisplayManager {
             return record;
         }
         remove(record.display());
+        removeLids(record);
         BlockKind kind = record.kind();
         boolean model = plugin.config().displayMode(kind) == CraftBridgeConfig.DisplayMode.MODEL;
         String look = lookOf(kind);
-        ItemStack item = items.displayItem(kind);
+        boolean inUse = users.containsKey(record.key());
+        ItemStack item = model && inUse && variantsOf(kind).active()
+                ? WorkbenchItems.modelItem(kind, com.dierks.craftbridge.pack.BlockVariants.ACTIVE) : items.displayItem(kind);
         ItemDisplay display;
         if (model && plugin.config().invisibleBlock(kind)) {
             // Over an invisible barrier everyone sees the display: the model with the pack, the
@@ -95,6 +114,17 @@ public final class DisplayManager {
                     record.yaw(), 0f);
             display = world.spawn(at, ItemDisplay.class, d -> dress(d, record, item, look,
                     ItemDisplay.ItemDisplayTransform.NONE, new Vector3f(0f, 0f, 0f), scale));
+            double[] hinge = variantsOf(kind).lidHinge();
+            if (hinge != null) {
+                // The lid is a second display in the same spot; only its transformation moves.
+                ItemStack lid = WorkbenchItems.modelItem(kind, com.dierks.craftbridge.pack.BlockVariants.LID);
+                world.spawn(at, ItemDisplay.class, d -> {
+                    dress(d, record, lid, look, ItemDisplay.ItemDisplayTransform.NONE, new Vector3f(0f, 0f, 0f), scale);
+                    d.getPersistentDataContainer().remove(LINKED_DISPLAY);
+                    d.getPersistentDataContainer().set(LID_OF, PersistentDataType.STRING, record.key());
+                    d.setTransformation(lidTransformation(hinge, scale, inUse));
+                });
+            }
         } else if (model) {
             // The entity sits on top of the block, so the light it is drawn with is the light
             // above the block, not the darkness inside it; the translation brings the model back
@@ -141,16 +171,120 @@ public final class DisplayManager {
     /** The look a display of this kind should have now: changes whenever its mode, item or geometry does. */
     private String lookOf(BlockKind kind) {
         if (plugin.config().displayMode(kind) == CraftBridgeConfig.DisplayMode.MODEL) {
+            double[] hinge = plugin.config().invisibleBlock(kind) ? variantsOf(kind).lidHinge() : null;
+            String lid = hinge == null ? "" : "/lid@" + hinge[0] + "," + hinge[1] + "," + hinge[2];
             // Over a barrier the display sits elsewhere and everyone sees it: a different look.
             return "model/" + kind.modelData() + "/" + plugin.config().modelScale(kind)
                     + (plugin.config().invisibleBlock(kind) ? "/over-barrier" : "")
-                    + "/north-front"; // 0.16.3 turned model displays around: respawn the older ones
+                    + "/north-front" // 0.16.3 turned model displays around: respawn the older ones
+                    + lid;
         }
         String texture = plugin.config().headTexture(kind);
         String item = texture == null || texture.isBlank()
                 ? plugin.config().displayMaterial(kind).name()
                 : "head:" + Integer.toHexString(texture.hashCode());
         return "head/" + item + "/" + plugin.config().displayFor(kind);
+    }
+
+    /** The extra models the pack has, by kind (set on enable, before the sweep). */
+    public void variants(java.util.Map<BlockKind, Variants> found) {
+        this.variants = found == null ? java.util.Map.of() : java.util.Map.copyOf(found);
+    }
+
+    private Variants variantsOf(BlockKind kind) {
+        return variants.getOrDefault(kind, Variants.NONE);
+    }
+
+    // ---- in use: the active look and the lid ---------------------------------------------
+
+    /** A player opened this block's menu: the first one puts it in use. */
+    public void opened(WorkbenchRecord record, Player player) {
+        java.util.Set<UUID> who = users.computeIfAbsent(record.key(), k -> new java.util.HashSet<>());
+        if (who.add(player.getUniqueId()) && who.size() == 1) {
+            show(record, true);
+        }
+    }
+
+    /** A player closed it: the last one takes it out of use. */
+    public void closed(WorkbenchRecord record, Player player) {
+        java.util.Set<UUID> who = users.get(record.key());
+        if (who != null && who.remove(player.getUniqueId()) && who.isEmpty()) {
+            users.remove(record.key());
+            show(record, false);
+        }
+    }
+
+    /** Everything back to idle (the feature is being switched off or reloaded). */
+    public void closeAll() {
+        for (String key : new ArrayList<>(users.keySet())) {
+            users.remove(key);
+            WorkbenchRecord record = store.byKey(key);
+            if (record != null) {
+                show(record, false);
+            }
+        }
+    }
+
+    /** Swap to or from the active look, and swing the lid, with the chest's sound when there is one. */
+    private void show(WorkbenchRecord live, boolean inUse) {
+        WorkbenchRecord record = store.byKey(live.key());
+        if (record == null || plugin.config().displayMode(record.kind()) != CraftBridgeConfig.DisplayMode.MODEL) {
+            return;
+        }
+        Variants v = variantsOf(record.kind());
+        if (v.active() && record.display() != null && Bukkit.getEntity(record.display()) instanceof ItemDisplay display) {
+            display.setItemStack(inUse ? WorkbenchItems.modelItem(record.kind(), com.dierks.craftbridge.pack.BlockVariants.ACTIVE)
+                    : items.displayItem(record.kind()));
+        }
+        if (v.lidHinge() == null || !plugin.config().invisibleBlock(record.kind())) {
+            return;
+        }
+        boolean swung = false;
+        for (ItemDisplay lid : lids(record)) {
+            lid.setInterpolationDelay(0);
+            lid.setInterpolationDuration(LID_TICKS);
+            lid.setTransformation(lidTransformation(v.lidHinge(), plugin.config().modelScale(record.kind()), inUse));
+            swung = true;
+        }
+        if (swung) {
+            Location at = new Location(record.bukkitWorld(), record.x() + 0.5, record.y() + 0.5, record.z() + 0.5);
+            at.getWorld().playSound(at, inUse ? org.bukkit.Sound.BLOCK_CHEST_OPEN : org.bukkit.Sound.BLOCK_CHEST_CLOSE,
+                    0.5f, 1f);
+        }
+    }
+
+    /** A lid's transformation, shut or open (see BlockVariants#lidTransform for the geometry). */
+    private static Transformation lidTransformation(double[] hinge, float scale, boolean open) {
+        if (!open) {
+            return new Transformation(new Vector3f(), new AxisAngle4f(), new Vector3f(scale, scale, scale), new AxisAngle4f());
+        }
+        double[] t = com.dierks.craftbridge.pack.BlockVariants.lidTransform(hinge,
+                com.dierks.craftbridge.pack.BlockVariants.LID_ANGLE, scale, new double[] {0, 0, 0});
+        return new Transformation(new Vector3f((float) t[0], (float) t[1], (float) t[2]),
+                new AxisAngle4f((float) t[3], 1f, 0f, 0f), new Vector3f(scale, scale, scale), new AxisAngle4f());
+    }
+
+    /** The lid displays of a block: in the block's own space, tagged with its key. */
+    private List<ItemDisplay> lids(WorkbenchRecord record) {
+        World world = record.bukkitWorld();
+        List<ItemDisplay> out = new ArrayList<>();
+        if (world == null || !record.chunkLoaded()) {
+            return out;
+        }
+        Location at = new Location(world, record.x() + 0.5, record.y() + 0.5, record.z() + 0.5);
+        for (Entity e : world.getNearbyEntities(at, 0.75, 0.75, 0.75)) {
+            if (e instanceof ItemDisplay d && record.key().equals(
+                    d.getPersistentDataContainer().get(LID_OF, PersistentDataType.STRING))) {
+                out.add(d);
+            }
+        }
+        return out;
+    }
+
+    public void removeLids(WorkbenchRecord record) {
+        for (ItemDisplay lid : lids(record)) {
+            lid.remove();
+        }
     }
 
     public void afterConvert(java.util.function.Consumer<WorkbenchRecord> action) {
@@ -238,7 +372,7 @@ public final class DisplayManager {
         converted = 0;
         for (World world : Bukkit.getWorlds()) {
             for (ItemDisplay display : world.getEntitiesByClass(ItemDisplay.class)) {
-                if (isOurs(display) && isOrphan(display)) {
+                if ((isOurs(display) && isOrphan(display)) || isOrphanLid(display)) {
                     display.remove();
                     removed++;
                 }
@@ -255,7 +389,7 @@ public final class DisplayManager {
     /** Same as {@link #sweep()} but for one chunk whose entities just loaded. */
     public void sweepChunk(Chunk chunk) {
         for (Entity e : chunk.getEntities()) {
-            if (isOurs(e) && isOrphan(e)) {
+            if ((isOurs(e) && isOrphan(e)) || isOrphanLid(e)) {
                 e.remove();
             }
         }
@@ -282,6 +416,21 @@ public final class DisplayManager {
             }
         }
         return n;
+    }
+
+    /** A lid whose block is gone, or whose block no longer has a lid. The heal respawns wanted ones. */
+    private boolean isOrphanLid(Entity entity) {
+        String key = entity instanceof ItemDisplay
+                ? entity.getPersistentDataContainer().get(LID_OF, PersistentDataType.STRING) : null;
+        if (key == null) {
+            return false;
+        }
+        WorkbenchRecord record = store.byKey(key);
+        if (record == null) {
+            return !store.isHeld(key, entity.getUniqueId());
+        }
+        return !lookOf(record.kind()).contains("/lid@")
+                || !lookOf(record.kind()).equals(entity.getPersistentDataContainer().get(DISPLAY_LOOK, PersistentDataType.STRING));
     }
 
     private boolean isOrphan(Entity display) {
@@ -321,8 +470,10 @@ public final class DisplayManager {
             convert(record, block, wanted);
         }
         Entity e = record.display() == null ? null : Bukkit.getEntity(record.display());
+        String look = lookOf(record.kind());
         if (e instanceof ItemDisplay && e.isValid()
-                && lookOf(record.kind()).equals(e.getPersistentDataContainer().get(DISPLAY_LOOK, PersistentDataType.STRING))) {
+                && look.equals(e.getPersistentDataContainer().get(DISPLAY_LOOK, PersistentDataType.STRING))
+                && (!look.contains("/lid@") || !lids(record).isEmpty())) {
             return false;
         }
         // Missing, or spawned for a look config.yml no longer asks for: spawn it anew.

@@ -689,6 +689,11 @@ false` (per block) puts the real crafting table or barrel back under the display
 the model must then cover the whole block, and players without the pack see the real block.
 Changing it converts the blocks already placed as their chunks load.
 
+**A lid that opens, and an in-use look (0.17).** Next to a block's model, `<id>_lid.json` is a lid
+that swings open on its back edge like a chest's while anyone has the block open, and
+`<id>_active.json` is the whole block's look while it is in use. Both are optional; see "A lid that
+opens" in `src/main/resources/resourcepack/README.md`.
+
 **Before removing CraftBridge** (or switching `features.linked-workbench` off), set
 `invisible-block: false` for both blocks and run `/craftbridge reload` with every area that has
 one loaded, or visit them: without CraftBridge a barrier stays a barrier, invisible and

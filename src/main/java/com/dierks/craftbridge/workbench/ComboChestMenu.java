@@ -104,16 +104,22 @@ public final class ComboChestMenu extends Menu {
         super.open(viewer);
         com.dierks.craftbridge.link.LinkFeature link = plugin.feature(com.dierks.craftbridge.link.LinkFeature.class);
         // Only once the menu is really open: another plugin may have cancelled the open.
-        if (link != null && viewer.getOpenInventory().getTopInventory() == getInventory()) {
-            link.comboOpened(viewer, this);
+        if (viewer.getOpenInventory().getTopInventory() == getInventory()) {
+            feature.displays().opened(record, viewer);
+            if (link != null) {
+                link.comboOpened(viewer, this);
+            }
         }
     }
 
     @Override
     protected void onClose(InventoryCloseEvent event) {
         com.dierks.craftbridge.link.LinkFeature link = plugin.feature(com.dierks.craftbridge.link.LinkFeature.class);
-        if (link != null && event.getPlayer() instanceof Player viewer) {
-            link.comboClosed(viewer, this);
+        if (event.getPlayer() instanceof Player viewer) {
+            feature.displays().closed(record, viewer);
+            if (link != null) {
+                link.comboClosed(viewer, this);
+            }
         }
     }
 
