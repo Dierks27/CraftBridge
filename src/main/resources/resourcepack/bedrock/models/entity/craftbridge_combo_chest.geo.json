@@ -17,7 +17,7 @@
       "bones": [
         {
           "name": "craftbridge",
-          "binding": "q.item_slot_to_bone_name(c.item_slot)",
+          "binding": "q.is_owner_identifier_any('geyser:item_display') ? 'geyser_z' : q.item_slot_to_bone_name(c.item_slot)",
           "pivot": [
             0,
             8,

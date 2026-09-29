@@ -83,6 +83,16 @@ class GeyserExportTest {
     }
 
     @Test
+    void theDisplayExtensionsOwnPackIsAskedForUntilItIsThere() throws IOException {
+        Path geyser = plugins.resolve("Geyser-Spigot");
+        Files.createDirectories(geyser.resolve("extensions/geyserdisplayentity"));
+
+        assertTrue(export().stream().anyMatch(l -> l.contains("GeyserDisplayEntityPack.mcpack")), "asked for");
+        Files.write(geyser.resolve("packs/GeyserDisplayEntityPack.mcpack"), new byte[] {1});
+        assertFalse(export().stream().anyMatch(l -> l.contains("GeyserDisplayEntityPack.mcpack")), "found, whatever its case");
+    }
+
+    @Test
     void withGeyserButNoDisplayExtensionItSaysWhatIsMissing() throws IOException {
         Files.createDirectories(plugins.resolve("Geyser-Spigot"));
 

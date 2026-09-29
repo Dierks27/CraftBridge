@@ -135,8 +135,25 @@ public final class GeyserExport {
         if (Files.isDirectory(extension)) {
             write(extension.resolve("Mappings").resolve(DISPLAY_MAPPINGS_TARGET), displayMappings);
             done.add("Copied the display mapping into " + name + "/" + DISPLAY_EXTENSION + "/Mappings.");
+            if (!hasDisplayEntityPack(geyser.resolve("packs"))) {
+                done.add("GeyserDisplayEntity needs its own Bedrock pack too: put GeyserDisplayEntityPack.mcpack (from"
+                        + " the packs folder of its GitHub repository) into " + name + "/packs, or Bedrock players see"
+                        + " nothing where the blocks stand.");
+            }
         } else {
             done.add("GeyserDisplayEntity is not installed, so Bedrock players see the items but not the block models.");
+        }
+    }
+
+    /** Whether Geyser's packs folder has GeyserDisplayEntity's own pack (any name mentioning it). */
+    static boolean hasDisplayEntityPack(Path packs) {
+        try (java.util.stream.Stream<Path> files = Files.list(packs)) {
+            return files.anyMatch(f -> {
+                String n = f.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                return n.contains("displayentity") && (n.endsWith(".mcpack") || n.endsWith(".zip") || Files.isDirectory(f));
+            });
+        } catch (IOException ex) {
+            return false;
         }
     }
 

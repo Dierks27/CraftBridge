@@ -796,7 +796,9 @@ models too:
    custom items with their icons.
 3. Geyser does not draw item display entities; the
    [GeyserDisplayEntity](https://github.com/GeyserExtensionists/GeyserDisplayEntity) extension
-   does. Install it, keep the display mapping in its `Mappings/` folder, set
+   does. Install it, put its own Bedrock pack (`GeyserDisplayEntityPack.mcpack`, in the `packs`
+   folder of its repository) into Geyser's `packs/` folder, keep the display mapping in its
+   `Mappings/` folder, set
    `bedrock.show-displays: true` in CraftBridge's config and reload. Bedrock players are then
    shown the displays. Recognising them needs Floodgate or Geyser on this server; without either,
    they count as Java players who declined the pack.
