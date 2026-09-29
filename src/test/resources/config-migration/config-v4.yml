@@ -189,33 +189,18 @@ golem-chests:
       S: STICK
 
 # -----------------------------------------------------------------------------
-# Custom items (made with /recipe, kept in custom-items.yml)
-# -----------------------------------------------------------------------------
-custom-items:
-  # A custom item built on a block (a "Compressed Cobblestone" on cobblestone, say) turns
-  # into the plain block when placed, and the custom item is gone. The same goes for items
-  # that place a block of their own: seeds, string, carrots, and plants put in a flower pot.
-  # false refuses to place them; true lets players place them as the plain block. Custom
-  # tools still work (tilling, stripping, lighting). Custom items built on player heads are
-  # never placed either way.
-  placeable: false
-
-# -----------------------------------------------------------------------------
-# Resource pack — the models behind display.mode: model, and custom item textures (drop
-# <id>.png into plugins/CraftBridge/pack/items/). On every start and /craftbridge reload
-# CraftBridge builds the pack from the files in its jar, the custom item textures and any
-# files in plugins/CraftBridge/pack/overrides/java/, writes it to
-# plugins/CraftBridge/pack/craftbridge-java.zip and logs its SHA-1, then offers it to every
-# Java player as they join. A player who declines it, or whose download fails, keeps seeing
-# the plain crafting table and barrel, and every custom item as its plain base item. See
-# "Custom block models" in the README.
+# Resource pack — the models behind display.mode: model. On every start CraftBridge builds
+# the pack from the files in its jar (plus any in plugins/CraftBridge/pack/overrides/java/),
+# writes it to plugins/CraftBridge/pack/craftbridge-java.zip and logs its SHA-1, then offers
+# it to every Java player as they join. A player who declines it, or whose download fails,
+# keeps seeing the plain crafting table and barrel. See "Custom block models" in the README.
 # -----------------------------------------------------------------------------
 resource-pack:
   enabled: true
-  # true kicks a player who declines the pack. Leave it false: everything works without it.
+  # true kicks a player who declines the pack. Leave it false: the blocks work without it.
   required: false
   # Shown on the client's "download this pack?" screen (MiniMessage).
-  prompt: "<gray>CraftBridge adds 3D models for the Linked Workbench and Combo Chest, and textures for custom items."
+  prompt: "<gray>CraftBridge adds 3D models for the Linked Workbench and Combo Chest."
   # Where players download the pack: upload plugins/CraftBridge/pack/craftbridge-java.zip to
   # your website and put its address here, for example
   #   url: "https://www.lilahcraft.com/craftbridge/craftbridge-java.zip"
@@ -242,13 +227,6 @@ resource-pack:
 # -----------------------------------------------------------------------------
 bedrock:
   show-displays: false
-  # Geyser's own folder, when Geyser does not run on this server but on a proxy on the same
-  # machine. In single quotes, so the backslashes stay as they are:
-  #   geyser-folder: 'C:\Users\server\MCServerManager\Servers\Velocity\plugins\Geyser-Velocity'
-  # /craftbridge geyser export then copies the Bedrock pack and mappings there as well.
-  # Blank looks for plugins/Geyser-Spigot next to CraftBridge. Geyser only loads new packs
-  # and mappings when it starts, so restart the proxy after an export.
-  geyser-folder: ''
 
 # -----------------------------------------------------------------------------
 # JEI (Feature 1 lives under features.jei-transfer; this is the recipe sync)
@@ -279,4 +257,4 @@ jei:
 # the current one: settings added since are filled in with their defaults, entries new
 # in a release are added to lists once, and nothing you have set is changed. The file
 # as it was is kept beside it as config.yml.bak-v<old version>. Leave this number alone.
-config-version: 5
+config-version: 4

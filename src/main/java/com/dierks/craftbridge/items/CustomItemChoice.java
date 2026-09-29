@@ -6,6 +6,8 @@ import org.bukkit.inventory.RecipeChoice;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Predicate;
 
 /**
@@ -37,6 +39,19 @@ import java.util.function.Predicate;
  * on the current pin, not a precaution — a direct call would fail to link and take the whole
  * plugin down with it. Bump the dev bundle to a build carrying {@code predicateChoice} to get
  * the drift-proof matching.
+ *
+ * <h2>Items made before 0.15</h2>
+ * Since 0.15 every freshly built custom item carries a model tag in its custom model data
+ * ({@link ModelTags}). That is a new component, and the exact fallback compares components,
+ * so an {@code ExactChoice} of the new item alone would stop accepting every custom item made
+ * on 0.14 the moment 0.15 loads. The fallback therefore lists two stacks: the current, tagged
+ * item first (the recipe book cycles through the list, starting there; JEI only ever gets an
+ * exact ingredient's plain item type, see the README's recipe sync notes) and the item
+ * exactly as 0.14 built it second. {@link CustomItemRefresher} tags old items as players come
+ * across them, but a stack in a hopper line, a crafter or a chest nobody has opened yet is still
+ * the 0.14 shape,
+ * so the second entry is not optional. The predicate path needs none of this: it only reads
+ * the {@code cb_item} id, which both shapes carry.
  */
 public final class CustomItemChoice {
 
@@ -64,19 +79,23 @@ public final class CustomItemChoice {
     public static String describeMode() {
         return predicateChoiceAvailable()
                 ? "custom-item recipes match on the cb_item tag (RecipeChoice.predicateChoice)"
-                : "custom-item recipes match on the exact item (RecipeChoice.ExactChoice) — this Paper build has no "
-                        + "predicateChoice, so a renamed or damaged custom item will stop matching its own recipe";
+                : "custom-item recipes match on the exact item (RecipeChoice.ExactChoice; items made before 0.15 "
+                        + "still match) — this Paper build has no predicateChoice, so a renamed or damaged custom "
+                        + "item will stop matching its own recipe";
     }
 
     /**
      * A choice that accepts exactly the given custom item.
      *
-     * @param id      the custom-item id that must be stamped on the stack
-     * @param example the built item, used for the recipe-book display (and as the whole match
-     *                when this build has no {@code predicateChoice})
+     * @param id        the custom-item id that must be stamped on the stack
+     * @param example   the built item, used for the recipe-book display (and as the first
+     *                  accepted stack when this build has no {@code predicateChoice})
+     * @param before015 the same item as CraftBridge 0.14 built it, without the model tag;
+     *                  only the exact fallback uses it (see "Items made before 0.15" above)
      */
-    public static RecipeChoice forCustomItem(String id, ItemStack example) {
-        return forCustomItemPredicate(stack -> CustomItemRegistry.is(stack, id), example);
+    public static RecipeChoice forCustomItem(String id, ItemStack example, ItemStack before015) {
+        RecipeChoice byId = predicate(stack -> CustomItemRegistry.is(stack, id), example);
+        return byId != null ? byId : exact(exactMatchStacks(example, before015));
     }
 
     /**
@@ -84,14 +103,37 @@ public final class CustomItemChoice {
      * back to exact-matching {@code example}.
      */
     public static RecipeChoice forCustomItemPredicate(Predicate<ItemStack> test, ItemStack example) {
-        if (PREDICATE_CHOICE != null) {
-            try {
-                return (RecipeChoice) PREDICATE_CHOICE.invoke(test, example.clone());
-            } catch (Throwable ignored) {
-                // Fall through to the exact choice below rather than failing the registration.
-            }
+        RecipeChoice byPredicate = predicate(test, example);
+        return byPredicate != null ? byPredicate : exact(example);
+    }
+
+    /** A {@code predicateChoice}, or null when this build has none (or building it failed). */
+    private static RecipeChoice predicate(Predicate<ItemStack> test, ItemStack example) {
+        if (PREDICATE_CHOICE == null) {
+            return null;
         }
-        return exact(example);
+        try {
+            return (RecipeChoice) PREDICATE_CHOICE.invoke(test, example.clone());
+        } catch (Throwable ignored) {
+            // The caller falls back to an exact choice rather than failing the registration.
+            return null;
+        }
+    }
+
+    /**
+     * What the exact fallback accepts for a custom item, in order: the current (tagged) item
+     * first, so it is the one the recipe book shows first, then the item as 0.14 built
+     * it, so items made before 0.15 keep matching. A null {@code before015} is left out.
+     *
+     * <p>Generic so the policy can be pinned by a test without a server to build stacks.
+     */
+    static <T> List<T> exactMatchStacks(T current, T before015) {
+        List<T> out = new ArrayList<>(2);
+        out.add(current);
+        if (before015 != null) {
+            out.add(before015);
+        }
+        return out;
     }
 
     /**
@@ -100,18 +142,36 @@ public final class CustomItemChoice {
      * bundle may not have yet, so the factory is preferred reflectively and the constructor
      * is the fallback.
      */
-    @SuppressWarnings("removal")
     public static RecipeChoice exact(ItemStack stack) {
-        ItemStack one = stack.clone();
-        one.setAmount(1);
+        return exact(List.of(stack));
+    }
+
+    /**
+     * An exact choice accepting any of {@code stacks} (at least one), each compared at amount
+     * 1. The first is what the recipe book displays first. See {@link #exact(ItemStack)} for
+     * why the factory is looked up reflectively.
+     */
+    @SuppressWarnings("removal")
+    public static RecipeChoice exact(List<ItemStack> stacks) {
+        if (stacks.isEmpty()) {
+            throw new IllegalArgumentException("an exact choice needs at least one stack");
+        }
+        ItemStack[] ones = new ItemStack[stacks.size()];
+        for (int i = 0; i < ones.length; i++) {
+            ItemStack one = stacks.get(i).clone();
+            one.setAmount(1);
+            ones[i] = one;
+        }
         if (EXACT_CHOICE != null) {
             try {
-                return (RecipeChoice) EXACT_CHOICE.invoke(one, new ItemStack[0]);
+                ItemStack[] others = new ItemStack[ones.length - 1];
+                System.arraycopy(ones, 1, others, 0, others.length);
+                return (RecipeChoice) EXACT_CHOICE.invoke(ones[0], others);
             } catch (Throwable ignored) {
                 // Fall through to the constructor.
             }
         }
-        return new RecipeChoice.ExactChoice(one);
+        return new RecipeChoice.ExactChoice(ones);
     }
 
     private static final MethodHandle EXACT_CHOICE = findExactChoice();

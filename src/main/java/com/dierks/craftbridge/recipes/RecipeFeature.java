@@ -4,6 +4,7 @@ import com.dierks.craftbridge.CraftBridgePlugin;
 import com.dierks.craftbridge.items.CustomItemChoice;
 import com.dierks.craftbridge.items.CustomItemDef;
 import com.dierks.craftbridge.items.CustomItemListener;
+import com.dierks.craftbridge.items.CustomItemRefresher;
 import com.dierks.craftbridge.items.CustomItemRegistry;
 import com.dierks.craftbridge.items.CustomItemStore;
 import com.dierks.craftbridge.gui.ChatPrompt;
@@ -29,7 +30,8 @@ public final class RecipeFeature implements CraftBridgePlugin.Feature, Listener 
     private final CustomItemStore itemStore;
     private final RecipeStore store;
     private final RecipeRegistry registry;
-    private final CustomItemListener itemListener = new CustomItemListener(customItems);
+    private final CustomItemListener itemListener;
+    private final CustomItemRefresher itemRefresher;
     private ChatPrompt chatPrompt;
 
     public RecipeFeature(CraftBridgePlugin plugin) {
@@ -37,6 +39,8 @@ public final class RecipeFeature implements CraftBridgePlugin.Feature, Listener 
         this.itemStore = new CustomItemStore(plugin);
         this.store = new RecipeStore(plugin, customItems);
         this.registry = new RecipeRegistry(plugin, customItems);
+        this.itemListener = new CustomItemListener(customItems, () -> plugin.config().customItemsPlaceable());
+        this.itemRefresher = new CustomItemRefresher(plugin, customItems);
     }
 
     @Override
@@ -59,6 +63,7 @@ public final class RecipeFeature implements CraftBridgePlugin.Feature, Listener 
                 + (store.all().size() > count ? " (" + (store.all().size() - count) + " disabled/invalid)" : "") + ".");
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
         plugin.getServer().getPluginManager().registerEvents(itemListener, plugin);
+        plugin.getServer().getPluginManager().registerEvents(itemRefresher, plugin);
         this.chatPrompt = new ChatPrompt(plugin);
         warnAboutOrphanedCustomItems();
         PluginCommand cmd = plugin.getCommand("recipe");
@@ -67,6 +72,8 @@ public final class RecipeFeature implements CraftBridgePlugin.Feature, Listener 
             cmd.setExecutor(executor);
             cmd.setTabCompleter(executor);
         }
+        // Nobody joins during a /craftbridge reload; tag what the players already online carry.
+        itemRefresher.refreshOnline();
     }
 
     @Override
@@ -74,6 +81,7 @@ public final class RecipeFeature implements CraftBridgePlugin.Feature, Listener 
         registry.unregisterAll();
         HandlerList.unregisterAll(this);
         HandlerList.unregisterAll(itemListener);
+        HandlerList.unregisterAll(itemRefresher);
         if (chatPrompt != null) {
             chatPrompt.shutdown();
             chatPrompt = null;

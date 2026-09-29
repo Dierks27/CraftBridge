@@ -482,11 +482,12 @@ class ConfigMigratorTest {
         ConfigMigrator.Result result = migrate();
 
         assertEquals(3, result.from());
-        String expected = withV4Settings(original.replace("config-version: 3\n",
+        String expected = withV4AndV5Settings(original.replace("config-version: 3\n",
                 "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n"));
         assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
         assertEquals(List.of("added linked-workbench.display.mode, linked-workbench.display.model-scale,"
-                + " combo-chest.display.mode, combo-chest.display.model-scale, resource-pack, bedrock"), result.changes());
+                + " combo-chest.display.mode, combo-chest.display.model-scale, custom-items, resource-pack, bedrock"),
+                result.changes());
 
         YamlConfiguration after = reload();
         assertEquals("model", after.getString("linked-workbench.display.mode"));
@@ -500,7 +501,8 @@ class ConfigMigratorTest {
         assertEquals("", after.getString("resource-pack.host.public-address"));
         assertFalse(after.getBoolean("bedrock.show-displays"));
         String text = Files.readString(config);
-        assertTrue(text.contains("# Resource pack — the models behind display.mode: model."), "section comment kept");
+        assertTrue(text.contains("# Resource pack — the models behind display.mode: model, and custom item textures"),
+                "section comment kept");
         assertTrue(text.contains("    # The address players download from"), "nested comment kept");
         assertTrue(text.contains("  #   url: \"https://www.lilahcraft.com/craftbridge/craftbridge-java.zip\""), "the example url");
         assertTrue(text.indexOf("\nbedrock:") > text.indexOf("\nresource-pack:")
@@ -533,6 +535,47 @@ class ConfigMigratorTest {
         assertEquals("head", after.getString("linked-workbench.display.mode"));
         assertEquals("head", after.getString("combo-chest.display.mode"));
         assertEquals(1.002, after.getDouble("linked-workbench.display.model-scale"), 1e-9);
+    }
+
+    // ---- a v4 file (0.14.0: the resource pack, before custom item art) ---------------
+
+    @Test
+    void aV4FileGainsTheCustomItemSettingsAndTheGeyserFolderAndKeepsItsPrompt() throws IOException {
+        String original = fixture("config-v4.yml");
+        Files.writeString(config, original);
+
+        ConfigMigrator.Result result = migrate();
+
+        assertEquals(4, result.from());
+        assertEquals(List.of("added custom-items, bedrock.geyser-folder"), result.changes());
+        String jar = bundledText();
+        String header = "# -----------------------------------------------------------------------------\n";
+        String customItems = jar.substring(jar.indexOf(header + "# Custom items"), jar.indexOf(header + "# Resource pack"));
+        String folderKey = "  geyser-folder: ''\n";
+        String geyserFolder = jar.substring(jar.indexOf("  # Geyser's own folder"), jar.indexOf(folderKey) + folderKey.length());
+        String expected = original.replace("config-version: 4\n", "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n")
+                .replace(header + "# Resource pack", customItems + header + "# Resource pack")
+                .replace("bedrock:\n  show-displays: false\n", "bedrock:\n  show-displays: false\n" + geyserFolder);
+        assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
+
+        YamlConfiguration after = reload();
+        assertFalse(after.getBoolean("custom-items.placeable", true), "custom items built on blocks stay unplaceable");
+        assertEquals("", after.getString("bedrock.geyser-folder"));
+        assertEquals("<gray>CraftBridge adds 3D models for the Linked Workbench and Combo Chest.",
+                after.getString("resource-pack.prompt"), "an existing prompt is the admin's and stays");
+        assertTrue(Files.isRegularFile(dir.resolve("config.yml.bak-v4")));
+    }
+
+    @Test
+    void aKeyWrittenWithNoValueIsNotAddedASecondTime() throws IOException {
+        Files.writeString(config, fixture("config-v4.yml").replace("  show-displays: false\n",
+                "  show-displays: false\n  geyser-folder:\n"));
+
+        migrate();
+
+        String text = Files.readString(config);
+        assertEquals(1, text.lines().filter(l -> l.trim().startsWith("geyser-folder:")).count(), text);
+        assertEquals("", reload().getString("bedrock.geyser-folder", ""));
     }
 
     // ---- files that must not be touched ---------------------------------------------
@@ -639,18 +682,18 @@ class ConfigMigratorTest {
     }
 
     /**
-     * A 0.13 file's text as an upgrade to the current version leaves it: the settings v3 and
-     * v4 added, copied from the jar with their comments, just before the next setting the
+     * A 0.13 file's text as an upgrade to the current version leaves it: the settings v3, v4
+     * and v5 added, copied from the jar with their comments, just before the next setting the
      * file already has.
      */
     private static String withNewSettings(String text) throws IOException {
-        return withV4Settings(withV3Sections(text));
+        return withV4AndV5Settings(withV3Sections(text));
     }
 
     private static String withV3Sections(String text) throws IOException {
         String header = "# -----------------------------------------------------------------------------\n";
         String jar = bundledText();
-        String golem = jar.substring(jar.indexOf(header + "# Golem chests"), jar.indexOf(header + "# Resource pack"));
+        String golem = jar.substring(jar.indexOf(header + "# Golem chests"), jar.indexOf(header + "# Custom items"));
         int at = text.indexOf(header + "# JEI");
         text = text.substring(0, at) + golem + text.substring(at);
         String feedback = "  # Default for the sound/particle feedback toggle.\n";
@@ -660,11 +703,11 @@ class ConfigMigratorTest {
     }
 
     /**
-     * A v3 file's text as the v4 upgrade leaves it: display.mode and display.model-scale in
-     * both block sections (just before transform), and the resource-pack and bedrock sections
-     * just before the JEI section, all as the jar writes them.
+     * A v3 file's text as the v4 and v5 upgrades leave it: display.mode and display.model-scale
+     * in both block sections (just before transform), and the custom-items, resource-pack and
+     * bedrock sections just before the JEI section, all as the jar writes them.
      */
-    private static String withV4Settings(String text) throws IOException {
+    private static String withV4AndV5Settings(String text) throws IOException {
         String jar = bundledText();
         String display = "  display:\n";
         String transform = "    transform: NONE\n";
@@ -679,7 +722,7 @@ class ConfigMigratorTest {
             from = at;
         }
         String header = "# -----------------------------------------------------------------------------\n";
-        String sections = jar.substring(jar.indexOf(header + "# Resource pack"), jar.indexOf(header + "# JEI"));
+        String sections = jar.substring(jar.indexOf(header + "# Custom items"), jar.indexOf(header + "# JEI"));
         int at = text.indexOf(header + "# JEI");
         return text.substring(0, at) + sections + text.substring(at);
     }

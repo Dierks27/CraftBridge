@@ -68,7 +68,10 @@ public final class CraftBridgePlugin extends JavaPlugin {
         }
         if (config.linkedWorkbenchEnabled()) {
             features.add(new WorkbenchFeature(this));
-            // After the workbench: it decides who sees the displays the workbench spawned.
+        }
+        if (config.linkedWorkbenchEnabled() || config.recipesEnabled()) {
+            // After the workbench, whose displays it shows or hides, and after the recipes: the
+            // custom items' art goes into the pack it builds.
             features.add(new ResourcePackFeature(this));
         }
         if (config.jeiTransferEnabled()) {

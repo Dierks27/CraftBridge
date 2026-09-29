@@ -1,6 +1,7 @@
 package com.dierks.craftbridge.recipes;
 
 import com.dierks.craftbridge.items.CustomItemChoice;
+import com.dierks.craftbridge.items.CustomItemDef;
 import com.dierks.craftbridge.items.CustomItemRegistry;
 import com.dierks.craftbridge.util.Items;
 import org.bukkit.Bukkit;
@@ -142,17 +143,19 @@ public final class Ingredient {
      *
      * <p>A custom ingredient resolves its id to a freshly built item and matches on the
      * {@code cb_item} stamp where Paper supports it — see {@link CustomItemChoice} for why
-     * that is preferred over a whole-component exact match. An unresolvable id throws, which
+     * that is preferred over a whole-component exact match, and why the exact fallback also
+     * gets the item as 0.14 built it. An unresolvable id throws, which
      * {@link RecipeRegistry#register} turns into a logged "recipe is invalid" rather than a
      * silently missing recipe.
      */
     public RecipeChoice toChoice(CustomItemRegistry registry) {
         if (customId != null) {
-            ItemStack built = registry == null ? null : registry.create(customId);
-            if (built == null) {
+            CustomItemDef def = registry == null ? null : registry.get(customId);
+            if (def == null) {
                 throw new IllegalArgumentException("unknown custom item '" + customId + "'");
             }
-            return CustomItemChoice.forCustomItem(customId, built);
+            return CustomItemChoice.forCustomItem(customId, registry.create(def, 1),
+                    registry.createWithoutModelTag(def, 1));
         }
         if (exact != null) {
             return CustomItemChoice.exact(exact);

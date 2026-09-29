@@ -25,6 +25,8 @@ public final class CraftBridgeCommand implements TabExecutor {
     private static final String ADMIN = "craftbridge.admin";
     /** Turning your own storage page changes nothing but your own view, so everyone may. */
     private static final String PAGE = "craftbridge.page";
+    private static final String NO_PACK = "<red>The resource pack needs features.linked-workbench or features.recipes"
+            + " in config.yml.";
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -43,7 +45,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             sender.sendMessage(Text.msg("<gray>/craftbridge give <player> workbench|combochest|golemmarker [amount] <dark_gray>- hand out CraftBridge blocks and the Golem Chest Marker"));
             sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
             sender.sendMessage(Text.msg("<gray>/craftbridge jei [resync|dump <recipe>] <dark_gray>- recipe sync state, re-send, or inspect one recipe on the wire"));
-            sender.sendMessage(Text.msg("<gray>/craftbridge pack <dark_gray>- how the block models' resource pack is sent, and who loaded it"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge pack <dark_gray>- the resource pack (block models, custom item art): how it is sent, who loaded it, which items have art"));
             sender.sendMessage(Text.msg("<gray>/craftbridge geyser export <dark_gray>- write the Bedrock pack and Geyser mappings (and copy them into Geyser)"));
             return true;
         }
@@ -117,7 +119,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             case "pack" -> {
                 ResourcePackFeature pack = plugin.feature(ResourcePackFeature.class);
                 if (pack == null) {
-                    sender.sendMessage(Text.msg("<red>The Linked Workbench feature is disabled in config.yml."));
+                    sender.sendMessage(Text.msg(NO_PACK));
                 } else {
                     pack.status(sender);
                 }
@@ -128,7 +130,7 @@ public final class CraftBridgeCommand implements TabExecutor {
                     sender.sendMessage(Text.msg("<gray>/craftbridge geyser export <dark_gray>- write CraftBridge.mcpack and the"
                             + " Geyser mappings to plugins/CraftBridge/geyser (and into Geyser's folders when it runs here)"));
                 } else if (pack == null) {
-                    sender.sendMessage(Text.msg("<red>The Linked Workbench feature is disabled in config.yml."));
+                    sender.sendMessage(Text.msg(NO_PACK));
                 } else {
                     pack.exportGeyser(sender);
                 }
