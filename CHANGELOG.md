@@ -1,11 +1,18 @@
 # Changelog
 
+## 0.16.2
+
+* **The Linked Workbench faces the right way.** The tool rack is the front, toward the player who
+  places it, and the panel with the glowing screen is at the back, as Jeff built it; 0.16 and
+  0.16.1 had turned both the Java and the Bedrock model around. The Bedrock pack goes to 1.2.0 so
+  clients download it again: run `/craftbridge geyser export` and restart the server Geyser runs
+  on. With `resource-pack.url`, upload the new Java zip.
+
 ## 0.16.1
 
 * **The Linked Workbench's Bedrock model** is now Jeff's table too, converted from his Blockbench
   Bedrock export: the same shape and textures as the Java model. Bedrock geometry draws from one
-  texture, so the eight textures are one 64x32 sheet and every face points at its part of it; the
-  model is turned so the panel is the front, like the Java one. Bedrock players see it in hand and
+  texture, so the eight textures are one 64x32 sheet and every face points at its part of it. Bedrock players see it in hand and
   in the inventory through Geyser's custom items, and over the block with GeyserDisplayEntity
   (`bedrock.show-displays`); without that extension they keep the plain crafting table. The
   Bedrock pack's version goes to 1.1.0 so clients that cached the old one download it again.
