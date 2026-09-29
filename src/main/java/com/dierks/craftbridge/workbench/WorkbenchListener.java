@@ -202,6 +202,7 @@ public final class WorkbenchListener implements Listener {
         }
         event.setCancelled(true);
         Player player = event.getPlayer();
+        feature.bedrockBlocks().resendLater(player, record); // the cancel sends the barrier back
         if (player.getGameMode() == GameMode.ADVENTURE || player.getGameMode() == GameMode.SPECTATOR
                 || underSpawnProtection(player, block) || !block.getWorld().getWorldBorder().isInside(block.getLocation())) {
             return; // where vanilla would not let this player break a block either
@@ -243,6 +244,7 @@ public final class WorkbenchListener implements Listener {
         if (record == null || !record.kind().standsOn(block.getType())) {
             return;
         }
+        feature.bedrockBlocks().resendLater(event.getPlayer(), record); // the refused click sends the barrier back
         if (event.getHand() != EquipmentSlot.HAND) {
             // A barrier does not use the click the way a crafting table did, so the client goes
             // on to try the off hand too: the torch or food there must not be placed or used.

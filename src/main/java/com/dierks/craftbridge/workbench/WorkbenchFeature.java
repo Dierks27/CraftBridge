@@ -31,6 +31,8 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     private final StorageScanner scanner;
     private final SessionManager sessions;
     private WorkbenchListener listener;
+    /** Stand-in blocks for Bedrock players over the invisible barrier; set on enable. */
+    private BedrockBlocks bedrockBlocks;
     private PhantomManager phantoms;
     private final java.util.Set<BlockKind> recipesRegistered = java.util.EnumSet.noneOf(BlockKind.class);
     private RecipeIngredientIndex ingredientIndex;
@@ -55,6 +57,9 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     @Override
     public void enable() {
         store.load();
+        bedrockBlocks = new BedrockBlocks(plugin, store,
+                com.dierks.craftbridge.pack.BedrockPlayers.detect(plugin.getClass().getClassLoader(), null));
+        displays.afterConvert(bedrockBlocks::show);
         int[] swept = displays.sweep();
         plugin.getLogger().info("Linked Workbench: " + store.all().size() + " placed; startup sweep removed "
                 + swept[0] + " orphaned display(s), respawned " + swept[1] + "."
@@ -77,6 +82,8 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         }
         listener = new WorkbenchListener(plugin, this);
         plugin.getServer().getPluginManager().registerEvents(listener, plugin);
+        plugin.getServer().getPluginManager().registerEvents(bedrockBlocks, plugin);
+        bedrockBlocks.showAll(); // Bedrock players online through a reload
         JeiTransferFeature jei = plugin.feature(JeiTransferFeature.class);
         if (jei != null) {
             jei.addListener(new LinkedTransferBridge(plugin, this));
@@ -93,6 +100,9 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         }
         if (listener != null) {
             HandlerList.unregisterAll(listener);
+        }
+        if (bedrockBlocks != null) {
+            HandlerList.unregisterAll(bedrockBlocks);
         }
         for (BlockKind kind : recipesRegistered) {
             Bukkit.removeRecipe(kind.recipeKey());
@@ -114,6 +124,11 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
 
     public StorageScanner scanner() {
         return scanner;
+    }
+
+    /** Stand-in blocks for Bedrock players, and whether a player is one. */
+    public BedrockBlocks bedrockBlocks() {
+        return bedrockBlocks;
     }
 
     public SessionManager sessions() {
@@ -176,6 +191,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
                 null, player.getUniqueId(), yaw);
         record = displays.spawn(record);
         store.put(record);
+        bedrockBlocks.show(record);
     }
 
     /** Forget a workbench, remove its display and (optionally) drop the head item at the block. */

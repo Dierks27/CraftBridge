@@ -448,9 +448,12 @@ tables that still exist, or whose look (mode, item, geometry) no longer matches 
 The same sweep swaps the block underneath when `invisible-block` changed: tables placed before
 0.16 become barriers as their chunks load (or back, when it is switched off). A record whose block
 is no longer a barrier or a crafting table is forgotten — the place-item is not refunded in that
-case. Geyser does not draw item displays, so over a barrier Bedrock players see nothing unless
-Geyser has the GeyserDisplayEntity extension; the block still works for them. Over a real
-crafting table they see the table (model displays are hidden from them unless
+case. Geyser does not draw item displays, so over a barrier each Bedrock player's client is sent
+a plain crafting table (a barrel for a Combo Chest) at that spot, for them only; the server keeps
+the barrier, so clicking and breaking work as for everyone. With `bedrock.show-displays` on
+(GeyserDisplayEntity draws the display) that is left out. Bedrock players never get phantom
+slots: they have no JEI, and Geyser showed the storage items as real ones, so the recipe list
+offered recipes the grid could not make. Over a real crafting table they see the table (model displays are hidden from them unless
 `bedrock.show-displays` is on), or a head display as a generic head or not at all.
 
 **Nearby storage** = every chest, trapped chest, double chest (counted once), barrel and

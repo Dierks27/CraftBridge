@@ -26,9 +26,16 @@ client link is unchanged, so CraftBridge Client 0.4.0 keeps working.
   * `display.invisible-block: false` (per block) goes back to the real crafting table or barrel;
     switching it converts the placed blocks back. Do that before removing CraftBridge: without
     it, a barrier stays an invisible block survival players cannot break.
-  * Bedrock players see nothing where the block stands unless Geyser has the GeyserDisplayEntity
-    extension; the block still works for them. Use `invisible-block: false` on a server where
-    that matters.
+  * Geyser does not draw item displays, so each Bedrock player is sent a plain crafting table or
+    barrel at that spot, for their client only; clicking and breaking work as for everyone. With
+    `bedrock.show-displays` on (GeyserDisplayEntity) they see the display instead.
+
+### Fixed
+
+* **Bedrock players no longer get phantom slots** at the Linked Workbench. Those are for JEI,
+  which Bedrock does not have, and Geyser showed the storage items as real ones: the crafting
+  screen then offered recipes for items that were only in nearby chests (an acacia boat while
+  the grid held cherry planks), and crafting gave something else.
 * **A new Linked Workbench model.** A small table with a crafting grid, an axe and a pickaxe on a
   rack, and a panel with a glowing screen and buttons, made in Blockbench. It uses Minecraft's own
   textures (stripped oak, acacia, anvil, diamond block, black concrete) plus three of ours. The

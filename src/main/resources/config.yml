@@ -111,8 +111,8 @@ linked-workbench:
     model-scale: 1.002
     # true: the block under the display is an invisible barrier, so the model can be any
     #       shape (a small table with room around it). Players without the pack see a plain
-    #       crafting table, drawn by the display. Left-click picks it up. Bedrock players see
-    #       nothing there unless Geyser has the GeyserDisplayEntity extension (see bedrock).
+    #       crafting table, drawn by the display, and Bedrock players are sent a plain crafting
+    #       table (see bedrock). Left-click picks it up.
     # false: a real crafting table under the display, as before 0.16; the model has to cover
     #        the whole block. Changing this converts the tables already placed. Set it to
     #        false and reload before removing CraftBridge: a barrier left behind stays one.
@@ -247,8 +247,9 @@ resource-pack:
 
 # -----------------------------------------------------------------------------
 # Bedrock players (Geyser / Floodgate). Geyser does not draw item displays, so over the
-# invisible block (display.invisible-block) they see nothing where a Linked Workbench or Combo
-# Chest stands, unless Geyser has the GeyserDisplayEntity extension; the block still works.
+# invisible block (display.invisible-block) each Bedrock player is sent a plain crafting table
+# or barrel at that spot, for their client only (needs Floodgate or Geyser on this server to
+# recognise them). With show-displays on they see the display instead.
 # Over a real crafting table or barrel, model displays are hidden from them and they see the
 # plain block; set show-displays to true only when Geyser has GeyserDisplayEntity and
 # CraftBridge's Bedrock pack and mappings (see /craftbridge geyser export and the README).

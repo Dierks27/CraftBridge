@@ -59,6 +59,8 @@ public final class DisplayManager {
     private final CraftBridgePlugin plugin;
     private final WorkbenchStore store;
     private final WorkbenchItems items;
+    /** Told about every block swapped under a record (Bedrock players get their stand-in). */
+    private java.util.function.Consumer<WorkbenchRecord> afterConvert = record -> { };
     /** Blocks swapped to what display.invisible-block asks for, counted for the startup log. */
     private int converted;
     /** Who sees model displays; nobody until the resource-pack feature says otherwise. */
@@ -147,6 +149,10 @@ public final class DisplayManager {
                 ? plugin.config().displayMaterial(kind).name()
                 : "head:" + Integer.toHexString(texture.hashCode());
         return "head/" + item + "/" + plugin.config().displayFor(kind);
+    }
+
+    public void afterConvert(java.util.function.Consumer<WorkbenchRecord> action) {
+        this.afterConvert = action == null ? record -> { } : action;
     }
 
     // ---- who sees model displays --------------------------------------------------------
@@ -340,6 +346,7 @@ public final class DisplayManager {
         }
         block.setType(wanted);
         converted++;
+        afterConvert.accept(record);
         plugin.debug(record.kind().displayName() + " at " + record.key() + " now stands on " + wanted + ".");
     }
 
