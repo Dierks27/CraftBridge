@@ -7,6 +7,9 @@
   lid, the storage screen on the front. While anyone has it open, the lid swings up on its back
   edge with a chest's sound, and shuts when the last player closes it. Inside it is hollow and
   dark, with a copper ingot and a teal gem lying on the floor.
+* **The Linked Workbench stands on legs.** Jeff's table is 4 pixels taller, on four stripped-oak
+  legs, with a stripped-oak top that overhangs the base by a pixel and carries the grid; the
+  tools, the screen and the buttons are where they were. Java and Bedrock.
 * **A block with a lid is whole in hands and inventories.** Its item definition draws the body
   alone only where the block's display draws it (display context `none`) and body plus lid
   everywhere else, so the place-item is not lidless.
