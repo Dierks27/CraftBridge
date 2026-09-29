@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.3
+
+* **Model blocks really face the player now.** An item display draws a model's north face the way
+  the display itself points, and CraftBridge had turned every model display half a turn too far,
+  so each model's back faced the player who placed it: the Linked Workbench showed its screen,
+  and the Combo Chest's panel faced away. The models are unchanged (the front is still the north
+  side in Blockbench); the displays are turned instead, including every block already placed,
+  which is respawned once as its chunk loads. Nothing to upload: the resource pack is the same.
+
 ## 0.16.2
 
 * **The Linked Workbench faces the right way.** The tool rack is the front, toward the player who

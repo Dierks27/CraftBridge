@@ -88,20 +88,21 @@ public final class DisplayManager {
             // Over an invisible barrier everyone sees the display: the model with the pack, the
             // vanilla block (the item's fallback) without it. A barrier lets light through, so the
             // entity sits at the centre of the block and is drawn with the block's own light. The
-            // model's front is north, and yaw 180 turns north toward the player who placed it.
+            // model's front is north. An item display draws the model's north face along its own
+            // facing, so it faces the way the record's yaw points: toward the player who placed it.
             float scale = plugin.config().modelScale(kind);
             Location at = new Location(world, record.x() + 0.5, record.y() + 0.5, record.z() + 0.5,
-                    record.yaw() + 180f, 0f);
+                    record.yaw(), 0f);
             display = world.spawn(at, ItemDisplay.class, d -> dress(d, record, item, look,
                     ItemDisplay.ItemDisplayTransform.NONE, new Vector3f(0f, 0f, 0f), scale));
         } else if (model) {
             // The entity sits on top of the block, so the light it is drawn with is the light
             // above the block, not the darkness inside it; the translation brings the model back
-            // down over the block. The model's front is north, and yaw 180 turns north toward
-            // the player who placed it.
+            // down over the block. The model's front is north, turned toward the player who placed
+            // it as above.
             float scale = plugin.config().modelScale(kind);
             Location at = new Location(world, record.x() + 0.5, record.y() + 1.0, record.z() + 0.5,
-                    record.yaw() + 180f, 0f);
+                    record.yaw(), 0f);
             display = world.spawn(at, ItemDisplay.class, d -> {
                 d.setVisibleByDefault(false);
                 dress(d, record, item, look, ItemDisplay.ItemDisplayTransform.NONE,
@@ -142,7 +143,8 @@ public final class DisplayManager {
         if (plugin.config().displayMode(kind) == CraftBridgeConfig.DisplayMode.MODEL) {
             // Over a barrier the display sits elsewhere and everyone sees it: a different look.
             return "model/" + kind.modelData() + "/" + plugin.config().modelScale(kind)
-                    + (plugin.config().invisibleBlock(kind) ? "/over-barrier" : "");
+                    + (plugin.config().invisibleBlock(kind) ? "/over-barrier" : "")
+                    + "/north-front"; // 0.16.3 turned model displays around: respawn the older ones
         }
         String texture = plugin.config().headTexture(kind);
         String item = texture == null || texture.isBlank()
