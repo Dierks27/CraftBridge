@@ -216,6 +216,29 @@ If the server runs a Minecraft version CraftBridge has no table for (26.4 before
 update, say), no custom item gets art, and a warning in the log says so. The items keep the look
 of their base item; the block models are not affected.
 
+## A lid that opens, and an in-use look
+
+Two optional models go next to a block's model, named after it. The plugin finds them in the jar
+or in `plugins/CraftBridge/pack/overrides/java/` (same folders) on start and reload, and adds them
+to the pack. They play while anyone has the block open, and stop when the last player closes it.
+
+* **`<id>_lid.json`: a lid that swings open like a chest's.** Make the whole block in one
+  Blockbench project, then export it twice: with the lid hidden as `<id>.json` (everything but the
+  lid), and with everything but the lid hidden as `<id>_lid.json`. Leave the lid where it sits on
+  the block; don't move it to the corner. The plugin draws the lid as a second piece on top of the
+  block and turns it 90 degrees up on its hinge, with a chest's sound. The hinge is found from the
+  lid itself: the middle of its back bottom edge (the back is the south side, since the front is
+  north). A vanilla chest for scale: body from 1,0,1 to 15,10,15, lid from 1,9,1 to 15,14,15.
+  Only over the invisible block (`display.invisible-block: true`, the default).
+* **`<id>_active.json`: the whole block while in use**, e.g. a screen that lights up or a tool off
+  its peg. The display swaps to it on open and back on close. It works with a lid too (the
+  active model is then the block without the lid).
+
+`<id>` is `linked_workbench` or `combo_chest`. Textures are named as for the block's own model.
+The start log says which extras each block has ("Combo Chest: a lid that opens."). Bedrock players
+do not see either: they get the plain block, and with GeyserDisplayEntity the lid may show as a
+plain crafting table or barrel.
+
 ## Editing in Blockbench
 
 1. In Blockbench: *File > Open Model* and pick `java/assets/craftbridge/models/block/linked_workbench.json`

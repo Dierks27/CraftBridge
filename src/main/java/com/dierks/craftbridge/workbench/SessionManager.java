@@ -31,9 +31,12 @@ public final class SessionManager {
     /** Runs while any session is open: see {@link #closeUnreachable()}. */
     private BukkitTask watch;
 
-    public SessionManager(CraftBridgePlugin plugin, WorkbenchStore store) {
+    private final DisplayManager displays;
+
+    public SessionManager(CraftBridgePlugin plugin, WorkbenchStore store, DisplayManager displays) {
         this.plugin = plugin;
         this.store = store;
+        this.displays = displays;
     }
 
     void setPhantoms(PhantomManager phantoms) {
@@ -78,6 +81,7 @@ public final class SessionManager {
         LinkedSession session = new LinkedSession(player.getUniqueId(), record, view);
         sessions.put(player.getUniqueId(), session);
         watch();
+        displays.opened(record, player);
         if (phantoms != null) {
             phantoms.start(player); // a no-op for a player whose own client shows them storage
         }
@@ -155,6 +159,7 @@ public final class SessionManager {
             return;
         }
         link(l -> l.sessionEnded(player, "the workbench was closed"));
+        displays.closed(session.record(), player);
         if (phantoms != null) {
             // The menu is closing: re-sync next tick so the inventory screen shows real contents only.
             phantoms.end(player, false);

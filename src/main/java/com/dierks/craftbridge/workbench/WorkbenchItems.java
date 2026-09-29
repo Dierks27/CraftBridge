@@ -61,9 +61,17 @@ public final class WorkbenchItems {
      * client without the pack draws the vanilla block, and Geyser maps it to the Bedrock item.
      */
     public static ItemStack modelItem(BlockKind kind) {
+        return modelItem(kind, "");
+    }
+
+    /**
+     * The same with {@code suffix} on its string ({@code _active}, {@code _lid}): the pack draws
+     * that variant of the block's model instead (see {@link com.dierks.craftbridge.pack.BlockVariants}).
+     */
+    public static ItemStack modelItem(BlockKind kind, String suffix) {
         ItemStack item = new ItemStack(kind.block());
         item.setData(DataComponentTypes.CUSTOM_MODEL_DATA,
-                CustomModelData.customModelData().addString(kind.modelData()).build());
+                CustomModelData.customModelData().addString(kind.modelData() + suffix).build());
         return item;
     }
 

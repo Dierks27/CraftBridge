@@ -46,7 +46,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         this.displays = new DisplayManager(plugin, store, items);
         this.scanner = new StorageScanner(plugin);
         this.scanner.terminals(() -> store.keysOf(BlockKind.COMBO_CHEST));
-        this.sessions = new SessionManager(plugin, store);
+        this.sessions = new SessionManager(plugin, store, displays);
     }
 
     @Override
@@ -60,6 +60,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         bedrockBlocks = new BedrockBlocks(plugin, store,
                 com.dierks.craftbridge.pack.BedrockPlayers.detect(plugin.getClass().getClassLoader(), null));
         displays.afterConvert(bedrockBlocks::show);
+        displays.variants(findVariants());
         int[] swept = displays.sweep();
         plugin.getLogger().info("Linked Workbench: " + store.all().size() + " placed; startup sweep removed "
                 + swept[0] + " orphaned display(s), respawned " + swept[1] + "."
@@ -94,6 +95,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     @Override
     public void disable() {
         sessions.endAll();
+        displays.closeAll();
         if (golems != null) {
             golems.disable();
             golems = null;
@@ -201,8 +203,53 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
             return;
         }
         displays.remove(record.display());
+        displays.removeLids(record);
         if (dropItem) {
             block.getWorld().dropItemNaturally(block.getLocation().add(0.5, 0.5, 0.5), items.placeItem(record.kind(), 1));
+        }
+    }
+
+    /**
+     * Which extra models each kind's pack has: {@code <id>_active.json} and {@code <id>_lid.json}
+     * next to its model, in plugins/CraftBridge/pack/overrides/java/ (which wins) or in the jar.
+     * The resource pack is built from the same two places, so a variant found here is in the pack.
+     */
+    private java.util.Map<BlockKind, DisplayManager.Variants> findVariants() {
+        java.util.Map<BlockKind, DisplayManager.Variants> out = new java.util.EnumMap<>(BlockKind.class);
+        for (BlockKind kind : BlockKind.values()) {
+            String id = kind.modelData().substring(kind.modelData().indexOf(':') + 1);
+            boolean active = modelFile(id + com.dierks.craftbridge.pack.BlockVariants.ACTIVE) != null;
+            double[] hinge = null;
+            byte[] lid = modelFile(id + com.dierks.craftbridge.pack.BlockVariants.LID);
+            if (lid != null) {
+                try {
+                    hinge = com.dierks.craftbridge.pack.BlockVariants.hinge(lid);
+                } catch (RuntimeException ex) {
+                    plugin.getLogger().warning(kind.displayName() + ": " + id + "_lid.json could not be read ("
+                            + ex.getMessage() + "); the lid is left out.");
+                }
+            }
+            out.put(kind, new DisplayManager.Variants(active, hinge));
+            if (active || hinge != null) {
+                plugin.getLogger().info(kind.displayName() + ": " + (active ? "an in-use model" : "")
+                        + (active && hinge != null ? " and " : "") + (hinge != null ? "a lid that opens" : "") + ".");
+            }
+        }
+        return out;
+    }
+
+    private byte[] modelFile(String name) {
+        String path = com.dierks.craftbridge.pack.BlockVariants.modelPath(name);
+        java.io.File override = new java.io.File(plugin.getDataFolder(), "pack/overrides/java/" + path);
+        try {
+            if (override.isFile()) {
+                return java.nio.file.Files.readAllBytes(override.toPath());
+            }
+            try (java.io.InputStream in = plugin.getResource(com.dierks.craftbridge.pack.PackFiles.JAR_ROOT + "java/" + path)) {
+                return in == null ? null : in.readAllBytes();
+            }
+        } catch (java.io.IOException ex) {
+            return null;
         }
     }
 

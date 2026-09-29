@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.17.0
+
+### New
+
+* **Lids that open like a chest's.** Put `linked_workbench_lid.json` or `combo_chest_lid.json`
+  next to the block's model (in the jar, or in `pack/overrides/java/` to try it): the block's own
+  model is then everything but the lid, and the lid is drawn as a second piece that swings 90
+  degrees open on its back bottom edge, smoothly and with a chest's sound, while anyone has the
+  block open, and shuts when the last player closes it. The hinge is worked out from the lid
+  model, so there is nothing to configure. Over the invisible block only.
+* **An in-use look.** `linked_workbench_active.json` or `combo_chest_active.json` is the block's
+  whole model while someone is using it (a lit screen, a tool off its peg); the display swaps to
+  it and back.
+* The pack gets the cases for these models only when they exist, so without them it is byte for
+  byte what it was, and nothing needs uploading. The start log names the extras each block has.
+  Bedrock players see neither.
+
 ## 0.16.3
 
 * **Model blocks really face the player now.** An item display draws a model's north face the way
