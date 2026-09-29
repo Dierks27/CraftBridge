@@ -5,7 +5,8 @@
 * **The Combo Chest opens.** It is chest-shaped now (14 pixels wide, a 10-pixel body and a
   5-pixel lid with a copper latch), with the same textures: the copper ring and teal gem on the
   lid, the storage screen on the front. While anyone has it open, the lid swings up on its back
-  edge with a chest's sound, and shuts when the last player closes it.
+  edge with a chest's sound, and shuts when the last player closes it. Inside it is hollow and
+  dark, with a copper ingot and a teal gem lying on the floor.
 * **A block with a lid is whole in hands and inventories.** Its item definition draws the body
   alone only where the block's display draws it (display context `none`) and body plus lid
   everywhere else, so the place-item is not lidless.
