@@ -8,8 +8,9 @@ mappings:
     # The bedrock_identifier from craftbridge_mappings.json.
     item-identifier: "craftbridge:linked_workbench"
     displayentityoptions:
-      # The display sits at the centre of the block; the model is drawn from its feet.
-      y-offset: -0.5
+      # Measured on a Bedrock client (0.17.2): with the model bound to the display's own bone,
+      # 0.5 puts its bottom on the floor of the block.
+      y-offset: 0.5
       vanilla-scale: false
       vanilla-scale-multiplier: 1
       # Equip the item in the display's hand, where the attachable binds to "rightitem".
@@ -18,8 +19,9 @@ mappings:
     type: "minecraft:barrel"
     item-identifier: "craftbridge:combo_chest"
     displayentityoptions:
-      # The display sits at the centre of the block; the model is drawn from its feet.
-      y-offset: -0.5
+      # Measured on a Bedrock client (0.17.2): with the model bound to the display's own bone,
+      # 0.5 puts its bottom on the floor of the block.
+      y-offset: 0.5
       vanilla-scale: false
       vanilla-scale-multiplier: 1
       hand: true

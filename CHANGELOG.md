@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.2
+
+* **Bedrock models stand on the floor.** Tested on a Bedrock client through GeyserDisplayEntity:
+  0.17.1's `y-offset: -0.5` sank both blocks a block into the ground; `0.5` puts them on the
+  floor, upright and facing the right way. Run `/craftbridge geyser export` and restart the proxy
+  (it replaces `extensions/geyserdisplayentity/Mappings/craftbridge.yml`).
+
 ## 0.17.1
 
 First look at the blocks on Bedrock through GeyserDisplayEntity (thanks to Jeff's test):
@@ -7,8 +14,7 @@ First look at the blocks on Bedrock through GeyserDisplayEntity (thanks to Jeff'
 * **Bedrock models sit upright on the block.** The extension draws a display's item in its hand
   and tilts that hand for flat items, which tipped CraftBridge's 3D models forward and moved them
   off the block. The models now attach to the display's own bone instead of its hand, and the
-  display mapping moves them down half a block (`y-offset: -0.5`), since the display sits at the
-  middle of the block. Items held by players are unchanged. The Bedrock pack goes to 1.3.0.
+  display mapping sets their height (`y-offset`; see 0.17.2 for the measured value). Items held by players are unchanged. The Bedrock pack goes to 1.3.0.
 * **`/craftbridge geyser export` says when GeyserDisplayEntity's own pack is missing.** The
   extension needs `GeyserDisplayEntityPack.mcpack` (from the `packs` folder of its GitHub
   repository) in Geyser's `packs` folder; without it Bedrock players see nothing at all where the
