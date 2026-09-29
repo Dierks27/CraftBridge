@@ -6,6 +6,7 @@ import com.dierks.craftbridge.util.Keys;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -25,20 +26,25 @@ import java.util.UUID;
 import java.util.function.Predicate;
 
 /**
- * The full-block look: one persistent {@link ItemDisplay} per workbench, covering the real
- * crafting table or barrel underneath.
+ * The block's look: one persistent {@link ItemDisplay} per placed block, over the block
+ * underneath.
  *
- * <p>In {@code display.mode: model} it holds the block's item with CraftBridge's custom model
- * data and is hidden by default: {@link #showTo(Player)} shows it to each player whose client
- * loaded the resource pack (the {@link #viewers(Predicate)} rule, set by the resource-pack
- * feature), and everyone else sees the plain block. In {@code head} mode it holds the textured
- * head, scaled to cover the block, and everyone sees it.
+ * <p>With {@code display.invisible-block} on (the default) that block is an invisible barrier,
+ * so the display is all anyone sees and everyone sees it: in {@code display.mode: model} it holds
+ * the block's item with CraftBridge's custom model data, which a client with the pack draws as
+ * the model and a client without it as the plain vanilla block. With it off the block underneath
+ * is the vanilla block itself; a model display is then hidden by default and
+ * {@link #showTo(Player)} shows it to each player whose client loaded the resource pack (the
+ * {@link #viewers(Predicate)} rule, set by the resource-pack feature), while everyone else sees
+ * the real block. In {@code head} mode it holds the textured head, scaled to cover the block, and
+ * everyone sees it.
  *
  * <p>Every display carries the PDC tag {@code craftbridge:linked_display} = the table
  * key, and the table record stores the display UUID, so each side can find the other.
  * {@link #sweep()} (startup) and {@link #sweepChunk(Chunk)} (when a chunk's entities
- * load) remove orphans whose table is gone and respawn displays that went missing —
- * that is what makes a WorldEdit/Towny regen wiping the table self-heal.
+ * load) remove orphans whose table is gone, respawn displays that went missing, and swap the
+ * block underneath when display.invisible-block changed — that is what makes a WorldEdit/Towny
+ * regen wiping the table self-heal, and what converts the blocks placed before 0.16.
  */
 public final class DisplayManager {
 
@@ -53,6 +59,10 @@ public final class DisplayManager {
     private final CraftBridgePlugin plugin;
     private final WorkbenchStore store;
     private final WorkbenchItems items;
+    /** Told about every block swapped under a record (Bedrock players get their stand-in). */
+    private java.util.function.Consumer<WorkbenchRecord> afterConvert = record -> { };
+    /** Blocks swapped to what display.invisible-block asks for, counted for the startup log. */
+    private int converted;
     /** Who sees model displays; nobody until the resource-pack feature says otherwise. */
     private Predicate<Player> viewers = player -> false;
 
@@ -74,7 +84,17 @@ public final class DisplayManager {
         String look = lookOf(kind);
         ItemStack item = items.displayItem(kind);
         ItemDisplay display;
-        if (model) {
+        if (model && plugin.config().invisibleBlock(kind)) {
+            // Over an invisible barrier everyone sees the display: the model with the pack, the
+            // vanilla block (the item's fallback) without it. A barrier lets light through, so the
+            // entity sits at the centre of the block and is drawn with the block's own light. The
+            // model's front is north, and yaw 180 turns north toward the player who placed it.
+            float scale = plugin.config().modelScale(kind);
+            Location at = new Location(world, record.x() + 0.5, record.y() + 0.5, record.z() + 0.5,
+                    record.yaw() + 180f, 0f);
+            display = world.spawn(at, ItemDisplay.class, d -> dress(d, record, item, look,
+                    ItemDisplay.ItemDisplayTransform.NONE, new Vector3f(0f, 0f, 0f), scale));
+        } else if (model) {
             // The entity sits on top of the block, so the light it is drawn with is the light
             // above the block, not the darkness inside it; the translation brings the model back
             // down over the block. The model's front is north, and yaw 180 turns north toward
@@ -120,13 +140,19 @@ public final class DisplayManager {
     /** The look a display of this kind should have now: changes whenever its mode, item or geometry does. */
     private String lookOf(BlockKind kind) {
         if (plugin.config().displayMode(kind) == CraftBridgeConfig.DisplayMode.MODEL) {
-            return "model/" + kind.modelData() + "/" + plugin.config().modelScale(kind);
+            // Over a barrier the display sits elsewhere and everyone sees it: a different look.
+            return "model/" + kind.modelData() + "/" + plugin.config().modelScale(kind)
+                    + (plugin.config().invisibleBlock(kind) ? "/over-barrier" : "");
         }
         String texture = plugin.config().headTexture(kind);
         String item = texture == null || texture.isBlank()
                 ? plugin.config().displayMaterial(kind).name()
                 : "head:" + Integer.toHexString(texture.hashCode());
         return "head/" + item + "/" + plugin.config().displayFor(kind);
+    }
+
+    public void afterConvert(java.util.function.Consumer<WorkbenchRecord> action) {
+        this.afterConvert = action == null ? record -> { } : action;
     }
 
     // ---- who sees model displays --------------------------------------------------------
@@ -203,10 +229,11 @@ public final class DisplayManager {
                 && entity.getPersistentDataContainer().has(LINKED_DISPLAY, PersistentDataType.STRING);
     }
 
-    /** Startup sweep over every loaded chunk. Returns "removed orphans / respawned" counts. */
+    /** Startup sweep over every loaded chunk. Returns "removed orphans / respawned / converted" counts. */
     public int[] sweep() {
         int removed = 0;
         int respawned = 0;
+        converted = 0;
         for (World world : Bukkit.getWorlds()) {
             for (ItemDisplay display : world.getEntitiesByClass(ItemDisplay.class)) {
                 if (isOurs(display) && isOrphan(display)) {
@@ -220,7 +247,7 @@ public final class DisplayManager {
                 respawned += heal(record) ? 1 : 0;
             }
         }
-        return new int[]{removed, respawned};
+        return new int[]{removed, respawned, converted};
     }
 
     /** Same as {@link #sweep()} but for one chunk whose entities just loaded. */
@@ -264,7 +291,7 @@ public final class DisplayManager {
             return !store.isHeld(key, display.getUniqueId());
         }
         Block block = record.block();
-        if (block == null || block.getType() != record.kind().block()) {
+        if (block == null || !record.kind().standsOn(block.getType())) {
             return true;
         }
         // A second display for the same table (e.g. after a crash mid-write) is an orphan too.
@@ -280,12 +307,16 @@ public final class DisplayManager {
         if (block == null) {
             return false;
         }
-        if (block.getType() != record.kind().block()) {
+        if (!record.kind().standsOn(block.getType())) {
             plugin.getLogger().info(record.kind().displayName() + " at " + record.key() + " is no longer a "
-                    + record.kind().block() + "; forgetting it.");
+                    + plugin.config().worldBlock(record.kind()) + "; forgetting it.");
             remove(record.display());
             store.remove(record.key());
             return false;
+        }
+        Material wanted = plugin.config().worldBlock(record.kind());
+        if (block.getType() != wanted) {
+            convert(record, block, wanted);
         }
         Entity e = record.display() == null ? null : Bukkit.getEntity(record.display());
         if (e instanceof ItemDisplay && e.isValid()
@@ -295,6 +326,28 @@ public final class DisplayManager {
         // Missing, or spawned for a look config.yml no longer asks for: spawn it anew.
         store.put(spawn(record));
         return true;
+    }
+
+    /**
+     * Swap the block under a placed block for the one display.invisible-block now asks for: a
+     * crafting table or barrel placed before 0.16 becomes a barrier, or back. Whatever a barrel
+     * holds is dropped first; a Combo Chest's barrel is never storage, but items that got in
+     * before hoppers were kept out must not vanish with it.
+     */
+    private void convert(WorkbenchRecord record, Block block, Material wanted) {
+        if (block.getState(false) instanceof org.bukkit.block.Container container) {
+            Location drop = block.getLocation().add(0.5, 0.5, 0.5);
+            for (ItemStack stack : container.getInventory().getContents()) {
+                if (stack != null && !stack.getType().isAir()) {
+                    block.getWorld().dropItemNaturally(drop, stack);
+                }
+            }
+            container.getInventory().clear();
+        }
+        block.setType(wanted);
+        converted++;
+        afterConvert.accept(record);
+        plugin.debug(record.kind().displayName() + " at " + record.key() + " now stands on " + wanted + ".");
     }
 
     public List<WorkbenchRecord> records() {

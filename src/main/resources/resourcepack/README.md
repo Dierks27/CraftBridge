@@ -24,9 +24,16 @@ The plugin never adds items. The display over each block, and the place-item, is
 * `java/assets/craftbridge/models/block/linked_workbench.json` and `combo_chest.json` are the
   models: ordinary block models (`parent: minecraft:block/block`, so they look right in hands
   and inventories too). The front is the **north** face; the plugin turns the display so the
-  front faces the player who placed the block. Stay inside the 16x16x16 block (the Combo Chest's
-  panel sticks out 1 pixel at the front, which is fine).
-* `java/assets/craftbridge/textures/block/` holds the textures (16x16; 32x32 works too).
+  front faces the player who placed the block.
+* Any shape works: under the display is an invisible barrier (`display.invisible-block: true`,
+  the default since 0.16), so nothing hides the model. The Linked Workbench is a small table
+  (Blockbench, 0.16). Keep the model inside the block's footprint: the barrier is the hitbox,
+  and a part sticking out cannot be clicked and runs into the next block. With
+  `invisible-block: false` the real crafting table or barrel is under the display, and the model
+  must cover the whole block or the real one shows through.
+* `java/assets/craftbridge/textures/block/` holds our own textures (16x16; 32x32 works too). A
+  model may also use Minecraft's own textures (`minecraft:block/anvil`); every client has those,
+  so they are not copied into the pack.
 * `java/pack.mcmeta` declares formats 88.0 (Minecraft 26.2) to 97.1 (26.3).
 * Custom item art is not in the jar. The plugin adds it when it builds the pack, from the files
   you drop into `plugins/CraftBridge/pack/items/` (next section).
@@ -213,14 +220,19 @@ of their base item; the block models are not affected.
 
 1. In Blockbench: *File > Open Model* and pick `java/assets/craftbridge/models/block/linked_workbench.json`
    (or `combo_chest.json`). Blockbench finds the textures through the `assets` folder.
-2. Edit the cubes and paint the textures. Keep the model inside the block and the front on the
-   north side.
+2. Edit the cubes and paint the textures. Keep the model inside the block's footprint and the
+   front on the north side.
 3. *File > Export > Export Block/Item Model* over the same file, and save the textures
    (right-click each texture > Save).
+4. Check the texture names in the `.json`: our own are `craftbridge:block/<name>` (the PNG in
+   `textures/block/`), Minecraft's are `minecraft:block/<name>`. Blockbench writes names without a
+   namespace, or with the namespace of the pack you made the model in, and Minecraft then shows
+   the purple and black "missing texture" squares. `ResourcePackAssetsTest` fails on a texture of
+   ours that is missing, and on a Minecraft texture it has not been told about.
 
 You do not have to rebuild the plugin to try a change. Copy the changed files, with the same
 folders below `java/`, into `plugins/CraftBridge/pack/overrides/java/` on the server, e.g.
-`plugins/CraftBridge/pack/overrides/java/assets/craftbridge/textures/block/linked_workbench_top.png`,
+`plugins/CraftBridge/pack/overrides/java/assets/craftbridge/textures/block/combo_chest_top.png`,
 and run `/craftbridge reload`. The plugin builds a new `plugins/CraftBridge/pack/craftbridge-java.zip`
 and logs its new SHA-1. If players download the pack from `resource-pack.url`, upload the new
 zip there; clients refuse a file whose hash does not match, so a forgotten upload shows the plain

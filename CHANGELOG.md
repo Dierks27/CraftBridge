@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.16.0
+
+`config.yml` is upgraded automatically (config-version 6): `display.invisible-block` is inserted
+into the Linked Workbench and Combo Chest sections, and every other byte stays as it was. The
+client link is unchanged, so CraftBridge Client 0.4.0 keeps working.
+
+### New
+
+* **Models of any shape.** The Linked Workbench and the Combo Chest now stand on an invisible
+  barrier instead of a real crafting table and barrel, so a model no longer has to fill the whole
+  block: nothing is left underneath to hide it or show through.
+  * Players with the pack see the model. Players without it see a plain crafting table or barrel,
+    drawn by the display. Right-click works as before: the crafting menu (JEI and the chest
+    pulling included) and the Combo Chest's screen.
+  * A barrier cannot be mined, so a left-click picks the block up at once, with the crafting
+    table's (or barrel's) particles and sound. It goes through a normal block break, so
+    protection plugins decide as usual. Adventure mode cannot pick it up.
+  * The crafting menu closes when you walk more than 8 blocks away or the block is gone, as at a
+    real crafting table.
+  * A barrier does not burn and explosions do not break it. The block is lit by its own light
+    rather than the light above it.
+  * Tables and Combo Chests placed before 0.16 are converted as their chunks load; the startup
+    log counts them. Anything a Combo Chest's barrel held is dropped at the block first.
+  * `display.invisible-block: false` (per block) goes back to the real crafting table or barrel;
+    switching it converts the placed blocks back. Do that before removing CraftBridge: without
+    it, a barrier stays an invisible block survival players cannot break.
+  * Geyser does not draw item displays, so each Bedrock player is sent a plain crafting table or
+    barrel at that spot, for their client only; clicking and breaking work as for everyone. With
+    `bedrock.show-displays` on (GeyserDisplayEntity) they see the display instead.
+
+### Fixed
+
+* **Bedrock players no longer get phantom slots** at the Linked Workbench. Those are for JEI,
+  which Bedrock does not have, and Geyser showed the storage items as real ones: the crafting
+  screen then offered recipes for items that were only in nearby chests (an acacia boat while
+  the grid held cherry planks), and crafting gave something else.
+* **A new Linked Workbench model.** A small table with a crafting grid, an axe and a pickaxe on a
+  rack, and a panel with a glowing screen and buttons, made in Blockbench. It uses Minecraft's own
+  textures (stripped oak, acacia, anvil, diamond block, black concrete) plus three of ours. The
+  Bedrock pack keeps the old cube for now.
+
+### Upgrading
+
+With `resource-pack.url`, upload the new `plugins/CraftBridge/pack/craftbridge-java.zip` after
+installing 0.16: the new model changes the pack, and until the upload players' clients refuse
+the old one and see plain crafting tables.
+
 ## 0.15.0
 
 `config.yml` is upgraded automatically (config-version 5). A 0.14 file gets the new

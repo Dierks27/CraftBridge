@@ -113,7 +113,12 @@ public final class WorkbenchListener implements Listener {
 
     // ---- breaking / destruction ------------------------------------------------
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    /**
+     * At MONITOR, after every plugin that may cancel the break has had its say: the record is
+     * forgotten and the item dropped only for a break that really happens, never for one a
+     * protection plugin cancels later (which would leave a bare barrier nobody can mine).
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         if (!feature.store().isLinked(block)) {
@@ -175,20 +180,76 @@ public final class WorkbenchListener implements Listener {
         }
     }
 
+    /**
+     * A barrier cannot be mined, so a left-click on the barrier under one of ours picks the block
+     * up at once, the way a painting or an armour stand comes off. It goes through a
+     * {@link BlockBreakEvent} like any break, so protection plugins decide as usual and
+     * {@link #onBreak} forgets the block and drops its item; then it breaks with the vanilla
+     * block's particles and sound instead of the barrier's.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPunch(PlayerInteractEvent event) {
+        if (ContainerAccess.isSynthetic() || event.getAction() != Action.LEFT_CLICK_BLOCK) {
+            return;
+        }
+        Block block = event.getClickedBlock();
+        if (block == null || block.getType() != Material.BARRIER) {
+            return;
+        }
+        WorkbenchRecord record = feature.store().at(block);
+        if (record == null) {
+            return;
+        }
+        event.setCancelled(true);
+        Player player = event.getPlayer();
+        feature.bedrockBlocks().resendLater(player, record); // the cancel sends the barrier back
+        if (player.getGameMode() == GameMode.ADVENTURE || player.getGameMode() == GameMode.SPECTATOR
+                || underSpawnProtection(player, block) || !block.getWorld().getWorldBorder().isInside(block.getLocation())) {
+            return; // where vanilla would not let this player break a block either
+        }
+        if (!new BlockBreakEvent(block, player).callEvent()) {
+            return; // a protection plugin said no
+        }
+        feature.unplace(block, player.getGameMode() != GameMode.CREATIVE); // a no-op once onBreak ran
+        block.setType(Material.AIR);
+        block.getWorld().playEffect(block.getLocation(), org.bukkit.Effect.STEP_SOUND, record.kind().block().createBlockData());
+    }
+
+    /**
+     * Vanilla's spawn protection (server.properties spawn-protection), which Paper checks before a
+     * block can be mined but not before the left-click event we pick the barrier up in.
+     */
+    private static boolean underSpawnProtection(Player player, Block block) {
+        int radius = Bukkit.getSpawnRadius();
+        if (radius <= 0 || player.isOp() || Bukkit.getOperators().isEmpty()
+                || block.getWorld() != Bukkit.getWorlds().get(0)) {
+            return false;
+        }
+        org.bukkit.Location spawn = block.getWorld().getSpawnLocation();
+        return Math.max(Math.abs(block.getX() - spawn.getBlockX()), Math.abs(block.getZ() - spawn.getBlockZ())) <= radius;
+    }
+
     // ---- using ---------------------------------------------------------------------
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInteract(PlayerInteractEvent event) {
-        if (ContainerAccess.isSynthetic() || event.getAction() != Action.RIGHT_CLICK_BLOCK
-                || event.getHand() != EquipmentSlot.HAND) {
+        if (ContainerAccess.isSynthetic() || event.getAction() != Action.RIGHT_CLICK_BLOCK) {
             return;
         }
         Block block = event.getClickedBlock();
-        if (block == null || (block.getType() != Material.CRAFTING_TABLE && block.getType() != Material.BARREL)) {
+        if (block == null) {
             return;
         }
         WorkbenchRecord record = feature.store().at(block);
-        if (record == null || record.kind().block() != block.getType()) {
+        if (record == null || !record.kind().standsOn(block.getType())) {
+            return;
+        }
+        feature.bedrockBlocks().resendLater(event.getPlayer(), record); // the refused click sends the barrier back
+        if (event.getHand() != EquipmentSlot.HAND) {
+            // A barrier does not use the click the way a crafting table did, so the client goes
+            // on to try the off hand too: the torch or food there must not be placed or used.
+            event.setUseInteractedBlock(Event.Result.DENY);
+            event.setUseItemInHand(Event.Result.DENY);
             return;
         }
         if (event.useInteractedBlock() == Event.Result.DENY) {

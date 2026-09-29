@@ -6,7 +6,10 @@ import org.bukkit.NamespacedKey;
 
 import java.util.Locale;
 
-/** The custom blocks that share the "real block underneath + tracked record + display" pattern. */
+/**
+ * The custom blocks that share the "block underneath + tracked record + display" pattern. The
+ * block underneath is an invisible barrier by default, or the vanilla block ({@link #block()}).
+ */
 public enum BlockKind {
     /** A crafting table that crafts from nearby storage. */
     WORKBENCH("workbench", "linked_workbench", Material.CRAFTING_TABLE, "Linked Workbench", "linked-workbench"),
@@ -46,9 +49,29 @@ public enum BlockKind {
         return itemTag.toString();
     }
 
-    /** The real block placed in the world (hitbox, protection checks, vanilla behaviour). */
+    /**
+     * The vanilla block this kind is dressed up as: its item carries the model, and it is the
+     * block in the world when {@code display.invisible-block} is off.
+     */
     public Material block() {
         return block;
+    }
+
+    /**
+     * The block placed in the world under the display: an invisible barrier (so the model can
+     * be any shape), or the vanilla block itself when {@code invisible} is false.
+     */
+    public Material worldBlock(boolean invisible) {
+        return invisible ? Material.BARRIER : block;
+    }
+
+    /**
+     * Whether a placed block of this kind can stand on {@code type}: the barrier or the vanilla
+     * block, whichever display.invisible-block asked for when it was placed. Anything else means
+     * the block is gone (broken, or wiped by a regen).
+     */
+    public boolean standsOn(Material type) {
+        return type == Material.BARRIER || type == block;
     }
 
     public String displayName() {

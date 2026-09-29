@@ -227,7 +227,10 @@ public final class PhantomManager {
 
     /** Start (or restart) the phantom view for the player's open linked workbench. */
     public void start(Player player) {
-        if (clientHandlesIt(player)) {
+        if (clientHandlesIt(player) || feature.bedrockBlocks().isBedrock(player)) {
+            // Bedrock has no JEI, and Geyser shows phantoms as real items: the crafting screen's
+            // recipe list then offers recipes for storage items (an acacia boat from acacia planks
+            // in a chest) that the grid cannot actually make.
             return;
         }
         Session session = sessions.computeIfAbsent(player.getUniqueId(), k -> new Session());

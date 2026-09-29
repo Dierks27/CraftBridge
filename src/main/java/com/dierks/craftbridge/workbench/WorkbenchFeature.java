@@ -31,6 +31,8 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     private final StorageScanner scanner;
     private final SessionManager sessions;
     private WorkbenchListener listener;
+    /** Stand-in blocks for Bedrock players over the invisible barrier; set on enable. */
+    private BedrockBlocks bedrockBlocks;
     private PhantomManager phantoms;
     private final java.util.Set<BlockKind> recipesRegistered = java.util.EnumSet.noneOf(BlockKind.class);
     private RecipeIngredientIndex ingredientIndex;
@@ -44,7 +46,7 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         this.displays = new DisplayManager(plugin, store, items);
         this.scanner = new StorageScanner(plugin);
         this.scanner.terminals(() -> store.keysOf(BlockKind.COMBO_CHEST));
-        this.sessions = new SessionManager(plugin);
+        this.sessions = new SessionManager(plugin, store);
     }
 
     @Override
@@ -55,9 +57,14 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
     @Override
     public void enable() {
         store.load();
+        bedrockBlocks = new BedrockBlocks(plugin, store,
+                com.dierks.craftbridge.pack.BedrockPlayers.detect(plugin.getClass().getClassLoader(), null));
+        displays.afterConvert(bedrockBlocks::show);
         int[] swept = displays.sweep();
         plugin.getLogger().info("Linked Workbench: " + store.all().size() + " placed; startup sweep removed "
-                + swept[0] + " orphaned display(s), respawned " + swept[1] + ".");
+                + swept[0] + " orphaned display(s), respawned " + swept[1] + "."
+                + (swept[2] == 0 ? "" : " Swapped the block under " + swept[2] + " of them for what"
+                        + " display.invisible-block asks for."));
         for (BlockKind kind : BlockKind.values()) {
             registerRecipe(kind);
         }
@@ -75,6 +82,8 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         }
         listener = new WorkbenchListener(plugin, this);
         plugin.getServer().getPluginManager().registerEvents(listener, plugin);
+        plugin.getServer().getPluginManager().registerEvents(bedrockBlocks, plugin);
+        bedrockBlocks.showAll(); // Bedrock players online through a reload
         JeiTransferFeature jei = plugin.feature(JeiTransferFeature.class);
         if (jei != null) {
             jei.addListener(new LinkedTransferBridge(plugin, this));
@@ -91,6 +100,9 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
         }
         if (listener != null) {
             HandlerList.unregisterAll(listener);
+        }
+        if (bedrockBlocks != null) {
+            HandlerList.unregisterAll(bedrockBlocks);
         }
         for (BlockKind kind : recipesRegistered) {
             Bukkit.removeRecipe(kind.recipeKey());
@@ -112,6 +124,11 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
 
     public StorageScanner scanner() {
         return scanner;
+    }
+
+    /** Stand-in blocks for Bedrock players, and whether a player is one. */
+    public BedrockBlocks bedrockBlocks() {
+        return bedrockBlocks;
     }
 
     public SessionManager sessions() {
@@ -168,12 +185,13 @@ public final class WorkbenchFeature implements CraftBridgePlugin.Feature {
 
     /** Turn {@code block} into a {@code kind} block facing {@code player}. */
     public void place(Block block, Player player, BlockKind kind) {
-        block.setType(kind.block());
+        block.setType(plugin.config().worldBlock(kind));
         float yaw = snapYaw(player.getLocation().getYaw() + 180f);
         WorkbenchRecord record = new WorkbenchRecord(kind, block.getWorld().getName(), block.getX(), block.getY(), block.getZ(),
                 null, player.getUniqueId(), yaw);
         record = displays.spawn(record);
         store.put(record);
+        bedrockBlocks.show(record);
     }
 
     /** Forget a workbench, remove its display and (optionally) drop the head item at the block. */

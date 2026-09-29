@@ -50,7 +50,7 @@ import java.util.regex.Pattern;
  *   <li>stamps the new version and saves, keeping the file's comments.</li>
  * </ol>
  * When the upgrade only appends list entries, adds settings or sections the file lacks and
- * stamps the version — every upgrade from a 0.13 or 0.14 file — those lines are inserted into
+ * stamps the version — every upgrade from a 0.13, 0.14 or 0.15 file — those lines are inserted into
  * the admin's text as it is (a missing setting as the jar's own lines, comments included, just
  * before the next setting the file has, or after the last line of its section when the jar
  * lists it last there), and every other byte stays put: their layout,
@@ -79,7 +79,7 @@ public final class ConfigMigrator {
      * bump would never reach existing servers. ConfigMigratorTest holds the bundled keys for
      * this version and fails until the number is bumped.
      */
-    public static final int CURRENT_VERSION = 5;
+    public static final int CURRENT_VERSION = 6;
 
     /** Values the admin owns as a whole: added when missing, never merged entry by entry. */
     private static final Set<String> WHOLE_VALUES = Set.of(

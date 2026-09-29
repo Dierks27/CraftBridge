@@ -274,6 +274,19 @@ public final class CraftBridgeConfig {
         return (float) Math.max(0.5, Math.min(2.0, scale));
     }
 
+    /**
+     * {@code <kind>.display.invisible-block}: an invisible barrier under the display (true, the
+     * default), so the model can be any shape, or the vanilla block as before 0.16 (false).
+     */
+    public boolean invisibleBlock(com.dierks.craftbridge.workbench.BlockKind kind) {
+        return raw.getBoolean(kind.configSection() + ".display.invisible-block", true);
+    }
+
+    /** The block a placed block of this kind stands on now: {@link #invisibleBlock} decides. */
+    public org.bukkit.Material worldBlock(com.dierks.craftbridge.workbench.BlockKind kind) {
+        return kind.worldBlock(invisibleBlock(kind));
+    }
+
     public boolean workbenchRespectProtection() {
         return raw.getBoolean("linked-workbench.respect-protection", true);
     }
