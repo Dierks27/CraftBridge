@@ -10,47 +10,47 @@
   },
   "elements": [
     {
-      "name": "floor",
-      "from": [1, 0, 1],
-      "to": [15, 1, 15],
+      "name": "lid top",
+      "from": [1, 14, 1],
+      "to": [15, 15, 15],
       "faces": {
         "north": {
-          "uv": [1, 15, 15, 16],
+          "uv": [1, 1, 15, 2],
           "texture": "#front"
         },
         "east": {
-          "uv": [1, 15, 15, 16],
+          "uv": [1, 1, 15, 2],
           "texture": "#side"
         },
         "south": {
-          "uv": [1, 15, 15, 16],
+          "uv": [1, 1, 15, 2],
           "texture": "#side"
         },
         "west": {
-          "uv": [1, 15, 15, 16],
+          "uv": [1, 1, 15, 2],
           "texture": "#side"
         },
         "up": {
-          "uv": [1, 9, 7, 15],
-          "texture": "#panel"
-        },
-        "down": {
           "uv": [1, 1, 15, 15],
-          "texture": "#bottom"
+          "texture": "#top"
+        },
+        "down": {
+          "uv": [1, 9, 7, 15],
+          "texture": "#panel"
         }
       }
     },
     {
-      "name": "front wall",
-      "from": [1, 1, 1],
-      "to": [15, 10, 2],
+      "name": "lid front",
+      "from": [1, 10, 1],
+      "to": [15, 14, 2],
       "faces": {
         "north": {
-          "uv": [1, 6, 15, 15],
+          "uv": [1, 2, 15, 6],
           "texture": "#front"
         },
         "east": {
-          "uv": [14, 6, 15, 15],
+          "uv": [14, 2, 15, 6],
           "texture": "#side"
         },
         "south": {
@@ -58,7 +58,7 @@
           "texture": "#panel"
         },
         "west": {
-          "uv": [1, 6, 2, 15],
+          "uv": [1, 2, 2, 6],
           "texture": "#side"
         },
         "up": {
@@ -72,24 +72,24 @@
       }
     },
     {
-      "name": "back wall",
-      "from": [1, 1, 14],
-      "to": [15, 10, 15],
+      "name": "lid back",
+      "from": [1, 10, 14],
+      "to": [15, 14, 15],
       "faces": {
         "north": {
           "uv": [1, 9, 7, 15],
           "texture": "#panel"
         },
         "east": {
-          "uv": [1, 6, 2, 15],
+          "uv": [1, 2, 2, 6],
           "texture": "#side"
         },
         "south": {
-          "uv": [1, 6, 15, 15],
+          "uv": [1, 2, 15, 6],
           "texture": "#side"
         },
         "west": {
-          "uv": [14, 6, 15, 15],
+          "uv": [14, 2, 15, 6],
           "texture": "#side"
         },
         "up": {
@@ -103,12 +103,12 @@
       }
     },
     {
-      "name": "left wall",
-      "from": [1, 1, 2],
-      "to": [2, 10, 14],
+      "name": "lid left",
+      "from": [1, 10, 2],
+      "to": [2, 14, 14],
       "faces": {
         "north": {
-          "uv": [14, 6, 15, 15],
+          "uv": [14, 2, 15, 6],
           "texture": "#front"
         },
         "east": {
@@ -116,11 +116,11 @@
           "texture": "#panel"
         },
         "south": {
-          "uv": [1, 6, 2, 15],
+          "uv": [1, 2, 2, 6],
           "texture": "#side"
         },
         "west": {
-          "uv": [2, 6, 14, 15],
+          "uv": [2, 2, 14, 6],
           "texture": "#side"
         },
         "up": {
@@ -134,20 +134,20 @@
       }
     },
     {
-      "name": "right wall",
-      "from": [14, 1, 2],
-      "to": [15, 10, 14],
+      "name": "lid right",
+      "from": [14, 10, 2],
+      "to": [15, 14, 14],
       "faces": {
         "north": {
-          "uv": [1, 6, 2, 15],
+          "uv": [1, 2, 2, 6],
           "texture": "#front"
         },
         "east": {
-          "uv": [2, 6, 14, 15],
+          "uv": [2, 2, 14, 6],
           "texture": "#side"
         },
         "south": {
-          "uv": [14, 6, 15, 15],
+          "uv": [14, 2, 15, 6],
           "texture": "#side"
         },
         "west": {
@@ -165,83 +165,29 @@
       }
     },
     {
-      "name": "panel",
-      "from": [4, 2, 0],
-      "to": [12, 8, 1],
+      "name": "latch",
+      "from": [7, 10, 0],
+      "to": [9, 13, 1],
       "faces": {
         "north": {
-          "uv": [0, 0, 8, 6],
-          "texture": "#panel"
+          "uv": [6, 2, 8, 3],
+          "texture": "#side"
         },
         "up": {
-          "uv": [8, 0, 16, 1],
-          "texture": "#panel"
+          "uv": [6, 2, 8, 3],
+          "texture": "#side"
         },
         "down": {
-          "uv": [8, 0, 16, 1],
-          "texture": "#panel"
-        },
-        "west": {
-          "uv": [8, 0, 9, 6],
-          "texture": "#panel"
-        },
-        "east": {
-          "uv": [8, 0, 9, 6],
-          "texture": "#panel"
-        }
-      }
-    },
-    {
-      "name": "copper ingot",
-      "from": [4, 1, 9],
-      "to": [8, 2, 11],
-      "faces": {
-        "north": {
-          "uv": [2, 2, 6, 3],
-          "texture": "#side"
-        },
-        "east": {
-          "uv": [2, 2, 6, 3],
-          "texture": "#side"
-        },
-        "south": {
-          "uv": [2, 2, 6, 3],
+          "uv": [6, 2, 8, 3],
           "texture": "#side"
         },
         "west": {
-          "uv": [2, 2, 6, 3],
+          "uv": [6, 2, 7, 3],
           "texture": "#side"
-        },
-        "up": {
-          "uv": [2, 2, 6, 3],
-          "texture": "#side"
-        }
-      }
-    },
-    {
-      "name": "gem",
-      "from": [9, 1, 9],
-      "to": [11, 3, 11],
-      "faces": {
-        "north": {
-          "uv": [7, 7, 9, 9],
-          "texture": "#top"
         },
         "east": {
-          "uv": [7, 7, 9, 9],
-          "texture": "#top"
-        },
-        "south": {
-          "uv": [7, 7, 9, 9],
-          "texture": "#top"
-        },
-        "west": {
-          "uv": [7, 7, 9, 9],
-          "texture": "#top"
-        },
-        "up": {
-          "uv": [7, 7, 9, 9],
-          "texture": "#top"
+          "uv": [6, 2, 7, 3],
+          "texture": "#side"
         }
       }
     }

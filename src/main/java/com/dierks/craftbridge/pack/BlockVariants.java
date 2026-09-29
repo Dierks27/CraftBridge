@@ -66,6 +66,10 @@ public final class BlockVariants {
             JsonObject definition = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
             JsonArray cases = definition.getAsJsonObject("model").getAsJsonArray("cases");
             boolean changed = false;
+            String lidName = block.getKey() + LID;
+            if (present.contains(modelPath(lidName))) {
+                changed |= wholeInItems(cases, "craftbridge:" + block.getKey(), "craftbridge:block/" + lidName);
+            }
             for (String suffix : new String[] {ACTIVE, LID}) {
                 String name = block.getKey() + suffix;
                 if (!present.contains(modelPath(name)) || hasCase(cases, "craftbridge:" + name)) {
@@ -85,6 +89,48 @@ public final class BlockVariants {
             }
         }
         return out;
+    }
+
+    /**
+     * A block with a lid is drawn in two pieces on the block (the lid is a display of its own),
+     * but an item in a hand or an inventory is one model: the block's case draws only the body
+     * where the display draws it (display context {@code none}) and body plus lid everywhere
+     * else, so a place-item does not look lidless. False when already done.
+     */
+    private static boolean wholeInItems(JsonArray cases, String when, String lidModel) {
+        for (JsonElement c : cases) {
+            if (!c.isJsonObject() || !c.getAsJsonObject().has("when")
+                    || !when.equals(c.getAsJsonObject().get("when").getAsString())) {
+                continue;
+            }
+            JsonObject entry = c.getAsJsonObject();
+            JsonObject body = entry.getAsJsonObject("model");
+            if ("minecraft:select".equals(body.has("type") ? body.get("type").getAsString() : null)) {
+                return false;
+            }
+            JsonObject lid = new JsonObject();
+            lid.addProperty("type", "minecraft:model");
+            lid.addProperty("model", lidModel);
+            JsonArray parts = new JsonArray();
+            parts.add(body.deepCopy());
+            parts.add(lid);
+            JsonObject whole = new JsonObject();
+            whole.addProperty("type", "minecraft:composite");
+            whole.add("models", parts);
+            JsonObject onBlock = new JsonObject();
+            onBlock.addProperty("when", "none");
+            onBlock.add("model", body.deepCopy());
+            JsonArray contexts = new JsonArray();
+            contexts.add(onBlock);
+            JsonObject select = new JsonObject();
+            select.addProperty("type", "minecraft:select");
+            select.addProperty("property", "minecraft:display_context");
+            select.add("cases", contexts);
+            select.add("fallback", whole);
+            entry.add("model", select);
+            return true;
+        }
+        return false;
     }
 
     private static boolean hasCase(JsonArray cases, String when) {

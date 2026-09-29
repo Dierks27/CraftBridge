@@ -48,6 +48,23 @@ class BlockVariantsTest {
     }
 
     @Test
+    void withALidTheItemIsWholeAndOnlyTheBlocksDisplayDrawsTheBody() {
+        SortedMap<String, byte[]> out = BlockVariants.withVariantCases(Map.of(TABLE, DEFINITION),
+                Set.of(BlockVariants.modelPath("linked_workbench_lid")), BLOCKS);
+        com.google.gson.JsonObject own = com.google.gson.JsonParser.parseString(new String(out.get(TABLE),
+                StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonObject("model").getAsJsonArray("cases")
+                .get(0).getAsJsonObject().getAsJsonObject("model");
+        assertEquals("minecraft:display_context", own.get("property").getAsString());
+        com.google.gson.JsonObject none = own.getAsJsonArray("cases").get(0).getAsJsonObject();
+        assertEquals("none", none.get("when").getAsString(), "an item display (the block) draws the body");
+        assertEquals("craftbridge:block/linked_workbench", none.getAsJsonObject("model").get("model").getAsString());
+        com.google.gson.JsonObject whole = own.getAsJsonObject("fallback");
+        assertEquals("minecraft:composite", whole.get("type").getAsString());
+        assertEquals("craftbridge:block/linked_workbench_lid",
+                whole.getAsJsonArray("models").get(1).getAsJsonObject().get("model").getAsString());
+    }
+
+    @Test
     void theHingeIsTheMiddleOfTheLidsBackBottomEdge() {
         byte[] lid = "{\"elements\": [{\"from\": [1, 10, 1], \"to\": [15, 14, 15]}, {\"from\": [7, 11, 0], \"to\": [9, 13, 1]}]}"
                 .getBytes(StandardCharsets.UTF_8);

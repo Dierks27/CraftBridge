@@ -94,7 +94,7 @@ class ResourcePackAssetsTest {
 
     @Test
     void everyTextureTheModelsUseExistsAndIsSquare() throws IOException {
-        for (String name : List.of("linked_workbench", "combo_chest")) {
+        for (String name : List.of("linked_workbench", "combo_chest", "combo_chest_lid")) {
             Map<String, Object> model = json(JAVA.resolve("assets/craftbridge/models/block/" + name + ".json"));
             assertEquals("minecraft:block/block", model.get("parent"), "block display transforms for hands and GUI");
             Map<String, Object> textures = map(model.get("textures"));
