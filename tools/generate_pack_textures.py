@@ -4,7 +4,7 @@
 Writes, relative to the repository root:
   src/main/resources/resourcepack/java/assets/craftbridge/textures/block/combo_chest_*.png  (16x16 faces)
   src/main/resources/resourcepack/java/pack.png                                   (64x64 pack icon)
-  src/main/resources/resourcepack/bedrock/textures/craftbridge/*.png              (64x32 geometry atlases)
+  src/main/resources/resourcepack/bedrock/textures/craftbridge/combo_chest.png    (64x32 geometry atlas)
   src/main/resources/resourcepack/bedrock/textures/items/craftbridge/*.png        (32x32 inventory icons)
   src/main/resources/resourcepack/bedrock/pack_icon.png                           (64x64 pack icon)
 
@@ -12,8 +12,9 @@ Plain Python 3, no third-party modules. The output is deterministic, so re-runni
 nothing unless this script changed. Once you edit a texture by hand (in Blockbench or any
 paint program) stop running this script, or it will overwrite your work.
 
-The Java Linked Workbench is a hand-made Blockbench model since 0.16, so its Java textures are
-not written here; the workbench faces below still make its Bedrock atlas and icon and the pack icons.
+The Linked Workbench is a hand-made Blockbench model since 0.16 (Java and Bedrock), so neither
+its Java textures nor its Bedrock atlas are written here; the workbench faces below still make its
+Bedrock inventory icon and the pack icons.
 """
 
 import os
@@ -304,7 +305,6 @@ def main():
         write_png(os.path.join(java_tex, "combo_chest_" + name + ".png"), img)
 
     bedrock = os.path.join(PACK, "bedrock", "textures")
-    write_png(os.path.join(bedrock, "craftbridge", "linked_workbench.png"), atlas(wb))
     write_png(os.path.join(bedrock, "craftbridge", "combo_chest.png"), atlas(cc))
 
     cc_front_with_panel = [list(r) for r in cc["front"]]

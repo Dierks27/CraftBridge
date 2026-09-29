@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.16.1
+
+* **The Linked Workbench's Bedrock model** is now Jeff's table too, converted from his Blockbench
+  Bedrock export: the same shape and textures as the Java model. Bedrock geometry draws from one
+  texture, so the eight textures are one 64x32 sheet and every face points at its part of it; the
+  model is turned so the panel is the front, like the Java one. Bedrock players see it in hand and
+  in the inventory through Geyser's custom items, and over the block with GeyserDisplayEntity
+  (`bedrock.show-displays`); without that extension they keep the plain crafting table. The
+  Bedrock pack's version goes to 1.1.0 so clients that cached the old one download it again.
+  Run `/craftbridge geyser export` and restart the server Geyser runs on.
+
 ## 0.16.0
 
 `config.yml` is upgraded automatically (config-version 6): `display.invisible-block` is inserted
@@ -39,7 +50,7 @@ client link is unchanged, so CraftBridge Client 0.4.0 keeps working.
 * **A new Linked Workbench model.** A small table with a crafting grid, an axe and a pickaxe on a
   rack, and a panel with a glowing screen and buttons, made in Blockbench. It uses Minecraft's own
   textures (stripped oak, acacia, anvil, diamond block, black concrete) plus three of ours. The
-  Bedrock pack keeps the old cube for now.
+  Bedrock pack kept the old cube in this release (see 0.16.1).
 
 ### Upgrading
 
