@@ -26,6 +26,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerResourcePackStatusEvent;
+import org.bukkit.event.server.ServerLoadEvent;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -56,6 +57,13 @@ import java.util.logging.Level;
  * pack, and as its plain base item by everyone else. The pack is sent when a block uses
  * {@code display.mode: model} or any custom item has art.
  *
+ * <p>Since 0.19.0 this is the server's only pack: {@link PackSources} adds every other plugin's
+ * art (through the {@link com.dierks.craftbridge.api.CraftBridgePack} API) and the drop-in
+ * folders in {@code pack/sources/}, and {@link PackAssembler} merges them with CraftBridge's own
+ * files. It is built once every plugin has enabled ({@link ServerLoadEvent}), and again on
+ * {@code /craftbridge pack rebuild} or a plugin's {@code requestRebuild()}, after which everyone
+ * online is sent the new pack.
+ *
  * <p>Delivery is {@code resource-pack.url} (a copy the admin uploaded) or, while that is blank,
  * the built-in web server ({@code resource-pack.host}). Either way the client is sent the SHA-1
  * of the pack this jar built, so an out-of-date upload is refused by the client rather than
@@ -70,6 +78,7 @@ import java.util.logging.Level;
  */
 public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Listener {
 
+    /** The pack's id when {@code resource-pack.id} is not set. */
     public static final UUID PACK_ID = PackFiles.JAVA_PACK_ID;
     public static final String ZIP_NAME = "craftbridge-java.zip";
 
@@ -95,6 +104,12 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
     private volatile ItemArt.Result art = ItemArt.Result.none();
     private PackHttpServer server;
     private BedrockPlayers bedrock;
+    /** {@code resource-pack.id}: the same id with a new hash makes clients swap packs. */
+    private UUID packId = PACK_ID;
+    /** The last build's sources, glyphs and problems; null before the first build. */
+    private volatile PackAssembler.Result assembled;
+    /** True once the pack was built and delivery chosen (at ServerLoadEvent, or at once on a reload). */
+    private boolean active;
 
     public ResourcePackFeature(CraftBridgePlugin plugin) {
         this.plugin = plugin;
@@ -107,15 +122,90 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
 
     @Override
     public void enable() {
-        CraftBridgeConfig config = plugin.config();
         bedrock = BedrockPlayers.detect(plugin.getClass().getClassLoader(), plugin.getLogger());
+        packId = plugin.config().resourcePackId();
+        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        DisplayManager displays = displays();
+        if (displays != null) {
+            displays.viewers(this::seesModels);
+        }
+        if (plugin.serverLoaded()) {
+            activate(); // a /craftbridge reload: every plugin has registered its art already
+        }
+        // Otherwise onServerLoad builds it, once every plugin has enabled and registered its art.
+    }
+
+    @EventHandler
+    public void onServerLoad(ServerLoadEvent event) {
+        plugin.markServerLoaded();
+        if (!active) {
+            activate();
+        }
+    }
+
+    private void activate() {
+        active = true;
+        buildAndDeliver(false);
+        plugin.packSources().rebuildWith(() -> rebuild(null));
+    }
+
+    /**
+     * {@code /craftbridge pack rebuild} and the API's requestRebuild(): read every source again,
+     * build, and send the new pack to everyone online. When the build fails the pack already
+     * sent stays.
+     *
+     * @param reportTo told the outcome, or null
+     */
+    public void rebuild(CommandSender reportTo) {
+        if (!active) {
+            if (reportTo != null) {
+                reportTo.sendMessage(Text.msg("<yellow>The pack is built once the server has finished starting."));
+            }
+            return;
+        }
+        boolean built = buildAndDeliver(true);
+        if (reportTo == null) {
+            return;
+        }
+        PackAssembler.Result result = assembled;
+        if (!built || result == null) {
+            reportTo.sendMessage(Text.msg("<red>The pack could not be built; the one already sent stays. See the console."));
+            return;
+        }
+        Delivery to = delivery;
+        reportTo.sendMessage(Text.msg("<green>Pack rebuilt: <white>" + result.sources().size() + "<green> source(s), <white>"
+                + result.files().size() + "<green> files, SHA-1 <white>" + sha1 + "<green>."
+                + (to == null ? " <yellow>Not sent to players (see /craftbridge pack)."
+                : " Everyone online who does not have it yet is sent it now.")));
+        if (!result.errors().isEmpty() || !result.warnings().isEmpty()) {
+            reportTo.sendMessage(Text.msg("<yellow>" + result.errors().size() + " conflict(s), " + result.warnings().size()
+                    + " warning(s); the console lists them."));
+        }
+    }
+
+    /**
+     * Build the pack and decide how it reaches players, then bring everyone online up to date.
+     *
+     * @param again a rebuild while running: a failed build keeps the pack already sent
+     * @return false when the pack could not be built
+     */
+    private boolean buildAndDeliver(boolean again) {
+        CraftBridgeConfig config = plugin.config();
         byte[] zip = buildJavaPack();
+        if (zip == null && again) {
+            return false;
+        }
         boolean blocksNeedIt = anyModelDisplays(config);
         boolean itemsNeedIt = !art.textured().isEmpty();
-        if (!blocksNeedIt && !itemsNeedIt) {
+        PackAssembler.Result result = assembled;
+        boolean othersNeedIt = result != null && result.sources().stream()
+                .anyMatch(s -> !s.id().equals(PackSources.OWN) && (s.files() > 0 || s.glyphs() > 0));
+        Delivery previous = delivery;
+        delivery = null;
+        if (!blocksNeedIt && !itemsNeedIt && !othersNeedIt) {
             plugin.getLogger().info("Resource pack: not sent, " + (workbenchOn()
                     ? "both blocks use display.mode: head" : "the Linked Workbench is off")
-                    + " and no custom item has art.");
+                    + ", no custom item has art and no other source adds anything.");
         } else if (zip != null) {
             delivery = chooseDelivery(config, zip);
             if (delivery == null) {
@@ -131,17 +221,18 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
                 if (itemsNeedIt) {
                     so.add("custom items keep the look of their base item");
                 }
+                if (othersNeedIt) {
+                    so.add("the other sources' art is not shown");
+                }
                 plugin.getLogger().info("Resource pack: not sent to players (" + why + "), so "
                         + String.join(", and ", so) + ".");
             }
         }
-
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
-        DisplayManager displays = displays();
-        if (displays != null) {
-            displays.viewers(this::seesModels);
+        if (delivery == null && server != null) {
+            server.stop();
+            server = null;
         }
-        if (delivery == null) {
+        if (delivery == null && (previous != null || !again)) {
             // A client keeps a server pack until it is told to drop it or leaves. Nothing is sent
             // any more, so take back the pack sent before this reload: otherwise a texture whose
             // PNG was just removed stays on screen until the player rejoins. Everyone, not only
@@ -151,7 +242,8 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
                 takeBack(player);
             }
         }
-        // Players online through a reload (or a late enable) are brought up to date in game.
+        // Players online through a reload or a rebuild (or a late enable) are brought up to date
+        // in game: the same pack id with the new hash replaces the one their client has.
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (seesModels(player)) {
                 showTo(player);
@@ -159,10 +251,13 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
                 offerInGame(player);
             }
         }
+        return zip != null;
     }
 
     @Override
     public void disable() {
+        plugin.packSources().rebuildWith(null);
+        active = false;
         HandlerList.unregisterAll(this);
         DisplayManager displays = displays();
         if (displays != null) {
@@ -179,8 +274,9 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
     // ---- building and serving ------------------------------------------------------------
 
     /**
-     * Build the Java pack from the jar, the custom item art and the overrides (which win over
-     * both), write it to the data folder and log its hash.
+     * Build the pack: CraftBridge's own source (the jar, the custom item art and the overrides,
+     * which win over both) merged with every other source ({@link PackSources}); write it to the
+     * data folder and log its sources, hash and problems.
      */
     private byte[] buildJavaPack() {
         try {
@@ -198,11 +294,20 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
                 art = ItemArt.Result.none();
                 plugin.getLogger().log(Level.WARNING, "Resource pack: custom item art left out, it could not be read", ex);
             }
-            SortedMap<String, byte[]> files = PackFiles.overlay(PackFiles.overlay(own, art.files()), overrides);
-            if (!files.containsKey("pack.mcmeta")) {
-                plugin.getLogger().severe("Resource pack: the jar has no resourcepack/java/pack.mcmeta; nothing is sent.");
-                return null;
-            }
+            SortedMap<String, byte[]> ownFiles = PackFiles.overlay(PackFiles.overlay(own, art.files()), overrides);
+            List<String> problems = new ArrayList<>();
+            List<PackAssembler.Source> sources = new ArrayList<>();
+            sources.add(new PackAssembler.Source(PackSources.OWN, "CraftBridge (its jar, pack/items/, pack/overrides/java/)",
+                    ownFiles));
+            sources.addAll(plugin.packSources().read(problems));
+            int[] format = packFormat(ownFiles.get("pack.mcmeta"));
+            PackAssembler.Result result = PackAssembler.assemble(sources, new PackAssembler.Settings(
+                    plugin.config().resourcePackPriority(), format[0], format[1],
+                    "Server pack, built by CraftBridge " + plugin.getPluginMeta().getVersion()),
+                    plugin.packSources().glyphStore()::codepoint);
+            report(result, problems);
+            assembled = result;
+            SortedMap<String, byte[]> files = result.files();
             byte[] zip = PackFiles.zip(files);
             sha1 = PackFiles.sha1(zip);
             Path out = packFolder().resolve(ZIP_NAME);
@@ -212,13 +317,69 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
             Files.move(temp, out, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             String url = plugin.config().resourcePackUrl();
             plugin.getLogger().info("Resource pack: wrote plugins/" + plugin.getName() + "/pack/" + ZIP_NAME + " ("
-                    + files.size() + " files, " + Math.max(1, zip.length / 1024) + " KB), SHA-1 " + sha1 + "."
+                    + files.size() + " files, " + Math.max(1, zip.length / 1024) + " KB, pack format " + format[0] + "."
+                    + format[1] + "), SHA-1 " + sha1 + ", id " + packId + "."
                     + (url.isEmpty() ? "" : " Upload this file to " + url + " whenever this SHA-1 changes (a CraftBridge"
                     + " update, or a reload that changed the custom item art)."));
             return zip;
         } catch (IOException | RuntimeException ex) {
             plugin.getLogger().log(Level.SEVERE, "Resource pack: could not be built; nothing is sent", ex);
             return null;
+        }
+    }
+
+    /** The build's log: the sources, every file that changes vanilla, conflicts (errors), warnings and notes. */
+    private void report(PackAssembler.Result result, List<String> problems) {
+        java.util.logging.Logger log = plugin.getLogger();
+        List<String> sources = new ArrayList<>();
+        for (PackAssembler.SourceInfo s : result.sources()) {
+            sources.add(s.id() + " (" + s.files() + " files" + (s.glyphs() > 0 ? ", " + s.glyphs() + " glyphs" : "") + ")");
+        }
+        log.info("Resource pack: " + result.sources().size() + " source(s), highest priority first: "
+                + String.join(", ", sources) + ".");
+        for (Map.Entry<String, List<String>> v : result.vanillaOverrides().entrySet()) {
+            log.info("Resource pack: changes Minecraft's own assets (" + v.getValue().size() + ", from " + v.getKey()
+                    + "): " + String.join(", ", v.getValue()));
+        }
+        if (!result.glyphs().isEmpty()) {
+            long drawn = result.glyphs().stream().filter(PackAssembler.GlyphInfo::drawn).count();
+            log.info("Resource pack: " + result.glyphs().size() + " glyph(s), " + drawn + " with a texture"
+                    + " (/craftbridge pack glyphs lists them).");
+        }
+        for (String note : result.notes()) {
+            log.info("Resource pack: " + note);
+        }
+        for (String problem : problems) {
+            log.warning("Resource pack: " + problem);
+        }
+        for (String warning : result.warnings()) {
+            log.warning("Resource pack: " + warning);
+        }
+        for (String error : result.errors()) {
+            log.severe("Resource pack: " + error);
+        }
+    }
+
+    /**
+     * The resource pack format of the server's Minecraft version, read from the server itself;
+     * when that fails (a server whose internals moved), the newest format CraftBridge's own
+     * pack.mcmeta in the jar names.
+     */
+    private int[] packFormat(byte[] ownMcmeta) {
+        try {
+            return com.dierks.craftbridge.pack.nms.PaperPackFormat.current();
+        } catch (Throwable ex) { // LinkageError on a server whose internals changed
+            int[] fallback = {97, 1};
+            try {
+                com.google.gson.JsonArray max = PackAssembler.lenient(ownMcmeta).getAsJsonObject()
+                        .getAsJsonObject("pack").getAsJsonArray("max_format");
+                fallback = new int[]{max.get(0).getAsInt(), max.get(1).getAsInt()};
+            } catch (RuntimeException ignored) {
+                // keep the built-in numbers
+            }
+            plugin.getLogger().warning("Resource pack: could not read this server's pack format (" + ex
+                    + "); using " + fallback[0] + "." + fallback[1] + ".");
+            return fallback;
         }
     }
 
@@ -250,25 +411,43 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         if (!config.resourcePackHostEnabled()) {
             return null;
         }
+        String publicUrl = config.resourcePackPublicUrl();
         String address = config.resourcePackPublicAddress();
         if (address.isEmpty()) {
             address = Bukkit.getIp() == null ? "" : Bukkit.getIp().trim();
         }
-        if (address.isEmpty() || address.equals("0.0.0.0")) {
-            plugin.getLogger().warning("Resource pack: resource-pack.host is on but has no public-address (and"
-                    + " server.properties has no server-ip); set the address players reach this server's port"
+        if (!publicUrl.isEmpty()) {
+            URI base;
+            try {
+                base = URI.create(publicUrl);
+            } catch (IllegalArgumentException ex) {
+                base = null;
+            }
+            if (base == null || base.getHost() == null || !("http".equalsIgnoreCase(base.getScheme())
+                    || "https".equalsIgnoreCase(base.getScheme()))) {
+                plugin.getLogger().warning("Resource pack: resource-pack.host.public-url '" + publicUrl + "' is not an"
+                        + " http(s) address; the pack is not sent.");
+                return null;
+            }
+        } else if (address.isEmpty() || address.equals("0.0.0.0")) {
+            plugin.getLogger().warning("Resource pack: resource-pack.host is on but has no public-url or public-address"
+                    + " (and server.properties has no server-ip); set the address players reach this server's port"
                     + " on. The pack is not sent.");
             return null;
         }
         int port = config.resourcePackHostPort();
-        try {
-            server = PackHttpServer.start("0.0.0.0", port, zip);
-        } catch (IOException | RuntimeException ex) {
-            plugin.getLogger().warning("Resource pack: the built-in web server could not listen on port " + port
-                    + " (" + ex.getMessage() + "); pick a free resource-pack.host.port. The pack is not sent.");
-            return null;
+        if (server != null) {
+            server.update(zip); // a rebuild: same port, new pack
+        } else {
+            try {
+                server = PackHttpServer.start("0.0.0.0", port, zip);
+            } catch (IOException | RuntimeException ex) {
+                plugin.getLogger().warning("Resource pack: the built-in web server could not listen on port " + port
+                        + " (" + ex.getMessage() + "); pick a free resource-pack.host.port. The pack is not sent.");
+                return null;
+            }
         }
-        String link = PackHttpServer.url(address, port, sha1);
+        String link = publicUrl.isEmpty() ? PackHttpServer.url(address, port, sha1) : PackHttpServer.urlUnder(publicUrl, sha1);
         plugin.getLogger().info("Resource pack: serving it at " + link + " (players must be able to reach port "
                 + port + ").");
         return new Delivery(URI.create(link), sha1);
@@ -407,7 +586,7 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
     private ResourcePackRequest request(Delivery to, ResourcePackCallback callback) {
         String prompt = plugin.config().resourcePackPrompt();
         ResourcePackRequest.Builder builder = ResourcePackRequest.resourcePackRequest()
-                .packs(ResourcePackInfo.resourcePackInfo(PACK_ID, to.uri(), to.sha1()))
+                .packs(ResourcePackInfo.resourcePackInfo(packId, to.uri(), to.sha1()))
                 .required(plugin.config().resourcePackRequired())
                 .replace(false)
                 .prompt(prompt == null || prompt.isBlank() ? null : Text.mm(prompt));
@@ -469,7 +648,7 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
     private void takeBack(Player player) {
         LOADED.remove(player.getUniqueId());
         if (!bedrock.isBedrock(player.getUniqueId())) {
-            player.removeResourcePacks(PACK_ID);
+            player.removeResourcePacks(packId);
         }
     }
 
@@ -484,10 +663,19 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPackStatus(PlayerResourcePackStatusEvent event) {
-        if (!PACK_ID.equals(event.getID())) {
+        if (!packId.equals(event.getID())) {
             return;
         }
         Player player = event.getPlayer();
+        switch (event.getStatus()) {
+            case FAILED_DOWNLOAD, INVALID_URL, FAILED_RELOAD -> plugin.getLogger().warning("Resource pack: "
+                    + player.getName() + "'s client reported " + event.getStatus() + " for "
+                    + (delivery == null ? "the pack" : delivery.uri()) + (event.getStatus() == PlayerResourcePackStatusEvent.Status.FAILED_RELOAD
+                    ? " (the client could not load it; check the console warnings from the last build)."
+                    : " (can that address be reached from outside? resource-pack.host.port must be open/relayed)."));
+            default -> {
+            }
+        }
         switch (event.getStatus()) {
             case SUCCESSFULLY_LOADED -> {
                 Delivery to = delivery;
@@ -588,6 +776,47 @@ public final class ResourcePackFeature implements CraftBridgePlugin.Feature, Lis
         for (String warning : items.warnings()) {
             sender.sendMessage(Text.msg("<dark_gray> ! <gold>" + Text.escape(warning)));
         }
+        PackAssembler.Result result = assembled;
+        if (result == null) {
+            sender.sendMessage(Text.msg("<gray>Sources: <yellow>not built yet (the pack is built once the server has started)"));
+            return;
+        }
+        sender.sendMessage(Text.msg("<gray>Pack id <white>" + packId + "<gray>, " + result.files().size()
+                + " files from " + result.sources().size() + " source(s), highest priority first:"));
+        for (PackAssembler.SourceInfo source : result.sources()) {
+            sender.sendMessage(Text.msg("<dark_gray> - <white>" + Text.escape(source.id()) + " <gray>" + source.files()
+                    + " files" + (source.glyphs() > 0 ? ", " + source.glyphs() + " glyphs" : "") + " <dark_gray>("
+                    + Text.escape(source.origin()) + ")"));
+        }
+        int vanilla = result.vanillaOverrides().values().stream().mapToInt(List::size).sum();
+        sender.sendMessage(Text.msg("<gray>" + vanilla + " file(s) change Minecraft's own assets; <white>"
+                + result.glyphs().size() + "<gray> glyph(s); " + (result.errors().isEmpty() ? "no conflicts"
+                : "<red>" + result.errors().size() + " conflict(s)<gray>") + ", " + result.warnings().size()
+                + " warning(s) <dark_gray>(the console has the details; /craftbridge pack rebuild | glyphs)"));
+    }
+
+    /** {@code /craftbridge pack glyphs}: every glyph key, its character and where its texture comes from. */
+    public void glyphs(CommandSender sender) {
+        PackAssembler.Result result = assembled;
+        Map<String, PackAssembler.GlyphInfo> inPack = new TreeMap<>();
+        if (result != null) {
+            for (PackAssembler.GlyphInfo g : result.glyphs()) {
+                inPack.put(g.key(), g);
+            }
+        }
+        SortedMap<String, Integer> all = new TreeMap<>(plugin.packSources().glyphStore().all());
+        sender.sendMessage(Text.msg("<gray>Glyphs: <white>" + all.size() + "<gray> key(s) in plugins/"
+                + Text.escape(plugin.getName()) + "/pack/glyphs.yml"));
+        for (Map.Entry<String, Integer> e : all.entrySet()) {
+            PackAssembler.GlyphInfo g = inPack.get(e.getKey());
+            String where = g == null ? "<yellow>no texture (no source declares it)"
+                    : (g.drawn() ? "<gray>" : "<yellow>missing ") + Text.escape(g.texture()) + " <dark_gray>from "
+                    + Text.escape(g.source()) + ", height " + g.height() + ", ascent " + g.ascent();
+            sender.sendMessage(Text.msg("<dark_gray> - <white>" + Text.escape(e.getKey()) + " <gray>"
+                    + Glyphs.hex(e.getValue()) + " <white>" + Glyphs.text(e.getValue()) + " " + where));
+        }
+        sender.sendMessage(Text.msg("<gray>Fixed spaces: <white>craftbridge:space/-1<gray> to <white>/-8<gray>, /-16 ... /-1024"
+                + " (U+F801-U+F80F) and <white>craftbridge:space/1<gray> ... /1024 (U+F821-U+F82F)."));
     }
 
     /** Custom item art in the pack last built (empty when none). */

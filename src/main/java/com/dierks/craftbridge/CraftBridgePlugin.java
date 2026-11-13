@@ -8,12 +8,15 @@ import com.dierks.craftbridge.integration.ContainerAccess;
 import com.dierks.craftbridge.jei.JeiTransferFeature;
 import com.dierks.craftbridge.jei.RecipeSyncFeature;
 import com.dierks.craftbridge.link.LinkFeature;
+import com.dierks.craftbridge.api.CraftBridgePack;
+import com.dierks.craftbridge.pack.PackSources;
 import com.dierks.craftbridge.pack.ResourcePackFeature;
 import com.dierks.craftbridge.recipes.RecipeFeature;
 import com.dierks.craftbridge.sort.SortFeature;
 import com.dierks.craftbridge.workbench.WorkbenchFeature;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.event.HandlerList;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
@@ -33,6 +36,10 @@ public final class CraftBridgePlugin extends JavaPlugin {
     private CraftBridgeConfig config;
     private ContainerAccess containerAccess;
     private final List<Feature> features = new ArrayList<>();
+    /** Other plugins' pack sources and the glyph characters; kept across /craftbridge reload. */
+    private PackSources packSources;
+    /** Set at ServerLoadEvent: every plugin has enabled (and registered its pack art). */
+    private boolean serverLoaded;
 
     @Override
     public void onEnable() {
@@ -40,6 +47,9 @@ public final class CraftBridgePlugin extends JavaPlugin {
         migrateConfig();
         this.config = new CraftBridgeConfig(this);
         this.containerAccess = new ContainerAccess(this);
+        // Before any plugin that soft-depends on CraftBridge enables, so it finds the service.
+        this.packSources = new PackSources(this);
+        getServer().getServicesManager().register(CraftBridgePack.class, packSources, this, ServicePriority.Normal);
 
         getServer().getPluginManager().registerEvents(new MenuListener(this), this);
 
@@ -57,6 +67,7 @@ public final class CraftBridgePlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         disableFeatures();
+        getServer().getServicesManager().unregisterAll(this);
     }
 
     private void enableFeatures() {
@@ -69,11 +80,10 @@ public final class CraftBridgePlugin extends JavaPlugin {
         if (config.linkedWorkbenchEnabled()) {
             features.add(new WorkbenchFeature(this));
         }
-        if (config.linkedWorkbenchEnabled() || config.recipesEnabled()) {
-            // After the workbench, whose displays it shows or hides, and after the recipes: the
-            // custom items' art goes into the pack it builds.
-            features.add(new ResourcePackFeature(this));
-        }
+        // Always: it is the server's one pack, which other plugins add their art to. After the
+        // workbench, whose displays it shows or hides, and after the recipes: the custom items'
+        // art goes into the pack it builds.
+        features.add(new ResourcePackFeature(this));
         if (config.jeiTransferEnabled()) {
             features.add(new JeiTransferFeature(this));
         }
@@ -158,6 +168,20 @@ public final class CraftBridgePlugin extends JavaPlugin {
             }
         }
         return null;
+    }
+
+    /** The pack sources and glyphs other plugins use (the {@link CraftBridgePack} service). */
+    public PackSources packSources() {
+        return packSources;
+    }
+
+    /** Whether ServerLoadEvent has fired: every plugin has enabled. */
+    public boolean serverLoaded() {
+        return serverLoaded;
+    }
+
+    public void markServerLoaded() {
+        serverLoaded = true;
     }
 
     public CraftBridgeConfig config() {

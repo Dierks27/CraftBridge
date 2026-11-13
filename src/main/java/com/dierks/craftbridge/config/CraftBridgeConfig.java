@@ -387,7 +387,40 @@ public final class CraftBridgeConfig {
 
     /** {@code resource-pack.required}: kick players who decline. */
     public boolean resourcePackRequired() {
-        return raw.getBoolean("resource-pack.required", false);
+        return raw.getBoolean("resource-pack.required", true);
+    }
+
+    /**
+     * {@code resource-pack.id}: the pack's id on the client. Fixed, so a new build (same id, new
+     * hash) replaces the pack instead of stacking a second one.
+     */
+    public java.util.UUID resourcePackId() {
+        String id = raw.getString("resource-pack.id", "");
+        if (id != null && !id.isBlank()) {
+            try {
+                return java.util.UUID.fromString(id.trim());
+            } catch (IllegalArgumentException ex) {
+                if (warned.add("resource-pack.id")) {
+                    plugin.getLogger().warning("resource-pack.id '" + id + "' is not a UUID; using "
+                            + com.dierks.craftbridge.pack.PackFiles.JAVA_PACK_ID + ".");
+                }
+            }
+        }
+        return com.dierks.craftbridge.pack.PackFiles.JAVA_PACK_ID;
+    }
+
+    /** {@code resource-pack.priority}: pack source ids, highest first; a conflict goes to the higher one. */
+    public List<String> resourcePackPriority() {
+        return raw.getStringList("resource-pack.priority");
+    }
+
+    /**
+     * {@code resource-pack.host.public-url}, trimmed: the whole address the built-in web server is
+     * reached at (e.g. {@code http://mc.lilahcraft.com:8765}); blank uses public-address and port.
+     */
+    public String resourcePackPublicUrl() {
+        String url = raw.getString("resource-pack.host.public-url", "");
+        return url == null ? "" : url.trim();
     }
 
     /** The MiniMessage text on the client's download prompt; blank for none. */

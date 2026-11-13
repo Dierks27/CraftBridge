@@ -79,12 +79,13 @@ public final class ConfigMigrator {
      * bump would never reach existing servers. ConfigMigratorTest holds the bundled keys for
      * this version and fails until the number is bumped.
      */
-    public static final int CURRENT_VERSION = 6;
+    public static final int CURRENT_VERSION = 7;
 
     /** Values the admin owns as a whole: added when missing, never merged entry by entry. */
     private static final Set<String> WHOLE_VALUES = Set.of(
             "sorting.categories",
             "jei.recipe-sync.types",
+            "resource-pack.priority",
             "linked-workbench.recipe.shape", "linked-workbench.recipe.ingredients",
             "combo-chest.recipe.shape", "combo-chest.recipe.ingredients",
             "golem-chests.recipe.shape", "golem-chests.recipe.ingredients");

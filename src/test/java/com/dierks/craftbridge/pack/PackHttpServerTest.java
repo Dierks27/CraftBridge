@@ -76,13 +76,35 @@ class PackHttpServerTest {
 
     @Test
     void theUrlCarriesTheHashAndAPortUnlessTheAddressNamesOne() {
-        assertEquals("http://play.example.com:8765/craftbridge-java.zip?v=ab12",
+        assertEquals("http://play.example.com:8765/pack/ab12.zip",
                 PackHttpServer.url("play.example.com", 8765, "ab12"));
-        assertEquals("http://play.example.com:25580/craftbridge-java.zip?v=ab12",
+        assertEquals("http://play.example.com:25580/pack/ab12.zip",
                 PackHttpServer.url(" play.example.com:25580 ", 8765, "ab12"));
-        assertEquals("http://203.0.113.7:8765/craftbridge-java.zip?v=ab12", PackHttpServer.url("203.0.113.7", 8765, "ab12"));
-        assertEquals("http://[2001:db8::1]:8765/craftbridge-java.zip?v=ab12", PackHttpServer.url("2001:db8::1", 8765, "ab12"));
-        assertEquals("http://[2001:db8::1]:9000/craftbridge-java.zip?v=ab12", PackHttpServer.url("[2001:db8::1]:9000", 8765, "ab12"));
+        assertEquals("http://203.0.113.7:8765/pack/ab12.zip", PackHttpServer.url("203.0.113.7", 8765, "ab12"));
+        assertEquals("http://[2001:db8::1]:8765/pack/ab12.zip", PackHttpServer.url("2001:db8::1", 8765, "ab12"));
+        assertEquals("http://[2001:db8::1]:9000/pack/ab12.zip", PackHttpServer.url("[2001:db8::1]:9000", 8765, "ab12"));
+    }
+
+    @Test
+    void aPublicUrlIsUsedAsTheBase() {
+        assertEquals("http://mc.lilahcraft.com:8765/pack/ab12.zip",
+                PackHttpServer.urlUnder("http://mc.lilahcraft.com:8765", "ab12"));
+        assertEquals("https://packs.example.com/mc/pack/ab12.zip", PackHttpServer.urlUnder(" https://packs.example.com/mc/ ", "ab12"));
+    }
+
+    @Test
+    void servesThePackAtItsHashAndKeepsThePreviousOneAfterAnUpdate() throws Exception {
+        String base = base();
+        String first = PackFiles.sha1(PACK);
+        assertArrayEquals(PACK, send(base + "/pack/" + first + ".zip", "GET").body());
+        byte[] next = "the rebuilt pack".getBytes(StandardCharsets.UTF_8);
+        server.update(next);
+        String second = PackFiles.sha1(next);
+        assertArrayEquals(next, send(base + "/pack/" + second + ".zip", "GET").body());
+        assertArrayEquals(next, send(base + PackHttpServer.PATH, "GET").body(), "the old path serves the newest");
+        assertArrayEquals(PACK, send(base + "/pack/" + first + ".zip", "GET").body(), "a client sent it a moment ago");
+        assertEquals(404, send(base + "/pack/0000.zip", "GET").statusCode());
+        assertEquals("no-cache", send(base + PackHttpServer.PATH, "GET").headers().firstValue("Cache-Control").orElse(""));
     }
 
     @Test

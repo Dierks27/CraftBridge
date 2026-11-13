@@ -25,8 +25,7 @@ public final class CraftBridgeCommand implements TabExecutor {
     private static final String ADMIN = "craftbridge.admin";
     /** Turning your own storage page changes nothing but your own view, so everyone may. */
     private static final String PAGE = "craftbridge.page";
-    private static final String NO_PACK = "<red>The resource pack needs features.linked-workbench or features.recipes"
-            + " in config.yml.";
+    private static final String NO_PACK = "<red>The resource pack is not running (it failed to start; see the console).";
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -46,6 +45,7 @@ public final class CraftBridgeCommand implements TabExecutor {
             sender.sendMessage(Text.msg("<gray>/craftbridge workbench|combochest <dark_gray>- block tools (give, list, refresh, display)"));
             sender.sendMessage(Text.msg("<gray>/craftbridge jei [resync|dump <recipe>] <dark_gray>- recipe sync state, re-send, or inspect one recipe on the wire"));
             sender.sendMessage(Text.msg("<gray>/craftbridge pack <dark_gray>- the resource pack (block models, custom item art): how it is sent, who loaded it, which items have art"));
+            sender.sendMessage(Text.msg("<gray>/craftbridge pack rebuild|glyphs <dark_gray>- build the pack again from every source and re-send it; list the glyph characters"));
             sender.sendMessage(Text.msg("<gray>/craftbridge geyser export <dark_gray>- write the Bedrock pack and Geyser mappings (and copy them into Geyser)"));
             return true;
         }
@@ -120,6 +120,10 @@ public final class CraftBridgeCommand implements TabExecutor {
                 ResourcePackFeature pack = plugin.feature(ResourcePackFeature.class);
                 if (pack == null) {
                     sender.sendMessage(Text.msg(NO_PACK));
+                } else if (args.length > 1 && args[1].equalsIgnoreCase("rebuild")) {
+                    pack.rebuild(sender);
+                } else if (args.length > 1 && args[1].equalsIgnoreCase("glyphs")) {
+                    pack.glyphs(sender);
                 } else {
                     pack.status(sender);
                 }
@@ -193,6 +197,9 @@ public final class CraftBridgeCommand implements TabExecutor {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("jei")) {
             return List.of("status", "resync", "dump");
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("pack")) {
+            return List.of("rebuild", "glyphs");
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("geyser")) {
             return List.of("export");
