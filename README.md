@@ -52,7 +52,8 @@ generate `plugins/CraftBridge/config.yml`).
 | `/craftbridge page next\|prev` — turn the nearby-storage page at a Linked Workbench | none | everyone |
 | `/craftbridge give <player> workbench|combochest|golemmarker [amount]` | `craftbridge.admin` | op |
 | `/craftbridge workbench|combochest list` / `refresh` / `display <mode|modelscale|scale|x|y|z|yaw|transform> <value>` | `craftbridge.admin` | op |
-| `/craftbridge pack` — the resource pack (block models, custom item art): how it is sent, who loaded it, which custom items have art and which files were skipped | `craftbridge.admin` | op |
+| `/craftbridge pack` — the resource pack (block models, custom item art): how it is sent, who loaded it, which custom items have art and which files were skipped, and its sources | `craftbridge.admin` | op |
+| `/craftbridge pack rebuild` / `/craftbridge pack glyphs` — build the pack again from every source and re-send it; list the glyph characters | `craftbridge.admin` | op |
 | `/craftbridge geyser export` — write the Bedrock pack and Geyser mappings, and copy them into Geyser | `craftbridge.admin` | op |
 | `/craftbridge jei` / `/craftbridge jei resync` — recipe-sync state, or re-encode and re-send it now | `craftbridge.admin` | op |
 | `/sort` — sort the open container | `craftbridge.sort` | everyone |
@@ -736,14 +737,22 @@ the namespace to use in a model, are in `src/main/resources/resourcepack/README.
 files in its jar (`src/main/resources/resourcepack/java/`), the custom item art in
 `plugins/CraftBridge/pack/items/`, and any files in `plugins/CraftBridge/pack/overrides/java/`
 (which win over both), writes it to `plugins/CraftBridge/pack/craftbridge-java.zip` and logs its
-SHA-1. It covers Minecraft 26.2 and 26.3 (pack formats 88.0 to 97.1). The zip is byte-for-byte
-the same until its files change, so the hash (and every client's cached copy) only changes when
-the pack really does. This runs when `features.linked-workbench` or `features.recipes` is on.
+SHA-1. Its `pack.mcmeta` is written for the server's own Minecraft version (97.0 to 97.1 on
+26.3). The zip is byte-for-byte the same until its files change, so the hash (and every client's
+cached copy) only changes when the pack really does.
+
+Since 0.19.0 this is **the server's only pack**: other plugins add their art through a small API,
+downloaded packs (the clock pack) and hand-made art go into `plugins/CraftBridge/pack/sources/`,
+and CraftBridge merges them all, hands out font characters for icons and menus (glyphs), and
+re-sends the pack on `/craftbridge pack rebuild`. It is built once every plugin has enabled.
+The full guide (folder layout, merge rules, `glyphs.json`, the API, settings) is
+[`src/main/resources/resourcepack/README.md`](src/main/resources/resourcepack/README.md#the-servers-one-pack-sources-glyphs-and-the-api).
 
 **Getting it to players.** The pack is sent when either block uses `display.mode: model` or at
 least one custom item has art. Players are offered it as they connect, before they enter the
-world (`resource-pack.prompt` is the text on the download screen; `required: false`, so
-declining is fine), and players online during a `/craftbridge reload` are offered the new one.
+world (`resource-pack.prompt` is the text on the download screen; `required` is `true` by default
+since 0.19.0, `false` lets players decline), and players online during a `/craftbridge reload` or
+`/craftbridge pack rebuild` are offered the new one.
 Choose one:
 
 * **Your own website (`resource-pack.url`, the usual choice).** Upload
@@ -759,7 +768,8 @@ Choose one:
   no custom item art is the same as 0.14's (same SHA-1), so updating from 0.14 alone needs no
   upload.
 * **The built-in web server (`resource-pack.host`).** Off by default. `host.enabled: true`
-  serves the zip on `host.port` (8765) at `http://<public-address>:<port>/craftbridge-java.zip`.
+  serves the zip on `host.port` (8765) at `http://<public-address>:<port>/pack/<sha1>.zip` (or
+  `<public-url>/pack/<sha1>.zip` with `host.public-url`; `/craftbridge-java.zip` keeps working).
   The port must be reachable by players: on HomeCraft, 8080 (HomeCraftManagement) and 8100
   (BlueMap) are taken, and players come in through the proxy, so the port has to be relayed
   from the proxy. `public-address` may include a port (`play.example.com:25580`) when the relay

@@ -495,14 +495,14 @@ class ConfigMigratorTest {
         assertEquals("model", after.getString("combo-chest.display.mode"));
         assertEquals(1.002, after.getDouble("combo-chest.display.model-scale"), 1e-9);
         assertTrue(after.getBoolean("resource-pack.enabled"));
-        assertFalse(after.getBoolean("resource-pack.required"));
+        assertTrue(after.getBoolean("resource-pack.required"), "the jar's default since 0.19.0");
         assertEquals("", after.getString("resource-pack.url"));
         assertFalse(after.getBoolean("resource-pack.host.enabled"), "the built-in web server stays off");
         assertEquals(8765, after.getInt("resource-pack.host.port"));
         assertEquals("", after.getString("resource-pack.host.public-address"));
         assertFalse(after.getBoolean("bedrock.show-displays"));
         String text = Files.readString(config);
-        assertTrue(text.contains("# Resource pack — the models behind display.mode: model, and custom item textures"),
+        assertTrue(text.contains("# Resource pack — the server's one pack: the models behind display.mode: model, custom item"),
                 "section comment kept");
         assertTrue(text.contains("    # The address players download from"), "nested comment kept");
         assertTrue(text.contains("  #   url: \"https://www.lilahcraft.com/craftbridge/craftbridge-java.zip\""), "the example url");
@@ -550,14 +550,15 @@ class ConfigMigratorTest {
 
         assertEquals(4, result.from());
         assertEquals(List.of("added linked-workbench.display.invisible-block, combo-chest.display.invisible-block,"
-                + " custom-items, bedrock.geyser-folder"), result.changes());
+                + " custom-items, resource-pack.host.public-url, resource-pack.id, resource-pack.priority,"
+                + " bedrock.geyser-folder"), result.changes());
         String jar = bundledText();
         String header = "# -----------------------------------------------------------------------------\n";
         String customItems = jar.substring(jar.indexOf(header + "# Custom items"), jar.indexOf(header + "# Resource pack"));
         String folderKey = "  geyser-folder: ''\n";
         String geyserFolder = jar.substring(jar.indexOf("  # Geyser's own folder"), jar.indexOf(folderKey) + folderKey.length());
-        String expected = withInvisibleBlock(original.replace("config-version: 4\n",
-                        "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n"))
+        String expected = withPackSources(withInvisibleBlock(original.replace("config-version: 4\n",
+                        "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n")))
                 .replace(header + "# Resource pack", customItems + header + "# Resource pack")
                 .replace("bedrock:\n  show-displays: false\n", "bedrock:\n  show-displays: false\n" + geyserFolder);
         assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
@@ -580,16 +581,45 @@ class ConfigMigratorTest {
         ConfigMigrator.Result result = migrate();
 
         assertEquals(5, result.from());
-        assertEquals(List.of("added linked-workbench.display.invisible-block, combo-chest.display.invisible-block"),
-                result.changes());
-        String expected = withInvisibleBlock(original.replace("config-version: 5\n",
-                "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n"));
+        assertEquals(List.of("added linked-workbench.display.invisible-block, combo-chest.display.invisible-block,"
+                + " resource-pack.host.public-url, resource-pack.id, resource-pack.priority"), result.changes());
+        String expected = withPackSources(withInvisibleBlock(original.replace("config-version: 5\n",
+                "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n")));
         assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
 
         YamlConfiguration after = reload();
         assertTrue(after.getBoolean("linked-workbench.display.invisible-block"));
         assertTrue(after.getBoolean("combo-chest.display.invisible-block"));
         assertTrue(Files.isRegularFile(dir.resolve("config.yml.bak-v5")));
+    }
+
+    // ---- a v6 file (0.16-0.18: before the pack sources) -------------------------------
+
+    @Test
+    void aV6FileGainsThePackIdPriorityAndPublicUrlAndKeepsItsRequiredAndHost() throws IOException {
+        String original = fixture("config-v6.yml")
+                .replace("  required: false\n", "  required: false # as Jeff had it\n")
+                .replace("    enabled: false\n    # Already in use", "    enabled: true\n    # Already in use")
+                .replace("    public-address: \"\"\n", "    public-address: \"mc.lilahcraft.com\"\n");
+        Files.writeString(config, original);
+
+        ConfigMigrator.Result result = migrate();
+
+        assertEquals(6, result.from());
+        assertEquals(List.of("added resource-pack.host.public-url, resource-pack.id, resource-pack.priority"),
+                result.changes());
+        String expected = withPackSources(original.replace("config-version: 6\n",
+                "config-version: " + ConfigMigrator.CURRENT_VERSION + "\n"));
+        assertEquals(expected, Files.readString(config), "only lines inserted, every other byte kept");
+
+        YamlConfiguration after = reload();
+        assertFalse(after.getBoolean("resource-pack.required"), "the admin's own value stays");
+        assertTrue(after.getBoolean("resource-pack.host.enabled"));
+        assertEquals("mc.lilahcraft.com", after.getString("resource-pack.host.public-address"));
+        assertEquals("", after.getString("resource-pack.host.public-url"));
+        assertEquals("1759558b-8b5b-4c79-8136-9b2b335aaa95", after.getString("resource-pack.id"));
+        assertEquals(List.of("craftbridge", "hcm", "collins", "safelamp", "lilahcraft-clocks"),
+                after.getStringList("resource-pack.priority"));
     }
 
     @Test
@@ -771,6 +801,21 @@ class ConfigMigratorTest {
             from = at;
         }
         return text;
+    }
+
+    /**
+     * A v4, v5 or v6 file's text with the v7 settings: host.public-url after public-address, and
+     * resource-pack.id and resource-pack.priority after it at the end of the section, as the jar
+     * writes them.
+     */
+    private static String withPackSources(String text) throws IOException {
+        String jar = bundledText();
+        String added = jar.substring(jar.indexOf("    # The whole address the port"),
+                jar.indexOf("    - lilahcraft-clocks\n") + "    - lilahcraft-clocks\n".length());
+        int section = text.indexOf("\nresource-pack:\n");
+        int address = text.indexOf("    public-address: ", section);
+        int at = text.indexOf("\n", address) + 1;
+        return text.substring(0, at) + added + text.substring(at);
     }
 
     private static String bundledText() throws IOException {

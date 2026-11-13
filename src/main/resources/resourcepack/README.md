@@ -34,7 +34,9 @@ The plugin never adds items. The display over each block, and the place-item, is
 * `java/assets/craftbridge/textures/block/` holds our own textures (16x16; 32x32 works too). A
   model may also use Minecraft's own textures (`minecraft:block/anvil`); every client has those,
   so they are not copied into the pack.
-* `java/pack.mcmeta` declares formats 88.0 (Minecraft 26.2) to 97.1 (26.3).
+* The pack's `pack.mcmeta` is written at every build for the Minecraft version the server runs
+  (read from the server itself: `min_format` [major, 0] to `max_format` [major, minor], 97.0 to
+  97.1 on 26.3). `java/pack.mcmeta` in the jar is only the fallback when that cannot be read.
 * Custom item art is not in the jar. The plugin adds it when it builds the pack, from the files
   you drop into `plugins/CraftBridge/pack/items/` (next section).
 
@@ -178,11 +180,11 @@ from 0.14 does not by itself need a new upload.
 
 ### Other resource packs
 
-To give a custom item its look, CraftBridge replaces the whole item definition of its base item
-(`assets/minecraft/items/dried_kelp.json`). If another resource pack also changes that item,
-only one of the two wins: the one higher in the player's pack list. The separate clock pack
-changes the clock, for example, so don't give a texture to a custom item built on a clock. Pick
-a base item no other pack changes.
+Since 0.19.0 other art goes **into** CraftBridge's pack as a source (next section), and an item
+definition from a source merges with CraftBridge's: a custom item built on a clock gets its
+texture and every other clock still draws the clock pack's way. A pack sent separately (from
+server.properties, say) still replaces the whole item definition, and only the one higher in the
+player's pack list wins, so bring such packs in as sources instead.
 
 ### How it works
 
@@ -215,6 +217,189 @@ across them (see "Give a custom item its own look" in `docs/cooking-and-custom-i
 If the server runs a Minecraft version CraftBridge has no table for (26.4 before a CraftBridge
 update, say), no custom item gets art, and a warning in the log says so. The items keep the look
 of their base item; the block models are not affected.
+
+## The server's one pack: sources, glyphs and the API
+
+Since 0.19.0 CraftBridge's pack is the only pack the server sends. Everything else that needs
+art (other plugins, a downloaded pack such as the clock pack, files Jeff adds by hand) goes in as
+a **source**, and CraftBridge merges them all into one zip with one SHA-1 and one id.
+
+### Sources
+
+| Source | Where it comes from |
+|---|---|
+| `craftbridge` | Everything above: the jar's models, `pack/items/` art and `pack/overrides/java/`. Always first. |
+| a plugin's source | Registered through the API (below), from a folder or from inside the plugin's jar. |
+| a drop-in source | Every folder (or `.zip` file) in `plugins/CraftBridge/pack/sources/`. Its name is its id. |
+
+A source is laid out like any resource pack:
+
+```
+plugins/CraftBridge/pack/sources/lilahcraft-clocks/
+  assets/minecraft/items/clock.json
+  assets/lilahcraft/textures/item/...
+  glyphs.json        optional, see Glyphs
+  pack.mcmeta        ignored: CraftBridge writes its own
+  pack.png           used only if no higher source has one
+```
+
+* A source id is lower case: letters, digits, `_`, `.` and `-` (`hcm`, `lilahcraft-clocks`).
+* A downloaded pack can go in as it is, unzipped or as the `.zip`. One that was zipped inside an
+  extra folder (`Clocks/assets/...`) is read from that folder.
+* Only `assets/` is read. Overlay folders and a `pack.mcmeta` `filter` are not supported (the
+  build warns when a source has them).
+* **Keep to your own namespace**: `craftbridge:`, `hcm:`, `collins:`, `safelamp:`,
+  `lilahcraft:`. The build warns when two sources write into the same one (`minecraft` aside).
+
+### How sources are merged
+
+Sources are ranked by `resource-pack.priority` in config.yml (highest first; sources not listed
+come after, by id), **never** by the order plugins happened to load in.
+
+| Files | What happens when two sources have the same one |
+|---|---|
+| `assets/*/font/**.json` | the `providers` lists are joined, highest source first |
+| `assets/*/atlases/**.json` | the `sources` lists are joined |
+| `assets/*/sounds.json` | the sound events are joined; an event in both: the higher source's (warned) |
+| `assets/*/lang/*.json` | the keys are joined; a key in both: the higher source's (warned) |
+| `assets/minecraft/items/*.json` | a `minecraft:select` on `custom_model_data` (CraftBridge's custom items, or any source's) adds its cases; the first definition of another shape (the clock pack's) becomes the fallback. Two definitions of another shape are a conflict |
+| everything else | a **conflict**: logged as an error naming both sources; the higher source's file is used. The same bytes in both is not a conflict |
+
+Every file that changes Minecraft's own assets (anything under `assets/minecraft/` but fonts,
+atlases, sounds and lang) is logged at every build, per source:
+
+```
+Resource pack: changes Minecraft's own assets (2, from lilahcraft-clocks): items/clock.json, models/item/clock_00.json
+```
+
+### Checks on every build
+
+* Every `.json` and `.mcmeta` must parse. A file that does not is **left out** with a warning
+  naming the source and the file; the rest of the pack is built. A file only a lenient parser
+  reads (comments, unquoted keys) is kept with a warning: Minecraft may refuse it.
+* A model's `parent` and `textures`, an item definition's models, and a font's bitmap files must
+  be in the pack. Missing ones are warned about (the client draws them as missing). References
+  into `minecraft:` are taken as Minecraft's own assets, which are not in the pack.
+* A file whose name has upper-case letters or other characters Minecraft refuses is left out
+  with a warning (the client would ignore it anyway).
+
+### Glyphs
+
+Icons in chat, rank badges in LuckPerms prefixes and textured menu backgrounds are characters in
+a font. CraftBridge hands out Private Use Area characters (U+E000 to U+F7FF) by key, so two
+plugins can never pick the same one. A key keeps its character forever: assignments are stored
+in `plugins/CraftBridge/pack/glyphs.yml`, written the moment a key is first asked for.
+
+A source declares its glyphs in `glyphs.json` at its root:
+
+```json
+{
+  "glyphs": {
+    "hcm:coin":           { "texture": "hcm:font/coin.png", "height": 8, "ascent": 7 },
+    "hcm:menu_market_bg": { "texture": "hcm:font/menu_market_bg.png", "height": 166, "ascent": 13 },
+    "hcm:star":           "hcm:font/star"
+  }
+}
+```
+
+* The key is `namespace:name` in lower case; use your own namespace.
+* `texture` is a PNG below `textures/`, as a font names it (`hcm:font/coin.png` is
+  `assets/hcm/textures/font/coin.png`); `.png` may be left off. A bare string is the texture alone.
+* `height` (default 8, one line of text) and `ascent` (default 7, how far it sits above the
+  baseline; at most `height`) are the font's own `bitmap` settings.
+
+CraftBridge writes the matching `bitmap` providers into `minecraft:default`, the font plain text
+uses, so the characters work in titles, item names, lore, chat, the tab list, scoreboards and
+LuckPerms prefixes without setting a font. Don't write font JSON for glyphs by hand. A glyph
+whose texture is missing is warned about and draws as a box.
+
+**Spaces** for moving text left and right (placing a menu background, lining up text) are fixed
+and need no declaring. They follow the long-standing "negative space font" layout:
+
+| Key | Character | Moves |
+|---|---|---|
+| `craftbridge:space/-1` ... `craftbridge:space/-8` | U+F801 ... U+F808 | 1 to 8 pixels left |
+| `craftbridge:space/-16`, `-32`, `-64`, `-128`, `-256`, `-512`, `-1024` | U+F809 ... U+F80F | that many left |
+| `craftbridge:space/1` ... `craftbridge:space/8` | U+F821 ... U+F828 | 1 to 8 pixels right |
+| `craftbridge:space/16` ... `craftbridge:space/1024` | U+F829 ... U+F82F | that many right |
+
+`space(int)` in the API builds any width from these.
+
+`/craftbridge pack glyphs` lists every key, its character, its texture and the source that
+declared it.
+
+### The API for other plugins
+
+Other plugins add their art with a four-method service. In their `plugin.yml`:
+
+```yaml
+softdepend: [CraftBridge]
+```
+
+and compile against the CraftBridge jar (`compileOnly`). On enable:
+
+```java
+CraftBridgePack pack = Bukkit.getServicesManager().load(CraftBridgePack.class);
+if (pack != null) {                                   // CraftBridge missing: carry on without art
+    pack.registerSource(this, "hcm", "pack/");        // src/main/resources/pack/assets/hcm/...
+    // or: pack.registerSource(this, "hcm", getDataFolder().toPath().resolve("pack"));
+    String coin = pack.glyph("hcm:coin");             // e.g. "", the same on every start
+    String back = pack.space(-8);                     // move 8 pixels left
+}
+```
+
+| Method | What it does |
+|---|---|
+| `registerSource(plugin, id, String jarRoot)` | a folder inside the plugin's jar (`"pack/"`; `""` for the jar's root, of which only `assets/`, `glyphs.json` and `pack.png` are read) |
+| `registerSource(plugin, id, Path folder)` | a folder on disk, read again at every build |
+| `glyph(key)` | the character for a glyph key, assigned the first time |
+| `space(pixels)` | characters that move the text after them; negative is left |
+| `requestRebuild()` | build again and re-send to everyone online (combined into one build on the next tick) |
+
+* The interface is `com.dierks.craftbridge.api.CraftBridgePack`. It only grows: new methods
+  come with defaults, so a plugin built against it keeps working (`API_VERSION` says which).
+* The pack is built once **every** plugin has enabled (`ServerLoadEvent`), so a source
+  registered in `onEnable` is in the first build. `requestRebuild()` is only for art that changes
+  while the server runs.
+* A source id is registered by one plugin. A source leaves the pack when its plugin is disabled.
+* `glyph()` works at any time, also before the first build. A glyph needs its texture in a
+  source's `glyphs.json` to draw.
+
+### Sending the pack
+
+The pack is offered to every Java player as they join (while their client is still configuring,
+so the models are there on the first frame, or in game if that misses), with the pack id from
+`resource-pack.id`, the download address, the SHA-1, `resource-pack.prompt` and
+`resource-pack.required`. After `/craftbridge pack rebuild` (or `/craftbridge reload`, or a
+plugin's `requestRebuild()`) everyone online is sent the new pack: the same id with a new hash,
+so the client swaps it without a relog.
+
+With the built-in web server, the address is `<public-url>/pack/<sha1>.zip`
+(`resource-pack.host.public-url`, or `http://<public-address>:<port>` when that is blank). A
+new pack is a new address, so no cache can hand out an old one. `/craftbridge-java.zip` keeps
+working and always serves the newest.
+
+**Nothing else may send a pack.** Leave `resource-pack`, `resource-pack-sha1`,
+`resource-pack-id` and `require-resource-pack` blank in server.properties (in MC Server
+Manager, the server's resource pack setting), or players get two prompts. While server.properties
+also sends one, Paper can throw `IllegalStateException: Unexpected request for task finish,
+current task: paper_event_handling, requested: server_resource_pack` on join: it is thrown only
+for an answer to the server.properties pack that arrives while CraftBridge's pack is being
+offered.
+
+### Commands and settings
+
+| | |
+|---|---|
+| `/craftbridge pack` | how the pack is sent, who loaded it, the custom item art, and (new) the sources, the vanilla changes, glyph count, conflicts and warnings |
+| `/craftbridge pack rebuild` | read every source again, build, re-send to everyone online |
+| `/craftbridge pack glyphs` | every glyph key and its character |
+| `resource-pack.required` | `true` (the default since 0.19.0): no "decline" on the prompt. Menus drawn with glyphs only look right with the pack |
+| `resource-pack.prompt` | the text on the download screen |
+| `resource-pack.id` | the pack's id on clients; keep it |
+| `resource-pack.priority` | source ids, highest first; decides conflicts |
+| `resource-pack.host.public-url` | the whole address the built-in web server is reached at, e.g. `http://mc.lilahcraft.com:8765` |
+| `resource-pack.host.*`, `resource-pack.url`, `resource-pack.enabled` | as before |
 
 ## A lid that opens, and an in-use look
 

@@ -212,19 +212,24 @@ custom-items:
   placeable: false
 
 # -----------------------------------------------------------------------------
-# Resource pack — the models behind display.mode: model, and custom item textures (drop
-# <id>.png into plugins/CraftBridge/pack/items/). On every start and /craftbridge reload
-# CraftBridge builds the pack from the files in its jar, the custom item textures and any
-# files in plugins/CraftBridge/pack/overrides/java/, writes it to
-# plugins/CraftBridge/pack/craftbridge-java.zip and logs its SHA-1, then offers it to every
-# Java player as they join. A player who declines it, or whose download fails, keeps seeing
+# Resource pack — the server's one pack: the models behind display.mode: model, custom item
+# textures (drop <id>.png into plugins/CraftBridge/pack/items/), and every other source: art
+# other plugins register through CraftBridge's API, and each folder (or .zip) in
+# plugins/CraftBridge/pack/sources/. Once the server has started, and on /craftbridge reload
+# and /craftbridge pack rebuild, CraftBridge builds the pack from all of them (plus any files
+# in plugins/CraftBridge/pack/overrides/java/), writes it to
+# plugins/CraftBridge/pack/craftbridge-java.zip and logs its sources, SHA-1 and every file
+# that changes Minecraft's own assets, then offers it to every Java player as they join (and
+# again to everyone online after a rebuild). Nothing else should send a pack: leave
+# resource-pack in server.properties blank. A player who declines it, or whose download fails, keeps seeing
 # the plain crafting table and barrel, and every custom item as its plain base item. See
 # "Custom block models" in the README.
 # -----------------------------------------------------------------------------
 resource-pack:
   enabled: true
-  # true kicks a player who declines the pack. Leave it false: everything works without it.
-  required: false
+  # true: the client's prompt has no "decline", and a player who declines is not let in.
+  # Menus and icons drawn by the pack only look right with it, so it is on by default.
+  required: true
   # Shown on the client's "download this pack?" screen (MiniMessage).
   prompt: "<gray>CraftBridge adds 3D models for the Linked Workbench and Combo Chest, and textures for custom items."
   # Where players download the pack: upload plugins/CraftBridge/pack/craftbridge-java.zip to
@@ -244,6 +249,22 @@ resource-pack:
     # The address players download from: the public IP or domain name that reaches this
     # port. Blank uses server-ip from server.properties (usually blank too, so set this).
     public-address: ""
+    # The whole address the port is reached at, when it is not just http://public-address:port
+    # (an https proxy in front of it, say). The pack is sent as <public-url>/pack/<sha1>.zip.
+    # Blank uses public-address and port. For HomeCraft: "http://mc.lilahcraft.com:8765"
+    public-url: ""
+  # The pack's id on the client. Keep it: the same id with a new hash makes clients swap the
+  # old pack for the new one instead of stacking both.
+  id: "1759558b-8b5b-4c79-8136-9b2b335aaa95"
+  # Sources in the order they win a conflict (the same file in two of them), highest first.
+  # Sources not listed come after these, by name. Fonts, atlases, sounds.json, lang files and
+  # Minecraft's item definitions (assets/minecraft/items/) are merged rather than replaced.
+  priority:
+    - craftbridge
+    - hcm
+    - collins
+    - safelamp
+    - lilahcraft-clocks
 
 # -----------------------------------------------------------------------------
 # Bedrock players (Geyser / Floodgate). Geyser does not draw item displays, so over the
@@ -293,4 +314,4 @@ jei:
 # the current one: settings added since are filled in with their defaults, entries new
 # in a release are added to lists once, and nothing you have set is changed. The file
 # as it was is kept beside it as config.yml.bak-v<old version>. Leave this number alone.
-config-version: 6
+config-version: 7

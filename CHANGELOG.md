@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.19.0
+
+CraftBridge's pack becomes the server's one pack. Everything that worked before works the same:
+`pack/items/` art, `/craftbridge pack`, every `resource-pack.*` setting and
+`craftbridge-java.zip`.
+
+* **Other plugins add their art.** A small API, `CraftBridgePack`, published in Bukkit's
+  ServicesManager: `registerSource(plugin, id, folder or jar folder)`, `glyph(key)`,
+  `space(pixels)`, `requestRebuild()`. HCM, Collins and SafeLamp can soft-depend on it.
+* **Drop-in sources.** Every folder or `.zip` in `plugins/CraftBridge/pack/sources/` is added
+  (a downloaded pack can go in as it is; its `pack.mcmeta` is ignored). This is how the clock
+  pack comes in.
+* **One merged pack.** Fonts, atlases, `sounds.json` and lang files merge; Minecraft's item
+  definitions merge too, so CraftBridge's custom-item cases sit on top of the clock pack's
+  `clock.json`. Any other file in two sources is a conflict, logged with both names and decided
+  by `resource-pack.priority`, never by load order. Every file that changes Minecraft's own
+  assets is listed at every build. Broken JSON is left out with a warning and the rest builds;
+  missing textures, parents and models are warned about.
+* **Glyphs.** Private Use Area characters handed out by key (`hcm:coin`), stored in
+  `pack/glyphs.yml` so a key keeps its character for good. Sources declare them in `glyphs.json`;
+  CraftBridge writes the font. Fixed space characters (U+F801 = 1 pixel left, U+F821 = 1 right)
+  for menus. `/craftbridge pack glyphs` lists them.
+* **Built once every plugin has enabled**, and again on the new `/craftbridge pack rebuild`,
+  which re-sends the pack to everyone online (same id, new hash: no relog).
+* `pack.mcmeta` is written for the server's own Minecraft version (read from the server).
+* The built-in web server sends `/pack/<sha1>.zip`, keeps the previous pack downloadable, and
+  still serves `/craftbridge-java.zip`. `/craftbridge pack` also lists the sources.
+* New settings: `resource-pack.id`, `resource-pack.priority`, `resource-pack.host.public-url`
+  (config-version 7, added to existing configs). `resource-pack.required` now defaults to `true`;
+  an existing config keeps its own value.
+* The pack runs even with the Linked Workbench and recipes off, since other plugins use it.
+
 ## 0.18.0
 
 * **The Combo Chest opens.** It is chest-shaped now (14 pixels wide, a 10-pixel body and a
