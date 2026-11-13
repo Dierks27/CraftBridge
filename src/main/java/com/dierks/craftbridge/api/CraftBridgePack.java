@@ -37,7 +37,7 @@ public interface CraftBridgePack {
      *
      * @param plugin   the plugin the art belongs to; its source leaves the pack when it is disabled
      * @param sourceId a short lower-case id ({@code [a-z0-9_.-]}), usually your namespace, e.g. {@code hcm};
-     *                 the name {@code pack.priority} in CraftBridge's config.yml and every log line uses
+     *                 the name {@code resource-pack.priority} in CraftBridge's config.yml and every log line uses
      * @param folder   the folder holding {@code assets/}
      * @throws IllegalArgumentException when the id is not usable, or another plugin registered it
      */

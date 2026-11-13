@@ -28,7 +28,7 @@ import java.util.regex.Pattern;
  * tested on plain maps.
  *
  * <p>A source is a set of files laid out like a resource pack ({@code assets/<namespace>/...},
- * plus an optional {@code glyphs.json} at its root). Sources are ranked by {@code pack.priority}
+ * plus an optional {@code glyphs.json} at its root). Sources are ranked by {@code resource-pack.priority}
  * (then by id), never by the order plugins loaded in, and:
  * <ul>
  *   <li>fonts ({@code assets/*}{@code /font/**.json}) merge their {@code providers}, atlases
@@ -251,7 +251,7 @@ public final class PackAssembler {
                     notes.add(path + " is in both " + winner.source() + " and " + other.source() + " (the same file).");
                 } else {
                     errors.add("Conflict: " + path + " is in both '" + winner.source() + "' and '" + other.source()
-                            + "'; using '" + winner.source() + "' (pack.priority).");
+                            + "'; using '" + winner.source() + "' (resource-pack.priority).");
                 }
             }
             out.put(path, winner.bytes());
@@ -443,7 +443,7 @@ public final class PackAssembler {
             GlyphFrom earlier = declared.get(glyph.key());
             if (earlier != null) {
                 errors.add("Conflict: glyph " + glyph.key() + " is declared by both '" + earlier.source() + "' and '"
-                        + source + "'; using '" + earlier.source() + "' (pack.priority).");
+                        + source + "'; using '" + earlier.source() + "' (resource-pack.priority).");
                 continue;
             }
             declared.put(glyph.key(), new GlyphFrom(source, glyph));
@@ -587,7 +587,7 @@ public final class PackAssembler {
         for (Part other : others.subList(Math.min(1, others.size()), others.size())) {
             if (!Arrays.equals(other.bytes(), base.bytes())) {
                 errors.add("Conflict: " + path + " is in both '" + base.source() + "' and '" + other.source()
-                        + "'; using '" + base.source() + "' (pack.priority).");
+                        + "'; using '" + base.source() + "' (resource-pack.priority).");
             }
         }
         JsonObject first = selects.get(0).json().getAsJsonObject();
@@ -605,7 +605,7 @@ public final class PackAssembler {
                 String earlier = when == null ? null : whenFrom.putIfAbsent(when, part.source());
                 if (earlier != null) {
                     errors.add("Conflict: " + path + " case " + when + " is in both '" + earlier + "' and '"
-                            + part.source() + "'; using '" + earlier + "' (pack.priority).");
+                            + part.source() + "'; using '" + earlier + "' (resource-pack.priority).");
                     continue;
                 }
                 cases.add(c);
